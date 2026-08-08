@@ -2,7 +2,7 @@
     import { libraryStore, type Album, type LocalTrack } from "$lib/stores/library.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
-    import { DotsThree, Play, Plus, Waveform } from "phosphor-svelte";
+    import { DotsThree, Play, Pause, Plus, Waveform } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
 
     let { album, onBack } = $props<{ album: Album; onBack: () => void }>();
@@ -131,12 +131,16 @@
                 <div class="track-left">
                     <div class="track-status">
                         {#if audioStore.currentTrack === track.title || audioStore.currentTrack === track.file_path}
-                            <div class="playing-visualizer">
-                                <div class="bar"></div>
-                                <div class="bar"></div>
-                                <div class="bar"></div>
-                                <div class="bar"></div>
-                            </div>
+                            {#if audioStore.playbackState === "Playing"}
+                                <div class="playing-visualizer">
+                                    <div class="bar"></div>
+                                    <div class="bar"></div>
+                                    <div class="bar"></div>
+                                    <div class="bar"></div>
+                                </div>
+                            {:else}
+                                <Pause size={18} weight="bold" color="var(--echo-primary)" />
+                            {/if}
                         {:else}
                             <span class="track-number">{track.track_number || i + 1}</span>
                             <Play size={18} weight="fill" class="track-play-icon" />

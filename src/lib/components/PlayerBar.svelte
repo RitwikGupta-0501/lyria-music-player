@@ -694,12 +694,13 @@
     /* Paused State */
     .player-pill-wrapper[data-state="paused"] .pill-accent-bg {
         background-color: var(--echo-primary-dark);
+        filter: saturate(0.65) opacity(0.85);
     }
     .player-pill-wrapper[data-state="paused"] .pill-accent-shadow {
-        box-shadow: 0 0 10px rgba(181, 142, 98, 0.15);
+        box-shadow: none;
     }
     .player-pill-wrapper[data-state="paused"] .song-title {
-        color: var(--muted);
+        color: var(--echo-text-3);
     }
     .player-pill-wrapper[data-state="paused"] .album-art-container {
         filter: grayscale(40%) brightness(0.6);
