@@ -1,0 +1,8 @@
+{
+  "identifier": "sandbox-capability",
+  "description": "Strictly limited capabilities for the Sandbox VM",
+  "windows": ["sandbox-vm"],
+  "permissions": [
+    "allow-callback"
+  ]
+}

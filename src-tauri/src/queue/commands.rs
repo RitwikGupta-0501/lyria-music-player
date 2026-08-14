@@ -54,7 +54,7 @@ pub async fn set_queue(
         telemetry::record_error("set_queue", e);
     })?;
 
-    log::info!(
+    tracing::info!(
         "Queue set with {} tracks, starting at index {}",
         track_count,
         start_index
@@ -140,7 +140,7 @@ pub async fn skip_forward(
         })?;
     }
 
-    log::debug!("Skipped forward {} track(s)", count);
+    tracing::debug!("Skipped forward {} track(s)", count);
 
     let event = queue_to_event(&queue);
     let _ = app_handle.emit("queue-changed", &event);
@@ -203,6 +203,14 @@ pub async fn jump_to_track(
 // REORDERING COMMANDS
 // ════════════════════════════════════════════════════════════════════════════════
 
+#[tauri::command]
+pub async fn get_next_track(
+    state: State<'_, crate::AppState>,
+) -> Result<Option<QueueTrack>, String> {
+    let queue = state.queue.lock().map_err(|e| e.to_string())?;
+    Ok(queue.peek_next())
+}
+
 /// Reorder track in queue (drag-and-drop)
 ///
 /// # Arguments
@@ -229,7 +237,7 @@ pub async fn reorder_queue(
         telemetry::record_error("reorder_queue", e);
     })?;
 
-    log::debug!("Queue reordered: {} -> {}", from_index, to_index);
+    tracing::debug!("Queue reordered: {} -> {}", from_index, to_index);
 
     let event = queue_to_event(&queue);
     let _ = app_handle.emit("queue-changed", &event);
@@ -288,7 +296,7 @@ pub async fn set_shuffle(
         telemetry::record_error("set_shuffle", e);
     })?;
 
-    log::info!("Shuffle toggled: {}", if enabled { "ON" } else { "OFF" });
+    tracing::info!("Shuffle toggled: {}", if enabled { "ON" } else { "OFF" });
 
     let event = queue_to_event(&queue);
     let _ = app_handle.emit("queue-changed", &event);

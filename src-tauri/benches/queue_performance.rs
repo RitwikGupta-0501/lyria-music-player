@@ -46,10 +46,11 @@ fn benchmark_next_operation(c: &mut Criterion) {
             queue.set_queue(tracks, 0).unwrap();
             queue.repeat_mode = RepeatMode::All;
 
-            b.iter(|| {
-                let mut q = queue.clone();
-                q.next().ok();
-            });
+            b.iter_batched(
+                || queue.clone(),
+                |mut q| q.next().ok(),
+                criterion::BatchSize::SmallInput,
+            );
         });
 
         group.bench_with_input(BenchmarkId::new("shuffle", size), size, |b, &size| {
@@ -60,10 +61,11 @@ fn benchmark_next_operation(c: &mut Criterion) {
             queue.set_queue(tracks, 0).unwrap();
             queue.set_shuffle(true).ok();
 
-            b.iter(|| {
-                let mut q = queue.clone();
-                q.next().ok();
-            });
+            b.iter_batched(
+                || queue.clone(),
+                |mut q| q.next().ok(),
+                criterion::BatchSize::SmallInput,
+            );
         });
     }
 
@@ -122,14 +124,16 @@ fn benchmark_jump_to_track(c: &mut Criterion) {
                 .map(|i| make_track(&i.to_string()))
                 .collect();
 
-            b.iter(|| {
-                let mut queue = QueueState::new();
-                queue.set_queue(black_box(tracks.clone()), 0).unwrap();
-
-                // Jump to middle track
-                let target_id = (size / 2).to_string();
-                queue.jump_to_instance_id(target_id).ok();
-            });
+            let target_id = (size / 2).to_string();
+            b.iter_batched(
+                || {
+                    let mut queue = QueueState::new();
+                    queue.set_queue(tracks.clone(), 0).unwrap();
+                    queue
+                },
+                |mut queue| queue.jump_to_instance_id(target_id.clone()).ok(),
+                criterion::BatchSize::SmallInput,
+            );
         });
     }
 
@@ -145,15 +149,20 @@ fn benchmark_sequential_operations(c: &mut Criterion) {
             .map(|i| make_track(&i.to_string()))
             .collect();
 
-        b.iter(|| {
-            let mut queue = QueueState::new();
-            queue.set_queue(black_box(tracks.clone()), 0).unwrap();
-            queue.repeat_mode = RepeatMode::All;
-
-            for _ in 0..10 {
-                queue.next().ok();
-            }
-        });
+        b.iter_batched(
+            || {
+                let mut queue = QueueState::new();
+                queue.set_queue(tracks.clone(), 0).unwrap();
+                queue.repeat_mode = RepeatMode::All;
+                queue
+            },
+            |mut queue| {
+                for _ in 0..10 {
+                    queue.next().ok();
+                }
+            },
+            criterion::BatchSize::SmallInput,
+        );
     });
 
     group.bench_function("100_skips_10k_items", |b| {
@@ -161,15 +170,20 @@ fn benchmark_sequential_operations(c: &mut Criterion) {
             .map(|i| make_track(&i.to_string()))
             .collect();
 
-        b.iter(|| {
-            let mut queue = QueueState::new();
-            queue.set_queue(black_box(tracks.clone()), 0).unwrap();
-            queue.repeat_mode = RepeatMode::All;
-
-            for _ in 0..100 {
-                queue.next().ok();
-            }
-        });
+        b.iter_batched(
+            || {
+                let mut queue = QueueState::new();
+                queue.set_queue(tracks.clone(), 0).unwrap();
+                queue.repeat_mode = RepeatMode::All;
+                queue
+            },
+            |mut queue| {
+                for _ in 0..100 {
+                    queue.next().ok();
+                }
+            },
+            criterion::BatchSize::SmallInput,
+        );
     });
 
     group.finish();

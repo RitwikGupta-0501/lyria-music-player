@@ -33,7 +33,7 @@ pub fn record_error(category: &str, message: &str) {
         }
     }
 
-    log::error!("[{}] {}", category, message);
+    tracing::error!("[{}] {}", category, message);
 }
 
 pub fn error_count() -> u64 {
