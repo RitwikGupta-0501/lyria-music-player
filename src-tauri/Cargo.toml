@@ -56,4 +56,4 @@ base64 = "0.22"
 extism = "1"
 rubato = "0.15.0"
 uuid = { version = "1.24.0", features = ["v4"] }
-opus-decoder = "0.1.1"
+opus = "0.3.1"

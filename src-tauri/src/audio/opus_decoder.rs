@@ -2,7 +2,7 @@ use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal, SignalSpec};
 use symphonia::core::codecs::{CodecParameters, Decoder, DecoderOptions, CODEC_TYPE_OPUS};
 use symphonia::core::errors::{Error, Result};
 use symphonia::core::formats::Packet;
-use opus_decoder::OpusDecoder;
+use opus::Decoder as OpusDecoder;
 
 pub struct OpusSymphoniaDecoder {
     decoder: OpusDecoder,
@@ -22,7 +22,8 @@ impl Decoder for OpusSymphoniaDecoder {
         let sample_rate = codec_params.sample_rate.unwrap_or(48000);
         let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
         
-        let decoder = OpusDecoder::new(sample_rate, channels as usize)
+        let decoder_channels = if channels == 1 { opus::Channels::Mono } else { opus::Channels::Stereo };
+        let decoder = OpusDecoder::new(sample_rate, decoder_channels)
             .map_err(|_| Error::DecodeError("opus decode error"))?;
 
         // Opus frames max out at 120ms (5760 samples per channel at 48kHz)
@@ -33,14 +34,14 @@ impl Decoder for OpusSymphoniaDecoder {
         );
         
         let buf = AudioBuffer::new(max_frames as u64, spec);
-        let scratch = vec![0.0; (max_frames as usize) * (channels as usize)];
+        let scratch = vec![0.0; (max_frames as usize) * channels];
 
         Ok(Self {
             decoder,
             buf,
             scratch,
             codec_params: codec_params.clone(),
-            channels: channels as usize,
+            channels,
             sample_rate,
         })
     }
@@ -50,7 +51,7 @@ impl Decoder for OpusSymphoniaDecoder {
             symphonia::core::codecs::CodecDescriptor {
                 codec: CODEC_TYPE_OPUS,
                 short_name: "opus",
-                long_name: "Opus (via opus-decoder)",
+                long_name: "Opus (via libopus)",
                 inst_func: instantiate_opus_decoder,
             }
         ]
@@ -66,8 +67,8 @@ impl Decoder for OpusSymphoniaDecoder {
         // Symphonia AudioBuffer stores samples in planar format: L L L L, R R R R
         for ch in 0..self.channels {
             let chan_buf = self.buf.chan_mut(ch);
-            for i in 0..frames_decoded {
-                chan_buf[i] = self.scratch[i * self.channels + ch];
+            for (i, sample) in chan_buf.iter_mut().enumerate().take(frames_decoded) {
+                *sample = self.scratch[i * self.channels + ch];
             }
         }
 
@@ -84,7 +85,8 @@ impl Decoder for OpusSymphoniaDecoder {
 
     fn reset(&mut self) {
         // Re-instantiate the decoder to clear state for seek boundaries
-        if let Ok(new_dec) = OpusDecoder::new(self.sample_rate, self.channels) {
+        let decoder_channels = if self.channels == 1 { opus::Channels::Mono } else { opus::Channels::Stereo };
+        if let Ok(new_dec) = OpusDecoder::new(self.sample_rate, decoder_channels) {
             self.decoder = new_dec;
         }
         self.buf.clear();
@@ -106,3 +108,11 @@ fn instantiate_opus_decoder(
     let dec = OpusSymphoniaDecoder::try_new(params, options)?;
     Ok(Box::new(dec))
 }
+
+// opus::Decoder wraps a raw C pointer and is not marked Sync by default.
+// However, Symphonia requires Decoders to be Send + Sync. 
+// This is safe because `decode` and `reset` require `&mut self` (exclusive access), 
+// and `opus` decoding has no thread-local state, meaning `Send` is safe.
+// The only `&self` methods (concurrent access) only read Rust data (`buf`, `codec_params`).
+unsafe impl Send for OpusSymphoniaDecoder {}
+unsafe impl Sync for OpusSymphoniaDecoder {}

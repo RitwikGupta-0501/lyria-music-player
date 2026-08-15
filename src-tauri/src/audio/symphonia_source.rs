@@ -142,7 +142,7 @@ impl SymphoniaSource {
 
             let stream = HttpStream::new(clean_client, url.clone()).await?;
             let content_length = stream.content_length();
-            let settings = Settings::default().prefetch_bytes(256 * 1024); // 256KB buffer for fast startup
+            let settings = Settings::default().prefetch_bytes(32 * 1024); // 32KB buffer for instant startup (<100ms)
             
             // Use TempStorageProvider instead of BoundedStorageProvider to avoid subtraction overflow
             // panics when the MP4 demuxer seeks backward from the end of the file.
@@ -300,9 +300,9 @@ impl SymphoniaSource {
                                     let expected_out = (in_len as f64 * f_ratio) as usize;
                                     let mut interleaved = Vec::with_capacity(expected_out * channels as usize);
                                     for i in 0..expected_out {
-                                        for ch in 0..channels as usize {
-                                            if i < resampled[ch].len() {
-                                                let sample = (resampled[ch][i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                                        for res_ch in resampled.iter().take(channels as usize) {
+                                            if i < res_ch.len() {
+                                                let sample = (res_ch[i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
                                                 interleaved.push(sample);
                                             }
                                         }
@@ -349,8 +349,8 @@ impl SymphoniaSource {
                                     let out_len = resampled[0].len();
                                     let mut interleaved = Vec::with_capacity(out_len * channels as usize);
                                     for i in 0..out_len {
-                                        for ch in 0..channels as usize {
-                                            let sample = (resampled[ch][i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                                        for res_ch in resampled.iter().take(channels as usize) {
+                                            let sample = (res_ch[i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
                                             interleaved.push(sample);
                                         }
                                     }

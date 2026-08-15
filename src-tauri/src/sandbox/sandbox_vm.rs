@@ -5,16 +5,16 @@ use tokio::sync::{Mutex, oneshot};
 use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Clone)]
+type PendingRequestsMap = HashMap<String, oneshot::Sender<Result<Value, String>>>;
+
+#[derive(Clone, Default)]
 pub struct SandboxManager {
-    pub pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>>,
+    pub pending_requests: Arc<Mutex<PendingRequestsMap>>,
 }
 
 impl SandboxManager {
     pub fn new() -> Self {
-        Self {
-            pending_requests: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self::default()
     }
 }
 
