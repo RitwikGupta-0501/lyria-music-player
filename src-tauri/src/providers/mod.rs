@@ -196,6 +196,13 @@ impl ProviderManager {
         Ok(plugin_arc)
     }
 
+    pub fn invalidate_plugin_cache(&self, provider_id: &str) {
+        let mut cache = self.plugin_cache.lock().unwrap();
+        if cache.remove(provider_id).is_some() {
+            tracing::warn!("Evicted failed plugin instance from cache for provider: {}", provider_id);
+        }
+    }
+
     pub async fn search(&self, provider_id: &str, query: &str) -> Result<Vec<TrackResult>, SandboxError> {
         let provider_id = provider_id.to_string();
         let query = query.to_string();
@@ -209,28 +216,35 @@ impl ProviderManager {
 
         let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
         
-        let res_bytes = spawn_blocking(move || {
+        let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
             let json_input = serde_json::to_vec(&query).unwrap_or_default();
             plugin.call::<&[u8], &[u8]>("search", &json_input).map(|res| res.to_vec())
-        }).await.map_err(|e| {
-            tracing::error!("Search spawn_blocking failed for provider '{}': {}", provider_id, e);
-            SandboxError::ScriptError {
-                script: provider_id.clone(),
-                message: e.to_string(),
+        }).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                tracing::error!("Search plugin call failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
             }
-        })?.map_err(|e| {
-            tracing::error!("Search plugin call failed for provider '{}': {}", provider_id, e);
-            SandboxError::ScriptError {
-                script: provider_id.clone(),
-                message: e.to_string(),
+            Err(e) => {
+                tracing::error!("Search spawn_blocking failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
             }
-        })?;
+        };
 
         let results: Vec<TrackResult> = serde_json::from_slice(&res_bytes).map_err(|e| {
             tracing::error!("Failed to parse search results from provider '{}': {}", provider_id, e);
+            self.invalidate_plugin_cache(&provider_id);
             SandboxError::ScriptError {
-                script: provider_id.clone(),
+                script: provider_id,
                 message: e.to_string(),
             }
         })?;
@@ -249,28 +263,35 @@ impl ProviderManager {
 
         let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
         
-        let res_bytes = spawn_blocking(move || {
+        let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
             let json_input = serde_json::to_vec(&track_id).unwrap_or_default();
             plugin.call::<&[u8], &[u8]>("resolve", &json_input).map(|res| res.to_vec())
-        }).await.map_err(|e| {
-            tracing::error!("Resolve spawn_blocking failed for provider '{}': {}", provider_id, e);
-            SandboxError::ScriptError {
-                script: provider_id.clone(),
-                message: e.to_string(),
+        }).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                tracing::error!("Resolve plugin call failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
             }
-        })?.map_err(|e| {
-            tracing::error!("Resolve plugin call failed for provider '{}': {}", provider_id, e);
-            SandboxError::ScriptError {
-                script: provider_id.clone(),
-                message: e.to_string(),
+            Err(e) => {
+                tracing::error!("Resolve spawn_blocking failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
             }
-        })?;
+        };
 
         let results: ResolvedTrack = serde_json::from_slice(&res_bytes).map_err(|e| {
             tracing::error!("Failed to parse resolve results from provider '{}': {}", provider_id, e);
+            self.invalidate_plugin_cache(&provider_id);
             SandboxError::ScriptError {
-                script: provider_id.clone(),
+                script: provider_id,
                 message: e.to_string(),
             }
         })?;

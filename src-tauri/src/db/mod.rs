@@ -30,6 +30,7 @@ pub enum DbRequest {
     ReorderPlaylistTrack { playlist_id: i64, from_pos: i64, to_pos: i64, resp: oneshot::Sender<Result<(), String>> },
     ClearLocalLibrary { resp: oneshot::Sender<Result<(), String>> },
     GetSetting { key: String, resp: oneshot::Sender<Result<Option<String>, String>> },
+    GetAllSettings { resp: oneshot::Sender<Result<std::collections::HashMap<String, String>, String>> },
     SetSetting { key: String, value: String, resp: oneshot::Sender<Result<(), String>> },
     FactoryReset { resp: oneshot::Sender<Result<(), String>> },
     InsertTracks { tracks: Vec<TrackData>, resp: oneshot::Sender<Result<usize, String>> },
@@ -90,6 +91,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::GetSetting { key, resp } => {
                     let _ = resp.send(queries::get_setting(&conn, &key));
+                }
+                DbRequest::GetAllSettings { resp } => {
+                    let _ = resp.send(queries::get_all_settings(&conn));
                 }
                 DbRequest::SetSetting { key, value, resp } => {
                     let _ = resp.send(queries::set_setting(&conn, &key, &value));

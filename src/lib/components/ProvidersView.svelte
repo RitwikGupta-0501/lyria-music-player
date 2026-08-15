@@ -3,6 +3,7 @@
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { onMount, tick } from 'svelte';
     import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin } from 'phosphor-svelte';
+    import { audioStore } from '../stores/audio.svelte';
 
     interface ProviderInfo {
         id: string;
@@ -212,24 +213,12 @@
             const active = providers.find(p => p.file_path === activeProviderPath);
             const providerId = active ? active.id : "unknown";
 
-            await invoke('load_audio', {
-                source: {
-                    type: "Remote",
-                    provider_id: providerId,
-                    remote_track_id: track.id,
-                    stream_url: track.stream_url,
-                    quality_hint: track.quality_hint || null,
-                    cover_art_url: track.cover_art_url || null,
-                    duration_ms: track.duration_ms || null,
-                },
-                title: track.title,
-                artist: track.artist,
-                album: track.album
+            await audioStore.playInterrupt({
+                ...track,
+                provider_id: providerId
             });
-            // The audio pipeline might take a moment to buffer.
-            // Ideally we'd clear this when the player-sync event says "Playing",
-            // but for the sandbox tester, we can just clear it after a short delay
-            // or let the user know it was sent successfully.
+
+            // Reset loading state after a short delay
             setTimeout(() => {
                 if (currentlyLoadingTrackId === track.id) {
                     currentlyLoadingTrackId = null;
@@ -998,9 +987,7 @@
         font-weight: 500;
         text-transform: capitalize;
     }
-    .capability-tag svg {
-        color: var(--echo-primary);
-    }
+
 
     .bento-grid {
         display: grid;
@@ -1044,6 +1031,7 @@
         color: var(--echo-text-1);
         display: -webkit-box;
         -webkit-line-clamp: 2;
+        line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
     }

@@ -29,14 +29,9 @@ pub fn spawn_sandbox_webview(app: &AppHandle) -> Result<tauri::WebviewWindow, St
         WebviewUrl::App("sandbox.html".into()),
     )
     .title("Sandbox Debugger")
-    .visible(true); // Temporarily visible for debugging
+    .visible(false);
 
     let window = builder.build().map_err(|e| format!("Failed to build Sandbox WebviewWindow: {}", e))?;
-    
-    // Open devtools automatically so we can see the console.logs
-    #[cfg(debug_assertions)]
-    window.open_devtools();
-    
     Ok(window)
 }
 

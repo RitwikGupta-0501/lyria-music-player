@@ -14,6 +14,7 @@ pub mod queue;
 pub mod telemetry;
 pub mod feature_flags;
 pub mod sandbox;
+pub mod logger;
 
 use providers::{ProviderManager, TrackResult};
 use audio::AudioCommand;
@@ -490,6 +491,13 @@ async fn get_setting(state: State<'_, AppState>, key: String) -> Result<Option<S
 }
 
 #[tauri::command]
+async fn get_all_settings(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, String>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(DbRequest::GetAllSettings { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn set_setting(state: State<'_, AppState>, key: String, value: String) -> Result<(), String> {
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::SetSetting { key, value, resp: tx }).map_err(|e| e.to_string())?;
@@ -753,6 +761,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let handle = app.handle().clone();
+            logger::init_logging(&handle);
             
             // Setup shared reqwest client with strict redirect/SSRF policy and timeouts
             let redirect_policy = reqwest::redirect::Policy::custom(|attempt| {
@@ -866,6 +875,7 @@ pub fn run() {
             extract_and_cache_artwork,
             clear_local_library,
             get_setting,
+            get_all_settings,
             set_setting,
             factory_reset,
             remove_track_by_path,
@@ -897,6 +907,15 @@ pub fn run() {
             sync_playback_state,
             open_in_file_explorer,
             sandbox_callback,
+            // Debug logger commands (Phase 1)
+            logger::open_debug_window,
+            logger::get_debug_logs,
+            logger::clear_debug_logs,
+            logger::copy_debug_log_to_clipboard,
+            logger::open_log_directory,
+            logger::sandbox_log,
+            logger::set_log_collection_enabled,
+            logger::get_log_collection_enabled,
         ]);
 
     builder

@@ -524,7 +524,7 @@
         z-index: 20;
     }
     .ctrl-btn {
-        color: var(--muted);
+        color: var(--echo-text-2);
         transition:
             color 0.15s ease,
             background-color 0.15s ease;
@@ -546,7 +546,7 @@
         background-color: rgba(255, 255, 255, 0.05);
     }
     .ctrl-btn.active {
-        color: var(--text-main);
+        color: var(--echo-text-1);
     }
     .ctrl-btn.active::after {
         content: "";
@@ -557,7 +557,7 @@
         width: 4px;
         height: 4px;
         border-radius: 50%;
-        background-color: var(--text-main);
+        background-color: var(--echo-text-1);
     }
 
     .play-pause-btn {

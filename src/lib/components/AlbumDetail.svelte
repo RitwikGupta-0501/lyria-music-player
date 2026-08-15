@@ -1,8 +1,18 @@
 <script lang="ts">
-    import { libraryStore, type Album, type LocalTrack } from "$lib/stores/library.svelte";
+    import {
+        libraryStore,
+        type Album,
+        type LocalTrack,
+    } from "$lib/stores/library.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
-    import { DotsThree, Play, Pause, Plus, Waveform } from "phosphor-svelte";
+    import {
+        DotsThreeIcon,
+        PlayIcon,
+        PauseIcon,
+        PlusIcon,
+        Waveform,
+    } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
 
     let { album, onBack } = $props<{ album: Album; onBack: () => void }>();
@@ -26,10 +36,12 @@
     });
 
     $effect(() => {
-        libraryStore.getAlbumTracks(album.id).then(t => {
+        libraryStore.getAlbumTracks(album.id).then((t) => {
             tracks = t;
             if (t.length > 0) {
-                libraryStore.getArtworkUrl(t[0].id, t[0].file_path).then(url => (artUrl = url));
+                libraryStore
+                    .getArtworkUrl(t[0].id, t[0].file_path)
+                    .then((url) => (artUrl = url));
             }
         });
 
@@ -47,7 +59,11 @@
         if (activeDropdown !== index) isCreatingPlaylistForTrack = null;
     }
 
-    async function addTrackToPlaylist(e: Event, playlistId: number, trackId: number) {
+    async function addTrackToPlaylist(
+        e: Event,
+        playlistId: number,
+        trackId: number,
+    ) {
         e.stopPropagation();
         await libraryStore.addToPlaylist(playlistId, trackId);
         activeDropdown = null;
@@ -57,7 +73,9 @@
         e.stopPropagation();
         if (!newPlaylistName.trim()) return;
         await libraryStore.createPlaylist(newPlaylistName);
-        const newPlaylist = libraryStore.playlists.find(p => p.name === newPlaylistName);
+        const newPlaylist = libraryStore.playlists.find(
+            (p) => p.name === newPlaylistName,
+        );
         if (newPlaylist) {
             await libraryStore.addToPlaylist(newPlaylist.id, trackId);
         }
@@ -84,7 +102,7 @@
                 return;
             } else if (audioStore.trackClickBehavior === "append") {
                 await audioStore.addToQueue(trackPayload);
-                toastStore.show("Added to queue", 'info', 1500);
+                toastStore.show("Added to queue", "info", 1500);
                 return;
             }
         }
@@ -97,14 +115,17 @@
             file_path: t.file_path,
             track_number: t.track_number,
         }));
-        
+
         await audioStore.setQueue(queueTracks, index);
     }
 </script>
 
 <div class="view-album">
     <div class="album-header">
-        <div class="art-container" style={artUrl ? `background-image: url('${artUrl}');` : ''}>
+        <div
+            class="art-container"
+            style={artUrl ? `background-image: url('${artUrl}');` : ""}
+        >
             {#if !artUrl}
                 <div class="art-placeholder"></div>
             {/if}
@@ -116,125 +137,166 @@
     </div>
 
     <div class="track-list" bind:this={scrollContainer}>
-        <div style="position: relative; width: 100%; height: {$virtStore.getTotalSize()}px;">
+        <div
+            style="position: relative; width: 100%; height: {$virtStore.getTotalSize()}px;"
+        >
             {#each $virtStore.getVirtualItems() as row (row.index)}
                 {@const i = row.index}
                 {@const track = tracks[i]}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div 
-                    class="track-row" 
-                    class:active={audioStore.currentTrack === track.title || audioStore.currentTrack === track.file_path}
+                <div
+                    class="track-row"
+                    class:active={audioStore.currentTrack === track.title ||
+                        audioStore.currentTrack === track.file_path}
                     style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start}px);"
                     onclick={() => playTrack(i)}
                 >
-                <div class="track-left">
-                    <div class="track-status">
-                        {#if audioStore.currentTrack === track.title || audioStore.currentTrack === track.file_path}
-                            {#if audioStore.playbackState === "Playing"}
-                                <div class="playing-visualizer">
-                                    <div class="bar"></div>
-                                    <div class="bar"></div>
-                                    <div class="bar"></div>
-                                    <div class="bar"></div>
-                                </div>
-                            {:else}
-                                <Pause size={18} weight="bold" color="var(--echo-primary)" />
-                            {/if}
-                        {:else}
-                            <span class="track-number">{track.track_number || i + 1}</span>
-                            <Play size={18} weight="fill" class="track-play-icon" />
-                        {/if}
-                    </div>
-                    <div class="track-name">{track.title}</div>
-                </div>
-
-                <div class="track-right">
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <button
-                        class="more-btn"
-                        onclick={(e) => toggleDropdown(e, i)}
-                        title="Add to playlist"
-                    >
-                        <DotsThree size={20} weight="bold" />
-                    </button>
-
-                    {#if activeDropdown === i}
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                        <div
-                            class="dropdown glass"
-                            onclick={(e) => e.stopPropagation()}
-                        >
-                            <button
-                                class="dropdown-row"
-                                onclick={(e) => {
-                                    e.stopPropagation();
-                                    audioStore.playNext(track);
-                                    toastStore.show("Added to play next", 'info', 1500);
-                                    activeDropdown = null;
-                                }}
-                            >
-                                Play next
-                            </button>
-                            <button
-                                class="dropdown-row"
-                                onclick={(e) => {
-                                    e.stopPropagation();
-                                    audioStore.addToQueue(track);
-                                    toastStore.show("Added to queue", 'info', 1500);
-                                    activeDropdown = null;
-                                }}
-                            >
-                                Add to queue
-                            </button>
-                            <div class="dropdown-divider"></div>
-
-                            {#if libraryStore.playlists.length > 0}
-                                <div class="dropdown-section-label">Add to playlist</div>
-                                {#each libraryStore.playlists as playlist}
-                                    <button
-                                        class="dropdown-row"
-                                        onclick={(e) => {
-                                            addTrackToPlaylist(e, playlist.id, track.id);
-                                            toastStore.show(`Added to ${playlist.name}`, 'success', 1500);
-                                        }}
-                                    >
-                                        {playlist.name}
-                                    </button>
-                                {/each}
-                                <div class="dropdown-divider"></div>
-                            {/if}
-
-                            {#if isCreatingPlaylistForTrack === i}
-                                <div class="new-playlist-form" onclick={(e) => e.stopPropagation()}>
-                                    <input
-                                        type="text"
-                                        bind:value={newPlaylistName}
-                                        placeholder="Playlist name"
+                    <div class="track-left">
+                        <div class="track-status">
+                            {#if audioStore.currentTrack === track.title || audioStore.currentTrack === track.file_path}
+                                {#if audioStore.playbackState === "Playing"}
+                                    <div class="playing-visualizer">
+                                        <div class="bar"></div>
+                                        <div class="bar"></div>
+                                        <div class="bar"></div>
+                                        <div class="bar"></div>
+                                    </div>
+                                {:else}
+                                    <PauseIcon
+                                        size={18}
+                                        weight="bold"
+                                        color="var(--echo-primary)"
                                     />
-                                    <button
-                                        class="primary"
-                                        style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-radius: 7px;"
-                                        onclick={(e) => createAndAddPlaylist(e, track.id)}
-                                    >
-                                        Create
-                                    </button>
-                                </div>
+                                {/if}
                             {:else}
-                                <button
-                                    class="dropdown-row new-row"
-                                    onclick={(e) => { e.stopPropagation(); isCreatingPlaylistForTrack = i; }}
+                                <span class="track-number"
+                                    >{track.track_number || i + 1}</span
                                 >
-                                    <Plus size={12} weight="bold" />
-                                    New Playlist
-                                </button>
+                                <PlayIcon
+                                    size={18}
+                                    weight="fill"
+                                    class="track-play-icon"
+                                />
                             {/if}
                         </div>
-                    {/if}
+                        <div class="track-name">{track.title}</div>
+                    </div>
+
+                    <div class="track-right">
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <button
+                            class="more-btn"
+                            onclick={(e) => toggleDropdown(e, i)}
+                            title="Add to playlist"
+                        >
+                            <DotsThreeIcon size={20} weight="bold" />
+                        </button>
+
+                        {#if activeDropdown === i}
+                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                            <div
+                                class="dropdown glass"
+                                onclick={(e) => e.stopPropagation()}
+                            >
+                                <button
+                                    class="dropdown-row"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        audioStore.playNext(track);
+                                        toastStore.show(
+                                            "Added to play next",
+                                            "info",
+                                            1500,
+                                        );
+                                        activeDropdown = null;
+                                    }}
+                                >
+                                    Play next
+                                </button>
+                                <button
+                                    class="dropdown-row"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        audioStore.addToQueue(track);
+                                        toastStore.show(
+                                            "Added to queue",
+                                            "info",
+                                            1500,
+                                        );
+                                        activeDropdown = null;
+                                    }}
+                                >
+                                    Add to queue
+                                </button>
+                                <div class="dropdown-divider"></div>
+
+                                {#if libraryStore.playlists.length > 0}
+                                    <div class="dropdown-section-label">
+                                        Add to playlist
+                                    </div>
+                                    {#each libraryStore.playlists as playlist}
+                                        <button
+                                            class="dropdown-row"
+                                            onclick={(e) => {
+                                                addTrackToPlaylist(
+                                                    e,
+                                                    playlist.id,
+                                                    track.id,
+                                                );
+                                                toastStore.show(
+                                                    `Added to ${playlist.name}`,
+                                                    "success",
+                                                    1500,
+                                                );
+                                            }}
+                                        >
+                                            {playlist.name}
+                                        </button>
+                                    {/each}
+                                    <div class="dropdown-divider"></div>
+                                {/if}
+
+                                {#if isCreatingPlaylistForTrack === i}
+                                    <div
+                                        class="new-playlist-form"
+                                        onclick={(e) => e.stopPropagation()}
+                                    >
+                                        <input
+                                            type="text"
+                                            bind:value={newPlaylistName}
+                                            placeholder="Playlist name"
+                                        />
+                                        <button
+                                            class="primary"
+                                            style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-radius: 7px;"
+                                            onclick={(e) =>
+                                                createAndAddPlaylist(
+                                                    e,
+                                                    track.id,
+                                                )}
+                                        >
+                                            Create
+                                        </button>
+                                    </div>
+                                {:else}
+                                    <button
+                                        class="dropdown-row new-row"
+                                        onclick={(e) => {
+                                            e.stopPropagation();
+                                            isCreatingPlaylistForTrack = i;
+                                        }}
+                                    >
+                                        <PlusIcon size={12} weight="bold" />
+                                        New Playlist
+                                    </button>
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
                 </div>
-            </div>
-        {/each}
+            {/each}
         </div>
     </div>
 </div>
@@ -359,7 +421,7 @@
         color: #ffffff;
     }
 
-    .track-row.active    .track-number {
+    .track-row.active .track-number {
         width: 1.5rem;
         text-align: right;
         color: var(--echo-text-3);
@@ -383,37 +445,85 @@
         transform-origin: bottom;
     }
 
-    .playing-visualizer .bar:nth-child(1) { height: 100%; animation: eq-bar-1 1.2s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(2) { height: 100%; animation: eq-bar-2 1.5s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(3) { height: 100%; animation: eq-bar-3 1.1s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(4) { height: 100%; animation: eq-bar-4 1.4s ease-in-out infinite; }
+    .playing-visualizer .bar:nth-child(1) {
+        height: 100%;
+        animation: eq-bar-1 1.2s ease-in-out infinite;
+    }
+    .playing-visualizer .bar:nth-child(2) {
+        height: 100%;
+        animation: eq-bar-2 1.5s ease-in-out infinite;
+    }
+    .playing-visualizer .bar:nth-child(3) {
+        height: 100%;
+        animation: eq-bar-3 1.1s ease-in-out infinite;
+    }
+    .playing-visualizer .bar:nth-child(4) {
+        height: 100%;
+        animation: eq-bar-4 1.4s ease-in-out infinite;
+    }
 
     @keyframes eq-bar-1 {
-        0%, 100% { transform: scaleY(0.3); }
-        25% { transform: scaleY(0.9); }
-        50% { transform: scaleY(0.5); }
-        75% { transform: scaleY(1.0); }
+        0%,
+        100% {
+            transform: scaleY(0.3);
+        }
+        25% {
+            transform: scaleY(0.9);
+        }
+        50% {
+            transform: scaleY(0.5);
+        }
+        75% {
+            transform: scaleY(1);
+        }
     }
 
     @keyframes eq-bar-2 {
-        0%, 100% { transform: scaleY(0.6); }
-        25% { transform: scaleY(0.2); }
-        50% { transform: scaleY(1.0); }
-        75% { transform: scaleY(0.4); }
+        0%,
+        100% {
+            transform: scaleY(0.6);
+        }
+        25% {
+            transform: scaleY(0.2);
+        }
+        50% {
+            transform: scaleY(1);
+        }
+        75% {
+            transform: scaleY(0.4);
+        }
     }
 
     @keyframes eq-bar-3 {
-        0%, 100% { transform: scaleY(0.8); }
-        25% { transform: scaleY(0.4); }
-        50% { transform: scaleY(0.9); }
-        75% { transform: scaleY(0.3); }
+        0%,
+        100% {
+            transform: scaleY(0.8);
+        }
+        25% {
+            transform: scaleY(0.4);
+        }
+        50% {
+            transform: scaleY(0.9);
+        }
+        75% {
+            transform: scaleY(0.3);
+        }
     }
 
     @keyframes eq-bar-4 {
-        0%, 100% { transform: scaleY(0.4); }
-        25% { transform: scaleY(1.0); }
-        50% { transform: scaleY(0.3); }
-        75% { transform: scaleY(0.8); }
+        0%,
+        100% {
+            transform: scaleY(0.4);
+        }
+        25% {
+            transform: scaleY(1);
+        }
+        50% {
+            transform: scaleY(0.3);
+        }
+        75% {
+            transform: scaleY(0.8);
+        }
     }
 
     .track-row.active .track-status,
@@ -493,8 +603,12 @@
         background: rgba(255, 255, 255, 0.06);
     }
 
-    .new-row { color: var(--echo-text-2); }
-    .new-row:hover { color: var(--echo-text-1); }
+    .new-row {
+        color: var(--echo-text-2);
+    }
+    .new-row:hover {
+        color: var(--echo-text-1);
+    }
 
     .dropdown-divider {
         height: 1px;
@@ -519,4 +633,3 @@
         color: white;
     }
 </style>
-

@@ -59,13 +59,22 @@
     }
 
     .tab {
+        appearance: none;
+        -webkit-appearance: none;
         background: transparent;
         border: none;
+        outline: none;
         color: inherit;
         cursor: pointer;
         padding: 0.5rem 1rem;
         border-radius: 8px;
         transition: all 0.2s;
+    }
+
+    .tab::before,
+    .tab::after {
+        content: none;
+        display: none;
     }
 
     .tab:hover:not(.active) {

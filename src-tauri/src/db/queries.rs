@@ -214,6 +214,19 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, Strin
     Ok(None)
 }
 
+pub fn get_all_settings(conn: &Connection) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| e.to_string())?;
+
+    let mut map = std::collections::HashMap::new();
+    for (k, v) in rows.flatten() {
+        map.insert(k, v);
+    }
+    Ok(map)
+}
+
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",

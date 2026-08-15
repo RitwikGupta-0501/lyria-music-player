@@ -37,6 +37,7 @@ commands.allow = [
     "extract_and_cache_artwork",
     "clear_local_library",
     "get_setting",
+    "get_all_settings",
     "set_setting",
     "factory_reset",
     "remove_track_by_path",
@@ -62,6 +63,9 @@ commands.allow = [
     "is_feature_enabled",
     "set_feature_enabled",
     "sync_playback_state",
+    "copy_debug_log_to_clipboard",
     "open_in_file_explorer",
-    "sandbox_callback"
+    "sandbox_callback",
+    "set_log_collection_enabled",
+    "get_log_collection_enabled"
 ]
