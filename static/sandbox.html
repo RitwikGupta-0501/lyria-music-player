@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Sandbox VM</title>
+    <!-- Strict CSP: No network access allowed (connect-src 'none') to prevent exfiltration. Allow blob: for BotGuard workers. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-eval' 'unsafe-inline' blob:; worker-src blob:; connect-src ipc: http://ipc.localhost;">
+    <script>
+        // Intercept console output and forward to Rust logger
+        function forwardLog(level, args) {
+            try {
+                var message = Array.from(args).map(function(a) {
+                    return typeof a === 'object' ? JSON.stringify(a) : String(a);
+                }).join(' ');
+                if (window.__TAURI__ && window.__TAURI__.core) {
+                    window.__TAURI__.core.invoke('sandbox_log', {
+                        category: 'JS Sandbox',
+                        level: level.toUpperCase(),
+                        message: message
+                    });
+                }
+            } catch (err) {}
+        }
+        var _origLog = console.log, _origWarn = console.warn, _origErr = console.error;
+        console.log = function() { _origLog.apply(console, arguments); forwardLog('info', arguments); };
+        console.warn = function() { _origWarn.apply(console, arguments); forwardLog('warn', arguments); };
+        console.error = function() { _origErr.apply(console, arguments); forwardLog('error', arguments); };
+        window.onerror = function(msg, url, line) {
+            forwardLog('error', [`Uncaught JS Error: ${msg} at ${url}:${line}`]);
+        };
+
+        // Log any CSP violations back to Rust so we know if scripts are trying to fetch something
+        document.addEventListener('securitypolicyviolation', function(e) {
+            console.error('CSP Violation detected:', e.violatedDirective, e.blockedURI);
+            if (window.__TAURI__ && window.__TAURI__.core) {
+                window.__TAURI__.core.invoke('sandbox_callback', {
+                    reqId: "csp_violation",
+                    payload: null,
+                    error: `CSP Violation: ${e.violatedDirective} on ${e.blockedURI}`
+                });
+            }
+        });
+
+        function tauriReturn(reqId, payload, error) {
+            console.log(`[sandbox] tauriReturn for reqId: ${reqId}, error: ${error}`);
+            if (window.__TAURI__ && window.__TAURI__.core) {
+                try {
+                    window.__TAURI__.core.invoke('sandbox_callback', {
+                        reqId: reqId,
+                        payload: payload,
+                        error: error ? String(error) : null
+                    });
+                    console.log(`[sandbox] IPC payload sent successfully for reqId: ${reqId}`);
+                } catch (ipcErr) {
+                    console.error('[sandbox] IPC serialization error:', ipcErr);
+                    window.__TAURI__.core.invoke('sandbox_callback', {
+                        reqId: reqId,
+                        payload: null,
+                        error: 'IPC Serialization Error: ' + ipcErr.message
+                    }).catch(console.error);
+                }
+            } else {
+                console.warn('[sandbox] Tauri IPC not found. Payload:', payload, 'Error:', error);
+            }
+        }
+
+        // Generic execution environment for evaluating WASM-provided scripts
+        async function executeArbitraryJS(reqId, script) {
+            console.log(`[sandbox] executeArbitraryJS started for reqId: ${reqId}`);
+            if (typeof script === 'string') {
+                console.log(`[sandbox] Script length: ${script.length}`);
+                if (script.length > 100) {
+                    console.log(`[sandbox] Script starts with: ${script.substring(0, 50)}...`);
+                    console.log(`[sandbox] Script ends with: ...${script.substring(script.length - 100)}`);
+                } else {
+                    console.log(`[sandbox] Script content: ${script}`);
+                }
+            } else {
+                console.warn(`[sandbox] Script is not a string, it is: ${typeof script}`);
+            }
+            try {
+                var result = eval(script);
+                console.log(`[sandbox] eval finished for reqId: ${reqId}, isPromise: ${result instanceof Promise}`);
+                
+                if (result instanceof Promise) {
+                    var resolved = await result;
+                    console.log(`[sandbox] promise resolved for reqId: ${reqId}`);
+                    tauriReturn(reqId, resolved, null);
+                } else {
+                    tauriReturn(reqId, result, null);
+                }
+            } catch (e) {
+                console.error(`[sandbox] eval error for reqId: ${reqId}`, e);
+                tauriReturn(reqId, null, e.toString());
+            }
+        }
+    </script>
+</head>
+<body></body>
+</html>

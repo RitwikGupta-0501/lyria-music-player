@@ -1,0 +1,11 @@
+{
+  "identifier": "debug-capability",
+  "description": "Capabilities for the Debug Console window",
+  "windows": ["debug-logger"],
+  "permissions": [
+    "core:default",
+    "app-commands",
+    "opener:default",
+    "dialog:default"
+  ]
+}

@@ -174,7 +174,7 @@ fn hydrate_tracks(conn: &Connection, rows: Vec<RawTrackRow>) -> Result<Vec<Queue
                 },
             ) {
                 Ok(t) => tracks.push(t),
-                Err(e) => log::warn!("Skipping orphaned local track {}: {}", track_id, e),
+                Err(e) => tracing::warn!("Skipping orphaned local track {}: {}", track_id, e),
             }
         } else {
             // Remote track — use cached metadata from DB row

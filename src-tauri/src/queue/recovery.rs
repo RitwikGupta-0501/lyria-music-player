@@ -6,7 +6,7 @@ use super::persistence;
 pub fn recover_on_startup(conn: &Connection) -> Result<QueueState, String> {
     match persistence::load_queue_state(conn) {
         Ok(Some(queue)) => {
-            log::info!(
+            tracing::info!(
                 "Queue recovered: {} tracks, position {}/{}",
                 queue.length(),
                 queue.current_position,
@@ -15,11 +15,11 @@ pub fn recover_on_startup(conn: &Connection) -> Result<QueueState, String> {
             Ok(queue)
         }
         Ok(None) => {
-            log::debug!("No previous queue state found, starting fresh");
+            tracing::debug!("No previous queue state found, starting fresh");
             Ok(QueueState::new())
         }
         Err(e) => {
-            log::warn!("Failed to recover queue: {}, starting fresh", e);
+            tracing::warn!("Failed to recover queue: {}, starting fresh", e);
             Ok(QueueState::new())  // Graceful fallback
         }
     }

@@ -524,7 +524,7 @@
         z-index: 20;
     }
     .ctrl-btn {
-        color: var(--muted);
+        color: var(--echo-text-2);
         transition:
             color 0.15s ease,
             background-color 0.15s ease;
@@ -546,7 +546,7 @@
         background-color: rgba(255, 255, 255, 0.05);
     }
     .ctrl-btn.active {
-        color: var(--text-main);
+        color: var(--echo-text-1);
     }
     .ctrl-btn.active::after {
         content: "";
@@ -557,7 +557,7 @@
         width: 4px;
         height: 4px;
         border-radius: 50%;
-        background-color: var(--text-main);
+        background-color: var(--echo-text-1);
     }
 
     .play-pause-btn {
@@ -694,12 +694,13 @@
     /* Paused State */
     .player-pill-wrapper[data-state="paused"] .pill-accent-bg {
         background-color: var(--echo-primary-dark);
+        filter: saturate(0.65) opacity(0.85);
     }
     .player-pill-wrapper[data-state="paused"] .pill-accent-shadow {
-        box-shadow: 0 0 10px rgba(181, 142, 98, 0.15);
+        box-shadow: none;
     }
     .player-pill-wrapper[data-state="paused"] .song-title {
-        color: var(--muted);
+        color: var(--echo-text-3);
     }
     .player-pill-wrapper[data-state="paused"] .album-art-container {
         filter: grayscale(40%) brightness(0.6);

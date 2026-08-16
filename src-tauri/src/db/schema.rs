@@ -79,6 +79,17 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     // Migration to add settings column if it doesn't exist
     let _ = conn.execute("ALTER TABLE providers ADD COLUMN settings TEXT", []);
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS provider_storage (
+            provider_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY(provider_id, key),
+            FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
     // Queue persistence tables (Phase 5)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS queue_state (

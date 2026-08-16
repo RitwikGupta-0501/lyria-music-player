@@ -18,6 +18,7 @@ pub struct TrackData {
 pub enum DbRequest {
     GetLocalTracks { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     GetAlbums { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<Album>, String>> },
+    GetRecentAlbums { limit: u32, resp: oneshot::Sender<Result<Vec<Album>, String>> },
     GetAlbumTracks { album_id: i64, limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     GetPlaylists { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<Playlist>, String>> },
     CreatePlaylist { name: String, resp: oneshot::Sender<Result<i64, String>> },
@@ -29,6 +30,7 @@ pub enum DbRequest {
     ReorderPlaylistTrack { playlist_id: i64, from_pos: i64, to_pos: i64, resp: oneshot::Sender<Result<(), String>> },
     ClearLocalLibrary { resp: oneshot::Sender<Result<(), String>> },
     GetSetting { key: String, resp: oneshot::Sender<Result<Option<String>, String>> },
+    GetAllSettings { resp: oneshot::Sender<Result<std::collections::HashMap<String, String>, String>> },
     SetSetting { key: String, value: String, resp: oneshot::Sender<Result<(), String>> },
     FactoryReset { resp: oneshot::Sender<Result<(), String>> },
     InsertTracks { tracks: Vec<TrackData>, resp: oneshot::Sender<Result<usize, String>> },
@@ -39,6 +41,8 @@ pub enum DbRequest {
     GetProviders { resp: oneshot::Sender<Result<Vec<crate::ProviderInfo>, String>> },
     ToggleProvider { provider_id: String, enabled: bool, resp: oneshot::Sender<Result<(), String>> },
     SaveProviderSettings { provider_id: String, settings_json: String, resp: oneshot::Sender<Result<(), String>> },
+    GetProviderStorage { provider_id: String, key: String, resp: oneshot::Sender<Result<Option<String>, String>> },
+    SetProviderStorage { provider_id: String, key: String, value: String, resp: oneshot::Sender<Result<(), String>> },
     Quit,
 }
 
@@ -51,6 +55,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::GetAlbums { limit, offset, resp } => {
                     let _ = resp.send(queries::get_albums(&conn, limit, offset));
+                }
+                DbRequest::GetRecentAlbums { limit, resp } => {
+                    let _ = resp.send(queries::get_recent_albums(&conn, limit));
                 }
                 DbRequest::GetAlbumTracks { album_id, limit, offset, resp } => {
                     let _ = resp.send(queries::get_album_tracks(&conn, album_id, limit, offset));
@@ -85,6 +92,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 DbRequest::GetSetting { key, resp } => {
                     let _ = resp.send(queries::get_setting(&conn, &key));
                 }
+                DbRequest::GetAllSettings { resp } => {
+                    let _ = resp.send(queries::get_all_settings(&conn));
+                }
                 DbRequest::SetSetting { key, value, resp } => {
                     let _ = resp.send(queries::set_setting(&conn, &key, &value));
                 }
@@ -114,6 +124,12 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::SaveProviderSettings { provider_id, settings_json, resp } => {
                     let _ = resp.send(queries::save_provider_settings(&conn, &provider_id, &settings_json));
+                }
+                DbRequest::GetProviderStorage { provider_id, key, resp } => {
+                    let _ = resp.send(queries::get_provider_storage(&conn, &provider_id, &key));
+                }
+                DbRequest::SetProviderStorage { provider_id, key, value, resp } => {
+                    let _ = resp.send(queries::set_provider_storage(&conn, &provider_id, &key, &value));
                 }
                 DbRequest::Quit => {
                     break;

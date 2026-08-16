@@ -5,10 +5,14 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "app-commands",
     "opener:default",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "**" }]
+      "allow": [
+        { "path": "http://**" },
+        { "path": "https://**" }
+      ]
     },
     "dialog:default",
     "dialog:allow-confirm",

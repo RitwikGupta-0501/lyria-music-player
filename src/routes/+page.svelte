@@ -17,9 +17,11 @@
     import PlaylistDetail from "$lib/components/PlaylistDetail.svelte";
     import type { Playlist } from "$lib/stores/library.svelte";
 
+    import { onMount } from "svelte";
     import RightDrawer from "$lib/components/RightDrawer.svelte";
     import FullScreenPlayer from "$lib/components/FullScreenPlayer.svelte";
     import GlobalSearch from "$lib/components/GlobalSearch.svelte";
+    import SearchView from "$lib/components/SearchView.svelte";
 
     let activeView = $state("albums");
     let selectedAlbum = $state<Album | null>(null);
@@ -43,7 +45,8 @@
         selectedPlaylist = null;
     }
 
-    $effect(() => {
+    // One-time initialization — runs once on mount, never re-runs on state change.
+    onMount(() => {
         (async () => {
             await audioStore.init();
             await libraryStore.fetchAlbums();
@@ -51,11 +54,8 @@
             await settingsStore.init();
         })();
 
-        document.documentElement.style.setProperty('--drawer-w', drawerOpen ? '400px' : '0px');
-
-        const handleSearch = () => {
-            globalSearchOpen = true;
-        };
+        const handleSearch = () => { globalSearchOpen = true; };
+        const handleNavigateExplore = () => { activeView = "explore"; };
         const handleEscape = () => {
             if (globalSearchOpen) {
                 globalSearchOpen = false;
@@ -66,11 +66,18 @@
             }
         };
         document.addEventListener('echo:search', handleSearch);
+        document.addEventListener('echo:navigate-explore', handleNavigateExplore);
         document.addEventListener('echo:escape', handleEscape);
         return () => {
             document.removeEventListener('echo:search', handleSearch);
+            document.removeEventListener('echo:navigate-explore', handleNavigateExplore);
             document.removeEventListener('echo:escape', handleEscape);
         };
+    });
+
+    // Reactive: update the CSS variable whenever drawer state changes.
+    $effect(() => {
+        document.documentElement.style.setProperty('--drawer-w', drawerOpen ? '400px' : '0px');
     });
 </script>
 
@@ -81,7 +88,9 @@
     <Sidebar bind:activeView />
 
     <main class="main-content">
-        {#if activeView === "albums"}
+        {#if activeView === "explore"}
+            <SearchView bind:activeView />
+        {:else if activeView === "albums"}
             <AlbumGrid bind:activeView onSelectAlbum={(a) => { selectedAlbum = a; queueOpen = false; }} selectedAlbumId={selectedAlbum?.id} />
         {:else if activeView === "playlists"}
             <PlaylistView bind:activeView onSelectPlaylist={(p) => { selectedPlaylist = p; queueOpen = false; }} />

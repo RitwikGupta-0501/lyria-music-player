@@ -8,10 +8,11 @@
         onClose: () => void;
     }>();
 
-    let value = $state(defaultValue);
+    let value = $state("");
     let inputRef = $state<HTMLInputElement | null>(null);
 
     onMount(() => {
+        value = defaultValue;
         if (inputRef) {
             inputRef.focus();
             inputRef.select();
@@ -39,7 +40,7 @@
 <div class="modal-overlay" onclick={onClose}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="glass-panel modal-content" onclick={(e) => e.stopPropagation()} role="dialog">
+    <div class="glass-panel modal-content" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
             <h2>{title}</h2>
             <button class="ghost" style="padding: 0.2rem 0.5rem;" onclick={onClose}>✕</button>

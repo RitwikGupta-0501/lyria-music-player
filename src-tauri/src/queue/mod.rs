@@ -210,6 +210,47 @@ impl QueueState {
         }
     }
 
+    /// Peek at the next track without advancing
+    pub fn peek_next(&self) -> Option<QueueTrack> {
+        if self.tracks.is_empty() {
+            return None;
+        }
+
+        let next_pos = match self.mode {
+            QueueMode::Normal => {
+                let next = self.current_position + 1;
+                if next >= self.tracks.len() {
+                    match self.repeat_mode {
+                        RepeatMode::Off => None,
+                        RepeatMode::All | RepeatMode::One => Some(0),
+                    }
+                } else {
+                    Some(next)
+                }
+            }
+            QueueMode::Shuffle => {
+                if let Some(shuffle) = &self.shuffle_state {
+                    let next_cursor = shuffle.cursor + 1;
+                    if next_cursor >= shuffle.order.len() {
+                        match self.repeat_mode {
+                            RepeatMode::Off => None,
+                            RepeatMode::All | RepeatMode::One => {
+                                // For peek, we just loop around to 0
+                                shuffle.order.first().and_then(|id| self.tracks.iter().position(|t| &t.instance_id == id))
+                            }
+                        }
+                    } else {
+                        shuffle.order.get(next_cursor).and_then(|id| self.tracks.iter().position(|t| &t.instance_id == id))
+                    }
+                } else {
+                    None
+                }
+            }
+        };
+
+        next_pos.and_then(|pos| self.tracks.get(pos).cloned())
+    }
+
     /// Jump to specific position in queue
     pub fn jump_to_position(&mut self, position: usize) -> Result<QueueTrack, String> {
         if position >= self.tracks.len() {
@@ -339,8 +380,8 @@ impl QueueState {
         let pos = self.current_position as i32 - 1;
         if pos < 0 {
             match self.repeat_mode {
-                RepeatMode::Off => Ok(None),
-                RepeatMode::All => Ok(Some(self.tracks.len() - 1)),
+                RepeatMode::Off => Ok(Some(self.current_position)),
+                RepeatMode::All => Ok(Some(self.tracks.len().saturating_sub(1))),
                 RepeatMode::One => Ok(Some(self.current_position)),
             }
         } else {
@@ -355,7 +396,7 @@ impl QueueState {
         let prev_cursor = shuffle.cursor as i32 - 1;
         if prev_cursor < 0 {
             match self.repeat_mode {
-                RepeatMode::Off => Ok(None),
+                RepeatMode::Off => Ok(Some(self.current_position)),
                 RepeatMode::All => {
                     // Wrap to end without regenerating
                     shuffle.cursor = shuffle.order.len() - 1;

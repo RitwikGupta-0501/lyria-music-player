@@ -25,6 +25,7 @@ export interface Playlist {
 
 export class LibraryStore {
     albums = $state<Album[]>([]);
+    recentAlbums = $state<Album[]>([]);
     playlists = $state<Playlist[]>([]);
     isScanning = $state(false);
     lastScanResult = $state<number | null>(null);
@@ -32,6 +33,14 @@ export class LibraryStore {
     async fetchAlbums() {
         try {
             this.albums = await invoke("get_albums", { limit: 500, offset: 0 });
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async fetchRecentAlbums() {
+        try {
+            this.recentAlbums = await invoke("get_recent_albums", { limit: 20 });
         } catch (e) {
             console.error(e);
         }
@@ -53,6 +62,7 @@ export class LibraryStore {
             const added = await invoke<number>("scan_local_directory", { path });
             this.lastScanResult = added;
             await this.fetchAlbums();
+            await this.fetchRecentAlbums();
             toastStore.success(`Scan complete: ${added} new track${added !== 1 ? 's' : ''} added.`);
         } catch (e) {
             console.error("Scan error:", e);

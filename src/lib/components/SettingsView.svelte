@@ -2,66 +2,98 @@
     import { invoke } from "@tauri-apps/api/core";
     import { libraryStore } from "$lib/stores/library.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { CaretDown, Check } from "phosphor-svelte";
-    import { onMount } from 'svelte';
+    import { toastStore } from "$lib/stores/toast.svelte";
+    import { CaretDown, Check, TerminalWindow, Copy, FolderOpen } from "phosphor-svelte";
+    import { onMount } from "svelte";
 
-    let activeTab = $state<"playback" | "appearance" | "data">("playback");
-    
-    let keepPlayingOnClear = $state(false);
-    let trackClickBehavior = $state<"interrupt" | "clear" | "append">("interrupt");
-    let loaded = $state(false);
-    
+    let activeTab = $state<"playback" | "appearance" | "data" | "advanced">("playback");
+
     let isDropdownOpen = $state(false);
+    let isCopyLogsSuccess = $state(false);
+    let copyLogsSuccessTimer: ReturnType<typeof setTimeout> | null = null;
 
     const behaviorOptions = [
         { value: "interrupt", label: "Play Next & Switch" },
         { value: "clear", label: "Clear Queue & Play" },
-        { value: "append", label: "Add to End of Queue" }
+        { value: "append", label: "Add to End of Queue" },
+    ];
+
+    let isQueueCompletionOpen = $state(false);
+
+    const queueCompletionOptions = [
+        { value: "retain_stopped", label: "Reset to Start & Keep Queue" },
+        { value: "pause_end", label: "Pause at End of Song" },
+        { value: "collapse_idle", label: "Clear Player When Finished" },
     ];
 
     onMount(async () => {
-        try {
-            const val = await invoke<string | null>("get_setting", { key: "keep_playing_on_queue_clear" });
-            keepPlayingOnClear = val === "true";
-
-            const clickVal = await invoke<string | null>("get_setting", { key: "track_click_behavior" });
-            if (clickVal) trackClickBehavior = clickVal as "interrupt" | "clear" | "append";
-        } catch (e) {
-            console.error("Failed to load setting:", e);
-        } finally {
-            loaded = true;
-        }
+        await settingsStore.init();
     });
 
     async function toggleKeepPlaying() {
-        if (!loaded) return;
-        keepPlayingOnClear = !keepPlayingOnClear;
-        try {
-            await invoke("set_setting", { key: "keep_playing_on_queue_clear", value: keepPlayingOnClear ? "true" : "false" });
-        } catch (e) {
-            console.error("Failed to save setting:", e);
-            keepPlayingOnClear = !keepPlayingOnClear; // Revert
-        }
+        await settingsStore.setKeepPlayingOnQueueClear(!settingsStore.keepPlayingOnQueueClear);
     }
 
     async function selectBehavior(val: "interrupt" | "clear" | "append") {
-        if (!loaded) return;
-        trackClickBehavior = val;
+        await settingsStore.setTrackClickBehavior(val);
         isDropdownOpen = false;
-        
-        import('$lib/stores/audio.svelte').then(({ audioStore }) => {
-            audioStore.setTrackClickBehavior(val);
-        });
+    }
+
+    async function selectQueueCompletion(val: "retain_stopped" | "pause_end" | "collapse_idle") {
+        await settingsStore.setQueueCompletionBehavior(val);
+        isQueueCompletionOpen = false;
     }
 
     function handleOutsideClick(e: MouseEvent) {
         if (isDropdownOpen) {
             isDropdownOpen = false;
         }
+        if (isQueueCompletionOpen) {
+            isQueueCompletionOpen = false;
+        }
+    }
+
+    async function openDebugWindow() {
+        try {
+            await invoke("open_debug_window");
+        } catch (e) {
+            console.error("Failed to open debug window:", e);
+        }
+    }
+
+    async function copyDebugLogs() {
+        try {
+            const logs = await invoke<string>("copy_debug_log_to_clipboard");
+            await navigator.clipboard.writeText(logs);
+            if (copyLogsSuccessTimer) clearTimeout(copyLogsSuccessTimer);
+            isCopyLogsSuccess = true;
+            copyLogsSuccessTimer = setTimeout(() => {
+                isCopyLogsSuccess = false;
+                copyLogsSuccessTimer = null;
+            }, 1200);
+            toastStore.success("Debug logs copied to clipboard.");
+        } catch (e) {
+            console.error("Failed to copy debug logs:", e);
+            toastStore.error("Failed to copy debug logs.");
+        }
+    }
+
+    async function openLogFolder() {
+        try {
+            await invoke("open_log_directory");
+        } catch (e) {
+            console.error("Failed to open log folder:", e);
+        }
+    }
+
+    async function toggleLogCollection() {
+        await settingsStore.setLogCollectionEnabled(!settingsStore.logCollectionEnabled);
     }
 
     async function factoryReset() {
-        const yes = confirm("Are you sure you want to completely wipe your library and settings?");
+        const yes = confirm(
+            "Are you sure you want to completely wipe your library and settings?",
+        );
         if (yes) {
             try {
                 await invoke("factory_reset");
@@ -81,46 +113,67 @@
     <!-- Left Pane: Navigation -->
     <aside class="settings-nav">
         <h2 class="settings-title">Settings</h2>
-        
+
         <nav class="nav-list">
-            <button 
-                class="nav-item" 
-                class:active={activeTab === "playback"} 
-                onclick={() => activeTab = "playback"}
+            <button
+                class="nav-item"
+                class:active={activeTab === "playback"}
+                onclick={() => (activeTab = "playback")}
             >
                 Playback
             </button>
-            <button 
-                class="nav-item" 
-                class:active={activeTab === "appearance"} 
-                onclick={() => activeTab = "appearance"}
+            <button
+                class="nav-item"
+                class:active={activeTab === "appearance"}
+                onclick={() => (activeTab = "appearance")}
             >
                 Appearance
             </button>
-            <button 
-                class="nav-item" 
-                class:active={activeTab === "data"} 
-                onclick={() => activeTab = "data"}
+            <button
+                class="nav-item"
+                class:active={activeTab === "data"}
+                onclick={() => (activeTab = "data")}
             >
                 Data & Privacy
+            </button>
+            <button
+                class="nav-item"
+                class:active={activeTab === "advanced"}
+                onclick={() => (activeTab = "advanced")}
+            >
+                Advanced & Debug
             </button>
         </nav>
     </aside>
 
     <!-- Right Pane: Content -->
-    <div class="settings-content" onclick={(e) => e.stopPropagation()}>
+    <div
+        class="settings-content"
+        role="presentation"
+        onclick={(e) => e.stopPropagation()}
+    >
         <div class="content-container">
             {#if activeTab === "playback"}
                 <section class="settings-section">
                     <h3 class="section-title">Audio & Playback</h3>
-                    
+
                     <div class="setting-row">
                         <div class="setting-info">
-                            <p class="setting-label">Keep Playing on Queue Clear</p>
-                            <p class="setting-desc">Allow the current song to finish even if the upcoming queue is wiped.</p>
+                            <p class="setting-label">
+                                Keep Playing on Queue Clear
+                            </p>
+                            <p class="setting-desc">
+                                Allow the current song to finish even if the
+                                upcoming queue is wiped.
+                            </p>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" checked={keepPlayingOnClear} onchange={toggleKeepPlaying} disabled={!loaded} />
+                            <input
+                                type="checkbox"
+                                checked={settingsStore.keepPlayingOnQueueClear}
+                                onchange={toggleKeepPlaying}
+                                disabled={!settingsStore.loaded}
+                            />
                             <span class="slider round"></span>
                         </label>
                     </div>
@@ -128,30 +181,116 @@
                     <div class="setting-row">
                         <div class="setting-info">
                             <p class="setting-label">When clicking a track</p>
-                            <p class="setting-desc">Behavior when playing a single track while a queue is active.</p>
+                            <p class="setting-desc">
+                                Behavior when playing a single track while a
+                                queue is active.
+                            </p>
                         </div>
-                        
+
                         <div class="custom-select-container">
-                            <button 
-                                class="select-trigger" 
-                                onclick={(e) => { e.stopPropagation(); isDropdownOpen = !isDropdownOpen; }}
-                                disabled={!loaded}
+                            <button
+                                class="select-trigger"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    isDropdownOpen = !isDropdownOpen;
+                                }}
+                                disabled={!settingsStore.loaded}
                             >
-                                <span>{behaviorOptions.find(o => o.value === trackClickBehavior)?.label || "Select..."}</span>
-                                <CaretDown size={14} weight="bold" class={isDropdownOpen ? 'rotated' : ''} />
+                                <span
+                                    >{behaviorOptions.find(
+                                        (o) => o.value === settingsStore.trackClickBehavior,
+                                    )?.label || "Select..."}</span
+                                >
+                                <CaretDown
+                                    size={14}
+                                    weight="bold"
+                                    class={isDropdownOpen ? "rotated" : ""}
+                                />
                             </button>
 
                             {#if isDropdownOpen}
                                 <div class="custom-select-menu glass">
                                     {#each behaviorOptions as opt}
-                                        <button 
-                                            class="select-option" 
-                                            class:selected={trackClickBehavior === opt.value}
-                                            onclick={(e) => { e.stopPropagation(); selectBehavior(opt.value as any); }}
+                                        <button
+                                            class="select-option"
+                                            class:selected={settingsStore.trackClickBehavior ===
+                                                opt.value}
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                selectBehavior(
+                                                    opt.value as any,
+                                                );
+                                            }}
                                         >
-                                            <span class="opt-label">{opt.label}</span>
-                                            {#if trackClickBehavior === opt.value}
-                                                <Check size={14} weight="bold" class="check-icon" />
+                                            <span class="opt-label"
+                                                >{opt.label}</span
+                                            >
+                                            {#if settingsStore.trackClickBehavior === opt.value}
+                                                <Check
+                                                    size={14}
+                                                    weight="bold"
+                                                    class="check-icon"
+                                                />
+                                            {/if}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <p class="setting-label">When queue completes</p>
+                            <p class="setting-desc">
+                                Behavior when the queue finishes playing all tracks.
+                            </p>
+                        </div>
+
+                        <div class="custom-select-container">
+                            <button
+                                class="select-trigger"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    isQueueCompletionOpen = !isQueueCompletionOpen;
+                                }}
+                                disabled={!settingsStore.loaded}
+                            >
+                                <span
+                                    >{queueCompletionOptions.find(
+                                        (o) => o.value === settingsStore.queueCompletionBehavior,
+                                    )?.label || "Select..."}</span
+                                >
+                                <CaretDown
+                                    size={14}
+                                    weight="bold"
+                                    class={isQueueCompletionOpen ? "rotated" : ""}
+                                />
+                            </button>
+
+                            {#if isQueueCompletionOpen}
+                                <div class="custom-select-menu glass">
+                                    {#each queueCompletionOptions as opt}
+                                        <button
+                                            class="select-option"
+                                            class:selected={settingsStore.queueCompletionBehavior ===
+                                                opt.value}
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                selectQueueCompletion(
+                                                    opt.value as any,
+                                                );
+                                            }}
+                                        >
+                                            <span class="opt-label"
+                                                >{opt.label}</span
+                                            >
+                                            {#if settingsStore.queueCompletionBehavior === opt.value}
+                                                <Check
+                                                    size={14}
+                                                    weight="bold"
+                                                    class="check-icon"
+                                                />
                                             {/if}
                                         </button>
                                     {/each}
@@ -163,14 +302,25 @@
             {:else if activeTab === "appearance"}
                 <section class="settings-section">
                     <h3 class="section-title">Appearance</h3>
-                    
+
                     <div class="setting-row">
                         <div class="setting-info">
                             <p class="setting-label">Glassy Player Bar</p>
-                            <p class="setting-desc">Enable a sleek, semi-transparent frosted glass effect for the bottom player.</p>
+                            <p class="setting-desc">
+                                Enable a sleek, semi-transparent frosted glass
+                                effect for the bottom player.
+                            </p>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" checked={settingsStore.glassyPlayerBar} onchange={(e) => settingsStore.setGlassyPlayerBar(e.currentTarget.checked)} disabled={!loaded} />
+                            <input
+                                type="checkbox"
+                                checked={settingsStore.glassyPlayerBar}
+                                onchange={(e) =>
+                                    settingsStore.setGlassyPlayerBar(
+                                        e.currentTarget.checked,
+                                    )}
+                                disabled={!settingsStore.loaded}
+                            />
                             <span class="slider round"></span>
                         </label>
                     </div>
@@ -178,15 +328,100 @@
             {:else if activeTab === "data"}
                 <section class="settings-section">
                     <h3 class="section-title">Data Management</h3>
-                    
-                    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 1.5rem;">
+
+                    <div
+                        class="setting-row"
+                        style="flex-direction: column; align-items: flex-start; gap: 1.5rem;"
+                    >
                         <div class="setting-info">
                             <p class="setting-desc" style="font-size: 0.95rem;">
-                                This will delete the local SQLite database and clear all cached artwork and extensions. Your actual music files will not be touched.
+                                This will delete the local SQLite database and
+                                clear all cached artwork and extensions. Your
+                                actual music files will not be touched.
                             </p>
                         </div>
                         <button class="danger-btn" onclick={factoryReset}>
                             Factory Reset (Wipe Database)
+                        </button>
+                    </div>
+                </section>
+            {:else if activeTab === "advanced"}
+                <section class="settings-section">
+                    <h3 class="section-title">Developer & Debugging</h3>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <p class="setting-label">Enable Diagnostic Log Collection</p>
+                            <p class="setting-desc">
+                                Record WASM plugin calls, BotGuard JS VM signals, network statuses, and audio engine events to local memory and log files. 
+                                <strong style="color: var(--echo-text-1);">Echo never transmits remote telemetry — all diagnostic logs stay 100% on your device.</strong>
+                            </p>
+                        </div>
+                        <label class="switch">
+                            <input
+                                type="checkbox"
+                                checked={settingsStore.logCollectionEnabled}
+                                onchange={toggleLogCollection}
+                                disabled={!settingsStore.loaded}
+                            />
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
+                    <div class="dependent-group">
+                        <p class="dependent-group-label">Requires diagnostic log collection</p>
+
+                        <div class="setting-row dependent-row">
+                            <div class="setting-info">
+                                <p class="setting-label">Real-Time Debug Console</p>
+                                <p class="setting-desc">
+                                    Launch a separate window to monitor live WASM plugin calls, BotGuard JS VM executions, network requests, and audio engine events.
+                                </p>
+                            </div>
+                            <button
+                                class="action-btn primary"
+                                onclick={openDebugWindow}
+                                disabled={!settingsStore.loaded || !settingsStore.logCollectionEnabled}
+                            >
+                                <TerminalWindow size={16} weight="regular" />
+                                <span>Open Debug Console</span>
+                            </button>
+                        </div>
+
+                        <div class="setting-row dependent-row">
+                            <div class="setting-info">
+                                <p class="setting-label">Copy Debug Logs</p>
+                                <p class="setting-desc">
+                                    Copy recent in-memory log buffer to clipboard for GitHub bug reports.
+                                </p>
+                            </div>
+                        <button
+                            class="action-btn copy-action"
+                            class:copy-success={isCopyLogsSuccess}
+                            onclick={copyDebugLogs}
+                            disabled={!settingsStore.loaded || !settingsStore.logCollectionEnabled}
+                        >
+                            {#if isCopyLogsSuccess}
+                                <Check size={16} weight="bold" />
+                                <span>Copied</span>
+                            {:else}
+                                <Copy size={16} weight="regular" />
+                                <span>Copy Logs</span>
+                            {/if}
+                        </button>
+                    </div>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <p class="setting-label">Log File Directory</p>
+                            <p class="setting-desc">
+                                Open the system file explorer folder containing daily rolling log files.
+                            </p>
+                        </div>
+                        <button class="action-btn" onclick={openLogFolder}>
+                            <FolderOpen size={16} weight="regular" />
+                            <span>Open Log Folder</span>
                         </button>
                     </div>
                 </section>
@@ -335,9 +570,94 @@
         transition: all 0.2s ease;
     }
 
+    .action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        background: var(--echo-surface);
+        color: var(--echo-text-1);
+        border: 1px solid var(--echo-border-medium);
+        padding: 0.6rem 1.2rem;
+        border-radius: 8px;
+        font-family: var(--echo-font-body);
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+    }
+    .action-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        filter: grayscale(0.15);
+    }
+    .action-btn:hover {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: var(--echo-text-2);
+    }
+    .action-btn:disabled:hover {
+        background: var(--echo-surface);
+        border-color: var(--echo-border-medium);
+    }
+    .action-btn.primary {
+        background: rgba(226, 169, 115, 0.12);
+        color: var(--echo-primary);
+        border-color: rgba(226, 169, 115, 0.3);
+    }
+    .action-btn.primary:hover {
+        background: rgba(226, 169, 115, 0.22);
+        border-color: var(--echo-primary);
+    }
+
+    .copy-action.copy-success {
+        background: rgba(16, 185, 129, 0.14);
+        color: #34d399;
+        border-color: rgba(16, 185, 129, 0.35);
+        animation: copySuccessPop 0.28s ease-out;
+    }
+
+    .copy-action.copy-success:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.18);
+        border-color: rgba(16, 185, 129, 0.45);
+    }
+
     .danger-btn:hover {
         background-color: rgba(220, 38, 38, 0.2);
         border-color: rgba(220, 38, 38, 0.5);
+    }
+
+    .dependent-group {
+        margin-left: 1rem;
+        padding-left: 1rem;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .dependent-group-label {
+        margin: 0;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--echo-text-2);
+    }
+
+    .dependent-row {
+        padding: 0.75rem 0;
+    }
+
+    @keyframes copySuccessPop {
+        0% {
+            transform: scale(1);
+        }
+        55% {
+            transform: scale(1.05);
+        }
+        100% {
+            transform: scale(1);
+        }
     }
 
     /* Dropdown UI */
@@ -449,7 +769,7 @@
         bottom: 0;
         background-color: var(--echo-raised);
         border: 1px solid var(--echo-border-medium);
-        transition: .4s;
+        transition: 0.4s;
     }
     .slider:before {
         position: absolute;
@@ -459,7 +779,7 @@
         left: 3px;
         bottom: 3px;
         background-color: var(--echo-text-2);
-        transition: .4s;
+        transition: 0.4s;
     }
     input:checked + .slider {
         background-color: var(--echo-primary);
@@ -477,11 +797,23 @@
     }
 
     @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(5px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+            opacity: 0;
+            transform: translateY(5px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
     @keyframes slideDown {
-        0% { opacity: 0; transform: translateY(-4px) scale(0.98); }
-        100% { opacity: 1; transform: translateY(0) scale(1); }
+        0% {
+            opacity: 0;
+            transform: translateY(-4px) scale(0.98);
+        }
+        100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
     }
 </style>

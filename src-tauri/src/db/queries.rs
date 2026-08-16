@@ -40,6 +40,25 @@ pub fn get_albums(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<Albu
     Ok(albums)
 }
 
+
+pub fn get_recent_albums(conn: &Connection, limit: u32) -> Result<Vec<Album>, String> {
+    let mut albums = Vec::new();
+    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY id DESC LIMIT ?1").map_err(|e| e.to_string())?;
+    let album_iter = stmt.query_map([&limit], |row| {
+        Ok(Album {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            artist: row.get(2)?,
+            cover_art_path: row.get(3)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    for a in album_iter.flatten() {
+        albums.push(a);
+    }
+    Ok(albums)
+}
+
 pub fn get_album_tracks(conn: &Connection, album_id: i64, limit: u32, offset: u32) -> Result<Vec<LocalTrack>, String> {
     let mut tracks = Vec::new();
     let mut stmt = conn.prepare("SELECT id, title, artist, album_id, track_number, file_path FROM tracks WHERE album_id = ?1 ORDER BY track_number LIMIT ?2 OFFSET ?3").map_err(|e| e.to_string())?;
@@ -193,6 +212,19 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, Strin
         return Ok(Some(value));
     }
     Ok(None)
+}
+
+pub fn get_all_settings(conn: &Connection) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| e.to_string())?;
+
+    let mut map = std::collections::HashMap::new();
+    for (k, v) in rows.flatten() {
+        map.insert(k, v);
+    }
+    Ok(map)
 }
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
@@ -384,6 +416,26 @@ pub fn save_provider_settings(conn: &Connection, provider_id: &str, settings_jso
     conn.execute(
         "UPDATE providers SET settings = ?1 WHERE id = ?2",
         rusqlite::params![settings_json, provider_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn get_provider_storage(conn: &Connection, provider_id: &str, key: &str) -> Result<Option<String>, String> {
+    let mut stmt = conn.prepare("SELECT value FROM provider_storage WHERE provider_id = ?1 AND key = ?2").map_err(|e| e.to_string())?;
+    let mut rows = stmt.query(rusqlite::params![provider_id, key]).map_err(|e| e.to_string())?;
+    if let Ok(Some(row)) = rows.next() {
+        let value: String = row.get(0).map_err(|e| e.to_string())?;
+        Ok(Some(value))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_provider_storage(conn: &Connection, provider_id: &str, key: &str, value: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO provider_storage (provider_id, key, value) VALUES (?1, ?2, ?3)
+         ON CONFLICT(provider_id, key) DO UPDATE SET value=excluded.value",
+        rusqlite::params![provider_id, key, value],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }

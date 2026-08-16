@@ -5,11 +5,12 @@
   "identifier": "com.ritwik.echo-desktop",
   "build": {
     "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "echo-desktop",
@@ -21,7 +22,9 @@
       "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/artwork/**"]
+        "scope": [
+          "$APPDATA/artwork/**"
+        ]
       }
     }
   },
@@ -35,6 +38,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["../providers/*"]
+    "resources": [
+      "../providers/*"
+    ]
   }
 }

@@ -13,6 +13,8 @@ pub mod providers;
 pub mod queue;
 pub mod telemetry;
 pub mod feature_flags;
+pub mod sandbox;
+pub mod logger;
 
 use providers::{ProviderManager, TrackResult};
 use audio::AudioCommand;
@@ -51,6 +53,7 @@ pub struct AppState {
     pub db_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     pub queue: std::sync::Mutex<QueueState>,
     pub reqwest_client: reqwest::Client,
+    pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -96,7 +99,11 @@ async fn sync_providers(app: AppHandle, state: State<'_, AppState>) -> Result<()
     if let Ok(entries) = std::fs::read_dir(&providers_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("lua") {
+            if !path.is_file() { continue; }
+            
+            let ext = path.extension().and_then(|e| e.to_str());
+            
+            if ext == Some("lua") {
                 let fallback_id = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
                 
                 let content = std::fs::read_to_string(&path).unwrap_or_default();
@@ -137,6 +144,45 @@ async fn sync_providers(app: AppHandle, state: State<'_, AppState>) -> Result<()
                     icon,
                     settings: None,
                 });
+            } else if ext == Some("json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let id = json["id"].as_str().unwrap_or_default().to_string();
+                        let name = json["name"].as_str().unwrap_or(&id).to_string();
+                        let author = json["author"].as_str().unwrap_or("Unknown").to_string();
+                        let version = json["version"].as_str().unwrap_or("0.0.0").to_string();
+                        
+                        let main_file = json["main"].as_str().unwrap_or_default();
+                        let mut wasm_path = path.clone();
+                        wasm_path.set_file_name(main_file);
+                        
+                        let capabilities = json["capabilities"]
+                            .as_array()
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<String>>());
+                            
+                        let homepage = json["homepage"].as_str().map(|s| s.to_string());
+                        let settings_schema = json["settings_schema"].as_str().map(|s| s.to_string());
+                        let priority = json["priority"].as_i64().unwrap_or(0) as i32;
+                        let icon = json["icon"].as_str().map(|s| s.to_string());
+                        
+                        providers.push(ProviderInfo {
+                            id,
+                            name,
+                            author,
+                            version,
+                            file_path: wasm_path.to_string_lossy().into_owned(),
+                            status: "enabled".to_string(),
+                            error_message: None,
+                            checksum: None,
+                            capabilities,
+                            homepage,
+                            settings_schema,
+                            priority,
+                            icon,
+                            settings: None,
+                        });
+                    }
+                }
             }
         }
     }
@@ -198,6 +244,28 @@ async fn search_provider(state: State<'_, AppState>, provider_id: String, query:
     let manager = state.provider_manager.lock().await;
     let results = manager
         .search(&provider_id, &query)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+#[tauri::command]
+async fn get_provider_modules(state: State<'_, AppState>, provider_id: String) -> Result<Vec<providers::ProviderModule>, String> {
+    let manager = state.provider_manager.lock().await;
+    let results = manager
+        .get_modules(&provider_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+#[tauri::command]
+async fn fetch_provider_module(state: State<'_, AppState>, provider_id: String, module_id: String) -> Result<providers::ModuleData, String> {
+    let manager = state.provider_manager.lock().await;
+    let results = manager
+        .fetch_module(&provider_id, &module_id)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -423,6 +491,13 @@ async fn get_setting(state: State<'_, AppState>, key: String) -> Result<Option<S
 }
 
 #[tauri::command]
+async fn get_all_settings(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, String>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(DbRequest::GetAllSettings { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn set_setting(state: State<'_, AppState>, key: String, value: String) -> Result<(), String> {
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::SetSetting { key, value, resp: tx }).map_err(|e| e.to_string())?;
@@ -548,7 +623,7 @@ fn get_error_count() -> u64 {
 #[tauri::command]
 fn clear_error_log() {
     telemetry::clear_error_log();
-    log::info!("Error log cleared");
+    tracing::info!("Error log cleared");
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -587,10 +662,10 @@ fn set_feature_enabled(flag: String, enabled: bool) {
 
     if enabled {
         feature_flags::FEATURE_FLAGS.enable(feature.clone());
-        log::info!("Feature enabled: {:?}", feature);
+        tracing::info!("Feature enabled: {:?}", feature);
     } else {
         feature_flags::FEATURE_FLAGS.disable(feature.clone());
-        log::info!("Feature disabled: {:?}", feature);
+        tracing::info!("Feature disabled: {:?}", feature);
     }
 }
 
@@ -602,26 +677,68 @@ async fn sync_playback_state(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+
+#[tauri::command]
+async fn sandbox_callback(
+    req_id: String,
+    payload: Option<serde_json::Value>,
+    error: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut pending = state.sandbox_manager.pending_requests.lock().await;
+    if let Some(tx) = pending.remove(&req_id) {
+        let res = if let Some(e) = error {
+            Err(e)
+        } else if let Some(p) = payload {
+            Ok(p)
+        } else {
+            Err("No payload or error provided".to_string())
+        };
+        let _ = tx.send(res);
+    } else {
+        tracing::warn!("sandbox_callback: Unknown req_id {}", req_id);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn open_in_file_explorer(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    
+    // Convert to canonical absolute path to prevent traversal/symlink tricks
+    let canonical_path = p.canonicalize().map_err(|e| e.to_string())?;
+    
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(&path)
+            .arg("/select,")
+            .arg(canonical_path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg("-R")
+            .arg(canonical_path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
+        // On Linux, xdg-open on a file opens the file (potentially executing it).
+        // We must safely extract the parent directory to just open the folder.
+        let target = if canonical_path.is_file() {
+            canonical_path.parent().unwrap_or(&canonical_path).to_path_buf()
+        } else {
+            canonical_path
+        };
+        
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(target)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -630,13 +747,11 @@ fn open_in_file_explorer(path: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .format_timestamp_millis()
-        .try_init()
-        .ok();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
 
-    log::info!("Echo Music Player starting up");
+    tracing::info!("Echo Music Player starting up");
 
     let (audio_tx, audio_rx) = mpsc::channel();
     let (db_tx, db_rx) = mpsc::channel();
@@ -646,6 +761,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let handle = app.handle().clone();
+            logger::init_logging(&handle);
             
             // Setup shared reqwest client with strict redirect/SSRF policy and timeouts
             let redirect_policy = reqwest::redirect::Policy::custom(|attempt| {
@@ -678,12 +794,12 @@ pub fn run() {
             // Recover queue state on startup (Phase 5)
             let recovered_queue = queue::recovery::recover_on_startup(&conn)
                 .unwrap_or_else(|e| {
-                    log::warn!("Queue recovery failed: {}, starting fresh", e);
+                    tracing::warn!("Queue recovery failed: {}, starting fresh", e);
                     telemetry::record_error("queue_recovery", &e);
                     QueueState::new()
                 });
 
-            log::info!("Queue initialized with {} tracks", recovered_queue.tracks.len());
+            tracing::info!("Queue initialized with {} tracks", recovered_queue.tracks.len());
 
             let db_thread_handle = db::start_db_thread(conn, db_rx);
             
@@ -707,8 +823,8 @@ pub fn run() {
                 }
             }
 
-            let provider_manager = ProviderManager::new(reqwest_client.clone());
-            let audio_thread_handle = audio::start_audio_thread(audio_rx, handle, reqwest_client.clone(), tauri::async_runtime::handle());
+            let provider_manager = ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone());
+            let audio_thread_handle = audio::start_audio_thread(audio_rx, handle, reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
 
             app.manage(AppState {
                 audio_tx: std::sync::Mutex::new(audio_tx),
@@ -718,12 +834,14 @@ pub fn run() {
                 db_thread: std::sync::Mutex::new(Some(db_thread_handle)),
                 queue: std::sync::Mutex::new(recovered_queue),
                 reqwest_client,
+                sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
             });
             
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             audio::commands::load_audio,
+            audio::commands::queue_next_audio,
             audio::commands::play_audio,
             audio::commands::pause_audio,
             audio::commands::stop_audio,
@@ -737,6 +855,8 @@ pub fn run() {
             get_provider_config,
             set_provider_config,
             search_provider,
+            get_provider_modules,
+            fetch_provider_module,
             search_library,
             fuzzy_match_tracks,
             scan_local_directory,
@@ -755,6 +875,7 @@ pub fn run() {
             extract_and_cache_artwork,
             clear_local_library,
             get_setting,
+            get_all_settings,
             set_setting,
             factory_reset,
             remove_track_by_path,
@@ -773,6 +894,7 @@ pub fn run() {
             queue::commands::get_queue_length,
             queue::commands::get_current_track,
             queue::commands::reshuffle,
+            queue::commands::get_next_track,
             // Telemetry commands (Phase 7)
             get_error_log,
             get_error_count,
@@ -784,6 +906,16 @@ pub fn run() {
             toggle_provider,
             sync_playback_state,
             open_in_file_explorer,
+            sandbox_callback,
+            // Debug logger commands (Phase 1)
+            logger::open_debug_window,
+            logger::get_debug_logs,
+            logger::clear_debug_logs,
+            logger::copy_debug_log_to_clipboard,
+            logger::open_log_directory,
+            logger::sandbox_log,
+            logger::set_log_collection_enabled,
+            logger::get_log_collection_enabled,
         ]);
 
     builder

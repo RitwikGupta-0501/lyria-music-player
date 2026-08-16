@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { List, House, Disc, PuzzlePiece, Gear } from "phosphor-svelte";
+    import { List, House, Disc, PuzzlePiece, Gear, Compass } from "phosphor-svelte";
     
     let { activeView = $bindable("albums") } = $props<{ activeView?: string }>();
     
@@ -33,6 +33,16 @@
                     <House size={24} weight={activeView === "home" ? "fill" : "regular"} />
                 </div>
                 <span class="label">Home</span>
+            </button>
+            <button
+                class="nav-item"
+                class:active={activeView === "explore"}
+                onclick={() => activeView = "explore"}
+            >
+                <div class="icon-container">
+                    <Compass size={24} weight={activeView === "explore" ? "fill" : "regular"} />
+                </div>
+                <span class="label">Explore</span>
             </button>
             <button
                 class="nav-item"
@@ -86,7 +96,7 @@
         position: sticky;
         top: 0;
         user-select: none;
-        width: 80px;
+        width: 83px;
         transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         z-index: 30;
         flex-shrink: 0;
@@ -178,6 +188,14 @@
         width: 100%;
         text-align: left;
         overflow: hidden;
+        appearance: none;
+        -webkit-appearance: none;
+    }
+
+    .nav-item::before,
+    .nav-item::after {
+        content: none;
+        display: none;
     }
 
     .icon-container {

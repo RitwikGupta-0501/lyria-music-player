@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { settingsStore } from "./settings.svelte";
 
 interface PlayerSyncPayload {
     state: string;
@@ -15,6 +16,7 @@ interface QueueChangePayload {
     repeat_mode: string;
     queue_mode: string;
 }
+
 
 interface TrackSource {
     type: 'Local' | 'Remote';
@@ -51,7 +53,8 @@ export class AudioStore {
     volume = $state(1.0);
     isMuted = $state(false);
 
-    trackClickBehavior = $state<"interrupt" | "clear" | "append">("interrupt");
+    trackClickBehavior = $derived(settingsStore.trackClickBehavior);
+    queueCompletionBehavior = $derived(settingsStore.queueCompletionBehavior);
 
     // ══════════════════════════════════════════
     // QUEUE STATE (Cached from backend events)
@@ -107,8 +110,17 @@ export class AudioStore {
             this.currentTime = payload.position;
 
             if (payload.state === "Stopped") {
-                this.currentTime = 0;
-                this.duration = 0;
+                if (this.queueCompletionBehavior === "collapse_idle") {
+                    this.currentTime = 0;
+                    this.duration = 0;
+                    this.currentTrack = "None";
+                } else if (this.queueCompletionBehavior === "pause_end") {
+                    this.playbackState = "Paused";
+                    this.currentTime = this.duration;
+                } else {
+                    // "retain_stopped" (Default): Retain track info & duration for replay, reset position to 0
+                    this.currentTime = 0;
+                }
             }
         });
 
@@ -125,33 +137,24 @@ export class AudioStore {
             }
         );
 
-        // Track end detection
-        this.unlistenTrackEnded = await listen("track-ended", () => {
+        // Track advancement detection (for gapless playback)
+        this.unlistenTrackEnded = await listen("track-advanced", async () => {
+            // Tell backend we advanced (this updates current_position, but we don't load_audio since it's already playing)
             this._autoAdvancing = true;
-            this.skipForward(1);
+            await invoke("skip_forward", { count: 1 });
+            this.queueNextAudio();
         });
 
-        // Load persisted settings
+        // Load persisted settings via settingsStore
         try {
-            const persistedVolume = await invoke<string | null>("get_setting", {
-                key: "volume",
-            });
-            if (persistedVolume !== null) {
-                this.volume = parseFloat(persistedVolume);
+            await settingsStore.init();
+            if (settingsStore.settings["volume"]) {
+                this.volume = parseFloat(settingsStore.settings["volume"]);
                 await invoke("set_volume", { volume: this.volume });
             }
-            const persistedMute = await invoke<string | null>("get_setting", {
-                key: "mute",
-            });
-            if (persistedMute !== null) {
-                this.isMuted = persistedMute === "true";
+            if (settingsStore.settings["mute"]) {
+                this.isMuted = settingsStore.settings["mute"] === "true";
                 await invoke("set_mute", { mute: this.isMuted });
-            }
-            const persistedClickBehavior = await invoke<string | null>("get_setting", {
-                key: "track_click_behavior",
-            });
-            if (persistedClickBehavior !== null) {
-                this.trackClickBehavior = persistedClickBehavior as "interrupt" | "clear" | "append";
             }
         } catch (e) {
             console.error("Failed to load settings:", e);
@@ -287,17 +290,27 @@ export class AudioStore {
         }
     }
 
+    async setQueueCompletionBehavior(behavior: "retain_stopped" | "pause_end" | "collapse_idle") {
+        this.queueCompletionBehavior = behavior;
+        try {
+            await invoke("set_setting", { key: "queue_completion_behavior", value: behavior });
+        } catch (e) {
+            console.error("Failed to save queue completion behavior:", e);
+        }
+    }
+
     // ══════════════════════════════════════════
     // QUEUE COMMANDS (All via backend)
     // ══════════════════════════════════════════
 
     private formatQueueTrack(t: any): QueueTrack {
         const instanceId = crypto.randomUUID();
-        const isRemote = !!(t.stream_url);
+        const isRemote = !!(t.stream_url) || !!(t.provider_id) || (t.type === "Remote");
         const source: TrackSource = isRemote
             ? {
                 type: 'Remote',
                 provider_id: t.provider_id ?? 'unknown',
+                remote_track_id: t.id ?? t.remote_track_id ?? t.remoteTrackId ?? null,
                 stream_url: t.stream_url,
                 quality_hint: t.quality_hint ?? null,
                 cover_art_url: t.cover_art_url ?? null,
@@ -327,12 +340,20 @@ export class AudioStore {
             // Load the first track immediately
             if (tracksWithIds.length > startIndex) {
                 const t = tracksWithIds[startIndex];
-                await invoke("load_audio", {
-                    source: t.source,
-                    title: t.title,
-                    artist: t.artist || null,
-                    album: null
-                });
+                try {
+                    await invoke("load_audio", {
+                        source: t.source,
+                        title: t.title,
+                        artist: t.artist || null,
+                        album: null
+                    });
+                    this.queueNextAudio();
+                } catch (loadErr) {
+                    console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
+                    if (tracksWithIds.length > startIndex + 1) {
+                        await this.skipForward(1);
+                    }
+                }
             }
         } catch (e) {
             console.error("Set queue failed:", e);
@@ -353,12 +374,17 @@ export class AudioStore {
             const trackWithId = this.formatQueueTrack(track);
             const event = await invoke<QueueChangePayload>("add_to_queue", { track: trackWithId });
 
-            if (event && event.tracks && event.tracks.length > 1) {
-                const fromIndex = event.tracks.length - 1;
-                const toIndex = Math.min(event.current_position + 1, event.tracks.length - 1);
+            if (event && event.tracks && event.tracks.length > 0) {
+                if (event.tracks.length === 1) {
+                    // Queue was empty, play it immediately
+                    await this.jumpToTrack(trackWithId.instanceId);
+                } else {
+                    const fromIndex = event.tracks.length - 1;
+                    const toIndex = Math.min(event.current_position + 1, event.tracks.length - 1);
 
-                if (fromIndex !== toIndex) {
-                    await invoke("reorder_queue", { fromIndex, toIndex });
+                    if (fromIndex !== toIndex) {
+                        await invoke("reorder_queue", { fromIndex, toIndex });
+                    }
                 }
             }
         } catch (e) {
@@ -371,14 +397,15 @@ export class AudioStore {
             const trackWithId = this.formatQueueTrack(track);
             const event = await invoke<QueueChangePayload>("add_to_queue", { track: trackWithId });
 
-            if (event && event.tracks && event.tracks.length > 1) {
-                const fromIndex = event.tracks.length - 1;
-                const toIndex = Math.min(event.current_position + 1, event.tracks.length - 1);
+            if (event && event.tracks && event.tracks.length > 0) {
+                if (event.tracks.length > 1) {
+                    const fromIndex = event.tracks.length - 1;
+                    const toIndex = Math.min(event.current_position + 1, event.tracks.length - 1);
 
-                if (fromIndex !== toIndex) {
-                    await invoke("reorder_queue", { fromIndex, toIndex });
+                    if (fromIndex !== toIndex) {
+                        await invoke("reorder_queue", { fromIndex, toIndex });
+                    }
                 }
-
                 await this.jumpToTrack(trackWithId.instanceId);
             }
         } catch (e) {
@@ -399,12 +426,20 @@ export class AudioStore {
             const event = await invoke<QueueChangePayload>("skip_forward", { count });
             if (event.current_track) {
                 const t = event.current_track;
-                await invoke("load_audio", {
-                    source: t.source,
-                    title: t.title,
-                    artist: t.artist || null,
-                    album: null
-                });
+                try {
+                    await invoke("load_audio", {
+                        source: t.source,
+                        title: t.title,
+                        artist: t.artist || null,
+                        album: null
+                    });
+                    this.queueNextAudio();
+                } catch (loadErr) {
+                    console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
+                    if (this.queue.length > 1) {
+                        await this.skipForward(1);
+                    }
+                }
             }
         } catch (e) {
             console.error("Skip forward failed:", e);
@@ -416,12 +451,20 @@ export class AudioStore {
             const event = await invoke<QueueChangePayload>("skip_backward", { count });
             if (event.current_track) {
                 const t = event.current_track;
-                await invoke("load_audio", {
-                    source: t.source,
-                    title: t.title,
-                    artist: t.artist || null,
-                    album: null
-                });
+                try {
+                    await invoke("load_audio", {
+                        source: t.source,
+                        title: t.title,
+                        artist: t.artist || null,
+                        album: null
+                    });
+                    this.queueNextAudio();
+                } catch (loadErr) {
+                    console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
+                    if (this.queue.length > 1) {
+                        await this.skipForward(1);
+                    }
+                }
             }
         } catch (e) {
             console.error("Skip backward failed:", e);
@@ -435,15 +478,39 @@ export class AudioStore {
             });
             if (event.current_track) {
                 const t = event.current_track;
-                await invoke("load_audio", {
-                    source: t.source,
-                    title: t.title,
-                    artist: t.artist || null,
+                try {
+                    await invoke("load_audio", {
+                        source: t.source,
+                        title: t.title,
+                        artist: t.artist || null,
+                        album: null
+                    });
+                    this.queueNextAudio();
+                } catch (loadErr) {
+                    console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
+                    if (this.queue.length > 1) {
+                        await this.skipForward(1);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Jump to track failed:", e);
+        }
+    }
+
+    private async queueNextAudio() {
+        try {
+            const nextTrack = await invoke<QueueTrack | null>("get_next_track");
+            if (nextTrack) {
+                await invoke("queue_next_audio", {
+                    source: nextTrack.source,
+                    title: nextTrack.title,
+                    artist: nextTrack.artist || null,
                     album: null
                 });
             }
         } catch (e) {
-            console.error("Jump to track failed:", e);
+            console.error("Failed to queue next audio:", e);
         }
     }
 

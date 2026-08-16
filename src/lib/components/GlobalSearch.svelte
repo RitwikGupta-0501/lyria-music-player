@@ -11,6 +11,7 @@
     let alternatives = $state<Record<number, any[]>>({});
 
     let inputRef = $state<HTMLInputElement | null>(null);
+    let currentRequestId = $state(0);
 
     $effect(() => {
         if (isOpen && inputRef) {
@@ -19,6 +20,13 @@
     });
 
     let searchTimeout: ReturnType<typeof setTimeout>;
+
+    function handleKeyDown(e: KeyboardEvent) {
+        if (e.key === 'Enter') {
+            document.dispatchEvent(new CustomEvent('echo:navigate-explore', { detail: { query } }));
+            isOpen = false;
+        }
+    }
 
     function handleInput() {
         if (searchTimeout) clearTimeout(searchTimeout);
@@ -30,10 +38,13 @@
         }
 
         searchTimeout = setTimeout(async () => {
+            const reqId = ++currentRequestId;
             isSearching = true;
             try {
                 // 1. Instant Local Search
-                localResults = await invoke("search_library", { query, limit: 10 });
+                const local = await invoke<any[]>("search_library", { query, limit: 10 });
+                if (reqId !== currentRequestId) return;
+                localResults = local;
                 
                 // 2. Background Async Gathering
                 const providers: any[] = await invoke("get_providers");
@@ -49,26 +60,31 @@
                 );
                 
                 const resultsArray = await Promise.all(searchPromises);
+                if (reqId !== currentRequestId) return;
+                
                 const remoteResults: any[] = resultsArray.flat();
 
                 // 3. Fuzzy Matching
                 if (remoteResults && remoteResults.length > 0) {
-                    for (const local of localResults) {
+                    for (const localTrack of localResults) {
                         const matches: any[] = await invoke("fuzzy_match_tracks", {
-                            localTrack: local,
+                            localTrack: localTrack,
                             remoteTracks: remoteResults
                         });
+                        if (reqId !== currentRequestId) return;
                         if (matches.length > 0) {
-                            alternatives[local.id] = matches;
+                            alternatives[localTrack.id] = matches;
                         }
                     }
                 }
             } catch (e) {
                 console.error("Search failed", e);
             } finally {
-                isSearching = false;
+                if (reqId === currentRequestId) {
+                    isSearching = false;
+                }
             }
-        }, 300);
+        }, 250);
     }
 
     function playTrack(track: any) {
@@ -128,6 +144,7 @@
                     bind:this={inputRef}
                     bind:value={query}
                     oninput={handleInput}
+                    onkeydown={handleKeyDown}
                     placeholder="Search music..."
                     class="search-input"
                 />
