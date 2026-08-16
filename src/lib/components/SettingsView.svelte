@@ -2,12 +2,15 @@
     import { invoke } from "@tauri-apps/api/core";
     import { libraryStore } from "$lib/stores/library.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { toastStore } from "$lib/stores/toast.svelte";
     import { CaretDown, Check, TerminalWindow, Copy, FolderOpen } from "phosphor-svelte";
     import { onMount } from "svelte";
 
     let activeTab = $state<"playback" | "appearance" | "data" | "advanced">("playback");
 
     let isDropdownOpen = $state(false);
+    let isCopyLogsSuccess = $state(false);
+    let copyLogsSuccessTimer: ReturnType<typeof setTimeout> | null = null;
 
     const behaviorOptions = [
         { value: "interrupt", label: "Play Next & Switch" },
@@ -62,9 +65,16 @@
         try {
             const logs = await invoke<string>("copy_debug_log_to_clipboard");
             await navigator.clipboard.writeText(logs);
-            alert("Debug logs copied to clipboard!");
+            if (copyLogsSuccessTimer) clearTimeout(copyLogsSuccessTimer);
+            isCopyLogsSuccess = true;
+            copyLogsSuccessTimer = setTimeout(() => {
+                isCopyLogsSuccess = false;
+                copyLogsSuccessTimer = null;
+            }, 1200);
+            toastStore.success("Debug logs copied to clipboard.");
         } catch (e) {
             console.error("Failed to copy debug logs:", e);
+            toastStore.error("Failed to copy debug logs.");
         }
     }
 
@@ -385,15 +395,21 @@
                                     Copy recent in-memory log buffer to clipboard for GitHub bug reports.
                                 </p>
                             </div>
-                            <button
-                                class="action-btn"
-                                onclick={copyDebugLogs}
-                                disabled={!settingsStore.loaded || !settingsStore.logCollectionEnabled}
-                            >
+                        <button
+                            class="action-btn copy-action"
+                            class:copy-success={isCopyLogsSuccess}
+                            onclick={copyDebugLogs}
+                            disabled={!settingsStore.loaded || !settingsStore.logCollectionEnabled}
+                        >
+                            {#if isCopyLogsSuccess}
+                                <Check size={16} weight="bold" />
+                                <span>Copied</span>
+                            {:else}
                                 <Copy size={16} weight="regular" />
                                 <span>Copy Logs</span>
-                            </button>
-                        </div>
+                            {/if}
+                        </button>
+                    </div>
                     </div>
 
                     <div class="setting-row">
@@ -593,6 +609,18 @@
         border-color: var(--echo-primary);
     }
 
+    .copy-action.copy-success {
+        background: rgba(16, 185, 129, 0.14);
+        color: #34d399;
+        border-color: rgba(16, 185, 129, 0.35);
+        animation: copySuccessPop 0.28s ease-out;
+    }
+
+    .copy-action.copy-success:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.18);
+        border-color: rgba(16, 185, 129, 0.45);
+    }
+
     .danger-btn:hover {
         background-color: rgba(220, 38, 38, 0.2);
         border-color: rgba(220, 38, 38, 0.5);
@@ -618,6 +646,18 @@
 
     .dependent-row {
         padding: 0.75rem 0;
+    }
+
+    @keyframes copySuccessPop {
+        0% {
+            transform: scale(1);
+        }
+        55% {
+            transform: scale(1.05);
+        }
+        100% {
+            transform: scale(1);
+        }
     }
 
     /* Dropdown UI */

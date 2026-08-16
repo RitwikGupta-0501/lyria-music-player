@@ -1,6 +1,8 @@
 <script lang="ts">
     import { invoke } from "@tauri-apps/api/core";
     import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+    import { toastStore } from "$lib/stores/toast.svelte";
+    import { Copy, Check } from "phosphor-svelte";
     import { onMount, onDestroy } from "svelte";
 
     interface LogEntry {
@@ -16,6 +18,8 @@
     let searchFilter = $state<string>("");
     let autoScroll = $state<boolean>(true);
     let isPaused = $state<boolean>(false);
+    let isCopySuccess = $state(false);
+    let copySuccessTimer: ReturnType<typeof setTimeout> | null = null;
 
     let activeLevels = $state<{ [key: string]: boolean }>({
         INFO: true,
@@ -106,9 +110,16 @@
         try {
             const text = await invoke<string>("copy_debug_log_to_clipboard");
             await navigator.clipboard.writeText(text);
-            alert("Debug logs copied to clipboard!");
+            if (copySuccessTimer) clearTimeout(copySuccessTimer);
+            isCopySuccess = true;
+            copySuccessTimer = setTimeout(() => {
+                isCopySuccess = false;
+                copySuccessTimer = null;
+            }, 1200);
+            toastStore.success("Debug logs copied to clipboard.");
         } catch (e) {
             console.error("Failed to copy logs:", e);
+            toastStore.error("Failed to copy debug logs.");
         }
     }
 
@@ -149,7 +160,15 @@
                     {isPaused ? "▶ Resume" : "⏸ Pause"}
                 </button>
                 <button class="btn btn-secondary" onclick={handleClear}>Clear</button>
-                <button class="btn btn-secondary" onclick={handleCopy}>Copy Logs</button>
+                <button class="btn btn-secondary copy-btn" class:copy-success={isCopySuccess} onclick={handleCopy}>
+                    {#if isCopySuccess}
+                        <Check size={16} weight="bold" />
+                        <span>Copied</span>
+                    {:else}
+                        <Copy size={16} weight="regular" />
+                        <span>Copy Logs</span>
+                    {/if}
+                </button>
                 <button class="btn btn-primary" onclick={handleOpenLogFolder}>Log Folder 📁</button>
             </div>
         </div>
@@ -218,6 +237,38 @@
         {/if}
     </main>
 </div>
+
+<style>
+    .copy-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .copy-btn.copy-success {
+        animation: copySuccessPop 0.28s ease-out;
+        background: rgba(16, 185, 129, 0.16);
+        color: #34d399;
+        border-color: rgba(16, 185, 129, 0.35);
+    }
+
+    .copy-btn.copy-success:hover {
+        background: rgba(16, 185, 129, 0.2);
+        border-color: rgba(16, 185, 129, 0.45);
+    }
+
+    @keyframes copySuccessPop {
+        0% {
+            transform: scale(1);
+        }
+        55% {
+            transform: scale(1.05);
+        }
+        100% {
+            transform: scale(1);
+        }
+    }
+</style>
 
 <style>
     .debug-page {
