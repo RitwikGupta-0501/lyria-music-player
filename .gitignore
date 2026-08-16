@@ -11,8 +11,8 @@ vite.config.ts.timestamp-*
 .vscode
 .claude/
 
-docs/
-providers/
 
 # Extensions
 extensions/
+providers/
+designs/
