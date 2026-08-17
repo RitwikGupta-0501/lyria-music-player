@@ -187,5 +187,54 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         [],
     );
 
+
+    // Universal Multi-Source Telemetry & Personalization tables
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS song_telemetry (
+            id INTEGER PRIMARY KEY,
+            canonical_key TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            album TEXT,
+            cover_art_url TEXT,
+            play_count INTEGER NOT NULL DEFAULT 1,
+            last_played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            liked INTEGER NOT NULL DEFAULT 0,
+            local_track_id INTEGER,
+            last_provider_id TEXT NOT NULL DEFAULT 'local',
+            last_source_id TEXT NOT NULL,
+            duration_ms INTEGER,
+            FOREIGN KEY(local_track_id) REFERENCES tracks(id) ON DELETE SET NULL
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_song_telemetry_rank ON song_telemetry(play_count DESC, last_played_at DESC)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_song_telemetry_last_played ON song_telemetry(last_played_at DESC)", [])?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS playback_events (
+            id INTEGER PRIMARY KEY,
+            canonical_key TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            duration_ms INTEGER
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_playback_events_played_at ON playback_events(played_at DESC)", [])?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS extension_metrics (
+            provider_id TEXT PRIMARY KEY,
+            total_plays INTEGER NOT NULL DEFAULT 0,
+            total_duration_ms INTEGER NOT NULL DEFAULT 0,
+            total_resolutions INTEGER NOT NULL DEFAULT 0,
+            failed_resolutions INTEGER NOT NULL DEFAULT 0,
+            last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }

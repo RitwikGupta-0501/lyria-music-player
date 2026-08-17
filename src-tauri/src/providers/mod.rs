@@ -15,39 +15,79 @@ use errors::SandboxError;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const SEARCH_TIMEOUT_SECS: u64 = 15;
-const MODULE_FETCH_TIMEOUT_SECS: u64 = 3;
+const MODULE_FETCH_TIMEOUT_SECS: u64 = 15;
 
 // ── Public types ─────────────────────────────────────────────────────────────
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderModule {
     pub id: String,
     pub name: String,
     pub layout: ModuleLayout,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleLayout {
+    #[default]
     Grid,
     List,
     Carousel,
-    #[default]
+    #[serde(rename = "chart4row")]
+    Chart4Row,
+    #[serde(rename = "genrecloud")]
+    GenreCloud,
     #[serde(other)]
     Unknown,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ModuleItem {
-    Track(TrackResult),
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AlbumItem {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<String>,
+    pub cover_art_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlaylistItem {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub item_count: Option<u32>,
+    pub cover_art_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GenreItem {
+    pub id: String,
+    pub title: String,
+    pub endpoint_params: Option<String>,
+    pub color_hex: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "data")]
+pub enum ModuleItem {
+    Track(TrackResult),
+    Album(AlbumItem),
+    Playlist(PlaylistItem),
+    Genre(GenreItem),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleData {
     pub items: Vec<ModuleItem>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AggregatedModule {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub module: ProviderModule,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrackResult {
     pub id: String,
     pub title: String,
@@ -59,7 +99,7 @@ pub struct TrackResult {
     pub duration_ms: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResolvedTrack {
     pub stream_url: String,
     pub quality_hint: Option<String>,
@@ -334,6 +374,28 @@ impl ProviderManager {
         Ok(results)
     }
 
+    pub async fn get_all_explore_modules(&self) -> Vec<AggregatedModule> {
+        let explore_providers: Vec<(String, String)> = self.providers
+            .values()
+            .filter(|p| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("explore")))
+            .map(|p| (p.id.clone(), p.name.clone()))
+            .collect();
+
+        let mut aggregated = Vec::new();
+        for (pid, pname) in explore_providers {
+            if let Ok(modules) = self.get_modules(&pid).await {
+                for m in modules {
+                    aggregated.push(AggregatedModule {
+                        provider_id: pid.clone(),
+                        provider_name: pname.clone(),
+                        module: m,
+                    });
+                }
+            }
+        }
+        aggregated
+    }
+
     pub async fn get_modules(&self, provider_id: &str) -> Result<Vec<ProviderModule>, SandboxError> {
         let provider_id = provider_id.to_string();
         
@@ -402,4 +464,95 @@ pub fn check_url_allowed(url: &str) -> Result<(), String> {
         return Err("Localhost URLs are not allowed from providers".into());
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_item_serialization_roundtrip() {
+        let track_item = ModuleItem::Track(TrackResult {
+            id: "track123".to_string(),
+            title: "Test Song".to_string(),
+            artist: "Test Artist".to_string(),
+            album: Some("Test Album".to_string()),
+            cover_art_url: Some("https://example.com/art.jpg".to_string()),
+            stream_url: None,
+            quality_hint: Some("#1".to_string()),
+            duration_ms: Some(180000),
+        });
+
+        let json_track = serde_json::to_string(&track_item).unwrap();
+        assert!(json_track.contains(r#""type":"Track""#));
+        let decoded_track: ModuleItem = serde_json::from_str(&json_track).unwrap();
+        assert_eq!(track_item, decoded_track);
+
+        let album_item = ModuleItem::Album(AlbumItem {
+            id: "MPREb_123".to_string(),
+            title: "Hit Album".to_string(),
+            artist: "Star Artist".to_string(),
+            year: Some("2026".to_string()),
+            cover_art_url: Some("https://example.com/album.jpg".to_string()),
+        });
+
+        let json_album = serde_json::to_string(&album_item).unwrap();
+        assert!(json_album.contains(r#""type":"Album""#));
+        let decoded_album: ModuleItem = serde_json::from_str(&json_album).unwrap();
+        assert_eq!(album_item, decoded_album);
+
+        let genre_item = ModuleItem::Genre(GenreItem {
+            id: "genre_chill".to_string(),
+            title: "Chill Vibes".to_string(),
+            endpoint_params: Some("params_xyz".to_string()),
+            color_hex: Some("#336699".to_string()),
+        });
+
+        let json_genre = serde_json::to_string(&genre_item).unwrap();
+        assert!(json_genre.contains(r#""type":"Genre""#));
+        let decoded_genre: ModuleItem = serde_json::from_str(&json_genre).unwrap();
+        assert_eq!(genre_item, decoded_genre);
+    }
+
+    #[test]
+    fn test_module_layout_serde() {
+        let l1: ModuleLayout = serde_json::from_str(r#""chart4row""#).unwrap();
+        assert_eq!(l1, ModuleLayout::Chart4Row);
+
+        let l2: ModuleLayout = serde_json::from_str(r#""genrecloud""#).unwrap();
+        assert_eq!(l2, ModuleLayout::GenreCloud);
+
+        let l3: ModuleLayout = serde_json::from_str(r#""carousel""#).unwrap();
+        assert_eq!(l3, ModuleLayout::Carousel);
+
+        let l4: ModuleLayout = serde_json::from_str(r#""unknown_custom""#).unwrap();
+        assert_eq!(l4, ModuleLayout::Unknown);
+    }
+
+    #[test]
+    fn test_warmup_capability_filter() {
+        let mut providers = std::collections::HashMap::new();
+        providers.insert("yt".to_string(), ActiveProvider {
+            id: "yt".to_string(),
+            name: "YouTube".to_string(),
+            script_path: std::path::PathBuf::from("/tmp/yt.wasm"),
+            config: std::collections::HashMap::new(),
+            capabilities: vec!["search".to_string(), "WARMUP".to_string(), "explore".to_string()],
+        });
+        providers.insert("local".to_string(), ActiveProvider {
+            id: "local".to_string(),
+            name: "Local".to_string(),
+            script_path: std::path::PathBuf::from("/tmp/local.wasm"),
+            config: std::collections::HashMap::new(),
+            capabilities: vec!["search".to_string()],
+        });
+
+        let eligible: Vec<String> = providers.iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("warmup")))
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        assert_eq!(eligible, vec!["yt".to_string()]);
+    }
 }

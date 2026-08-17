@@ -1,3 +1,5 @@
+use rusqlite::Result as SqlResult;
+use serde::{Serialize, Deserialize};
 use rusqlite::Connection;
 use crate::{Album, LocalTrack, Playlist};
 use super::TrackData;
@@ -438,4 +440,368 @@ pub fn set_provider_storage(conn: &Connection, provider_id: &str, key: &str, val
         rusqlite::params![provider_id, key, value],
     ).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+
+use crate::db::canonical::make_canonical_key;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CanonicalSong {
+    pub id: i64,
+    pub canonical_key: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub play_count: i64,
+    pub last_played_at: Option<String>,
+    pub liked: bool,
+    pub local_track_id: Option<i64>,
+    pub local_file_path: Option<String>,
+    pub last_provider_id: String,
+    pub last_source_id: String,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtensionMetric {
+    pub provider_id: String,
+    pub total_plays: i64,
+    pub total_duration_ms: i64,
+    pub total_resolutions: i64,
+    pub failed_resolutions: i64,
+    pub last_used_at: String,
+}
+
+pub fn record_playback_event(
+    conn: &Connection,
+    title: &str,
+    artist: &str,
+    album: Option<&str>,
+    cover_art_url: Option<&str>,
+    provider_id: &str,
+    source_id: &str,
+    duration_ms: Option<u64>,
+) -> SqlResult<()> {
+    let canonical_key = make_canonical_key(title, artist);
+
+    // 1. Check if a local file exists matching title and artist
+    let local_match: Option<(i64, Option<String>)> = conn.query_row(
+        "SELECT t.id, a.cover_art_path FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE LOWER(t.title) = LOWER(?1) AND LOWER(t.artist) = LOWER(?2) LIMIT 1",
+        [title, artist],
+        |row| Ok((row.get(0)?, row.get(1)?))
+    ).ok();
+
+    let local_track_id = local_match.as_ref().map(|m| m.0);
+    let resolved_cover = cover_art_url.map(|s| s.to_string()).or_else(|| local_match.and_then(|m| m.1));
+
+    // 2. Upsert into song_telemetry
+    conn.execute(
+        "INSERT INTO song_telemetry (
+            canonical_key, title, artist, album, cover_art_url, play_count, last_played_at, liked, local_track_id, last_provider_id, last_source_id, duration_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, 1, CURRENT_TIMESTAMP, 0, ?6, ?7, ?8, ?9)
+        ON CONFLICT(canonical_key) DO UPDATE SET
+            play_count = play_count + 1,
+            last_played_at = CURRENT_TIMESTAMP,
+            title = CASE WHEN length(?2) > 0 THEN ?2 ELSE title END,
+            artist = CASE WHEN length(?3) > 0 THEN ?3 ELSE artist END,
+            album = COALESCE(?4, album),
+            cover_art_url = COALESCE(?5, cover_art_url),
+            local_track_id = COALESCE(?6, local_track_id),
+            last_provider_id = ?7,
+            last_source_id = ?8,
+            duration_ms = COALESCE(?9, duration_ms)",
+        rusqlite::params![
+            canonical_key,
+            title,
+            artist,
+            album,
+            resolved_cover,
+            local_track_id,
+            provider_id,
+            source_id,
+            duration_ms.map(|d| d as i64),
+        ],
+    )?;
+
+    // 3. Append to playback_events
+    conn.execute(
+        "INSERT INTO playback_events (canonical_key, provider_id, source_id, duration_ms) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![canonical_key, provider_id, source_id, duration_ms.map(|d| d as i64)],
+    )?;
+
+    // 4. Update extension_metrics
+    conn.execute(
+        "INSERT INTO extension_metrics (provider_id, total_plays, total_duration_ms, total_resolutions, failed_resolutions, last_used_at)
+         VALUES (?1, 1, ?2, 0, 0, CURRENT_TIMESTAMP)
+         ON CONFLICT(provider_id) DO UPDATE SET
+            total_plays = total_plays + 1,
+            total_duration_ms = total_duration_ms + ?2,
+            last_used_at = CURRENT_TIMESTAMP",
+        rusqlite::params![provider_id, duration_ms.unwrap_or(0) as i64],
+    )?;
+
+    Ok(())
+}
+
+pub fn record_resolution_result(conn: &Connection, provider_id: &str, success: bool) -> SqlResult<()> {
+    let failed_inc = if success { 0 } else { 1 };
+    conn.execute(
+        "INSERT INTO extension_metrics (provider_id, total_plays, total_duration_ms, total_resolutions, failed_resolutions, last_used_at)
+         VALUES (?1, 0, 0, 1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(provider_id) DO UPDATE SET
+            total_resolutions = total_resolutions + 1,
+            failed_resolutions = failed_resolutions + ?2,
+            last_used_at = CURRENT_TIMESTAMP",
+        rusqlite::params![provider_id, failed_inc],
+    )?;
+    Ok(())
+}
+
+pub fn get_canonical_quick_picks(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mut stmt = conn.prepare(
+        "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
+         FROM song_telemetry st
+         LEFT JOIN tracks t ON st.local_track_id = t.id
+         ORDER BY st.play_count DESC, st.last_played_at DESC
+         LIMIT ?1"
+    )?;
+
+    let rows = stmt.query_map([limit as i64], map_canonical_row)?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn get_canonical_keep_listening(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mut stmt = conn.prepare(
+        "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
+         FROM song_telemetry st
+         LEFT JOIN tracks t ON st.local_track_id = t.id
+         WHERE st.last_played_at >= datetime('now', '-14 days')
+         ORDER BY st.last_played_at DESC
+         LIMIT ?1"
+    )?;
+
+    let rows = stmt.query_map([limit as i64], map_canonical_row)?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn get_canonical_forgotten_favorites(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mut stmt = conn.prepare(
+        "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
+         FROM song_telemetry st
+         LEFT JOIN tracks t ON st.local_track_id = t.id
+         WHERE (st.play_count >= 2 OR st.liked = 1)
+           AND (st.last_played_at IS NULL OR st.last_played_at <= datetime('now', '-30 days'))
+         ORDER BY st.play_count DESC
+         LIMIT ?1"
+    )?;
+
+    let rows = stmt.query_map([limit as i64], map_canonical_row)?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn get_canonical_discover_seeds(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mut stmt = conn.prepare(
+        "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
+         FROM song_telemetry st
+         LEFT JOIN tracks t ON st.local_track_id = t.id
+         WHERE st.liked = 1 OR st.play_count >= 2
+         ORDER BY RANDOM()
+         LIMIT ?1"
+    )?;
+
+    let rows = stmt.query_map([limit as i64], map_canonical_row)?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn toggle_canonical_like(conn: &Connection, canonical_key: &str) -> SqlResult<bool> {
+    conn.execute(
+        "UPDATE song_telemetry SET liked = CASE WHEN liked = 1 THEN 0 ELSE 1 END WHERE canonical_key = ?1",
+        [canonical_key],
+    )?;
+
+    let liked: i64 = conn.query_row(
+        "SELECT liked FROM song_telemetry WHERE canonical_key = ?1",
+        [canonical_key],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    Ok(liked == 1)
+}
+
+pub fn get_extension_metrics(conn: &Connection) -> SqlResult<Vec<ExtensionMetric>> {
+    let mut stmt = conn.prepare(
+        "SELECT provider_id, total_plays, total_duration_ms, total_resolutions, failed_resolutions, last_used_at FROM extension_metrics ORDER BY total_plays DESC"
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(ExtensionMetric {
+            provider_id: row.get(0)?,
+            total_plays: row.get(1)?,
+            total_duration_ms: row.get(2)?,
+            total_resolutions: row.get(3)?,
+            failed_resolutions: row.get(4)?,
+            last_used_at: row.get(5)?,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+fn map_canonical_row(row: &rusqlite::Row) -> rusqlite::Result<CanonicalSong> {
+    let duration_i64: Option<i64> = row.get(13)?;
+    let liked_i64: i64 = row.get(8)?;
+    Ok(CanonicalSong {
+        id: row.get(0)?,
+        canonical_key: row.get(1)?,
+        title: row.get(2)?,
+        artist: row.get(3)?,
+        album: row.get(4)?,
+        cover_art_url: row.get(5)?,
+        play_count: row.get(6)?,
+        last_played_at: row.get(7)?,
+        liked: liked_i64 == 1,
+        local_track_id: row.get(9)?,
+        local_file_path: row.get(10)?,
+        last_provider_id: row.get(11)?,
+        last_source_id: row.get(12)?,
+        duration_ms: duration_i64.map(|d| d as u64),
+    })
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_canonical_telemetry_and_extension_metrics() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db_in_memory(&conn).unwrap();
+
+        // 1. Record play from YouTube
+        record_playback_event(
+            &conn,
+            "Never Gonna Give You Up (Official Music Video)",
+            "Rick Astley - Topic",
+            Some("Whenever You Need Somebody"),
+            Some("https://img.youtube.com/art.jpg"),
+            "youtube-wasm",
+            "dQw4w9WgXcQ",
+            Some(213000),
+        ).unwrap();
+
+        // 2. Record play of same song from Local/other provider
+        record_playback_event(
+            &conn,
+            "Never Gonna Give You Up [Official Audio]",
+            "Rick Astley",
+            Some("Whenever You Need Somebody"),
+            None,
+            "local",
+            "/music/rick.mp3",
+            Some(213000),
+        ).unwrap();
+
+        // 3. Verify deduplicated Quick Picks
+        let qp = get_canonical_quick_picks(&conn, 10).unwrap();
+        assert_eq!(qp.len(), 1);
+        assert_eq!(qp[0].canonical_key, "rick astley::never gonna give you up");
+        assert_eq!(qp[0].play_count, 2);
+
+        // 4. Verify Extension Metrics
+        let metrics = get_extension_metrics(&conn).unwrap();
+        assert_eq!(metrics.len(), 2);
+        let yt_m = metrics.iter().find(|m| m.provider_id == "youtube-wasm").unwrap();
+        assert_eq!(yt_m.total_plays, 1);
+        assert_eq!(yt_m.total_duration_ms, 213000);
+
+        // 5. Test Like Toggle
+        let is_liked = toggle_canonical_like(&conn, "rick astley::never gonna give you up").unwrap();
+        assert!(is_liked);
+    }
+
+    fn init_db_in_memory(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tracks (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                artist TEXT,
+                album_id INTEGER,
+                track_number INTEGER,
+                file_path TEXT UNIQUE NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS albums (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                artist TEXT,
+                cover_art_path TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS song_telemetry (
+                id INTEGER PRIMARY KEY,
+                canonical_key TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                album TEXT,
+                cover_art_url TEXT,
+                play_count INTEGER NOT NULL DEFAULT 1,
+                last_played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                liked INTEGER NOT NULL DEFAULT 0,
+                local_track_id INTEGER,
+                last_provider_id TEXT NOT NULL DEFAULT 'local',
+                last_source_id TEXT NOT NULL,
+                duration_ms INTEGER
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS playback_events (
+                id INTEGER PRIMARY KEY,
+                canonical_key TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                duration_ms INTEGER
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS extension_metrics (
+                provider_id TEXT PRIMARY KEY,
+                total_plays INTEGER NOT NULL DEFAULT 0,
+                total_duration_ms INTEGER NOT NULL DEFAULT 0,
+                total_resolutions INTEGER NOT NULL DEFAULT 0,
+                failed_resolutions INTEGER NOT NULL DEFAULT 0,
+                last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        Ok(())
+    }
 }

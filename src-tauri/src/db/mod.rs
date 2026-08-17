@@ -1,3 +1,4 @@
+pub mod canonical;
 use rusqlite::Connection;
 use std::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
@@ -16,6 +17,44 @@ pub struct TrackData {
 }
 
 pub enum DbRequest {
+    RecordPlaybackEvent {
+        title: String,
+        artist: String,
+        album: Option<String>,
+        cover_art_url: Option<String>,
+        provider_id: String,
+        source_id: String,
+        duration_ms: Option<u64>,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    RecordResolutionResult {
+        provider_id: String,
+        success: bool,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    GetCanonicalQuickPicks {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
+    },
+    GetCanonicalKeepListening {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
+    },
+    GetCanonicalForgottenFavorites {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
+    },
+    GetCanonicalDiscoverSeeds {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
+    },
+    ToggleCanonicalLike {
+        canonical_key: String,
+        resp: oneshot::Sender<Result<bool, String>>,
+    },
+    GetExtensionMetrics {
+        resp: oneshot::Sender<Result<Vec<queries::ExtensionMetric>, String>>,
+    },
     GetLocalTracks { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     GetAlbums { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<Album>, String>> },
     GetRecentAlbums { limit: u32, resp: oneshot::Sender<Result<Vec<Album>, String>> },
@@ -50,6 +89,38 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
     std::thread::spawn(move || {
         while let Ok(req) = rx.recv() {
             match req {
+                DbRequest::RecordPlaybackEvent { title, artist, album, cover_art_url, provider_id, source_id, duration_ms, resp } => {
+                    let res = queries::record_playback_event(&conn, &title, &artist, album.as_deref(), cover_art_url.as_deref(), &provider_id, &source_id, duration_ms).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::RecordResolutionResult { provider_id, success, resp } => {
+                    let res = queries::record_resolution_result(&conn, &provider_id, success).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCanonicalQuickPicks { limit, resp } => {
+                    let res = queries::get_canonical_quick_picks(&conn, limit).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCanonicalKeepListening { limit, resp } => {
+                    let res = queries::get_canonical_keep_listening(&conn, limit).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCanonicalForgottenFavorites { limit, resp } => {
+                    let res = queries::get_canonical_forgotten_favorites(&conn, limit).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCanonicalDiscoverSeeds { limit, resp } => {
+                    let res = queries::get_canonical_discover_seeds(&conn, limit).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::ToggleCanonicalLike { canonical_key, resp } => {
+                    let res = queries::toggle_canonical_like(&conn, &canonical_key).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetExtensionMetrics { resp } => {
+                    let res = queries::get_extension_metrics(&conn).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
                 DbRequest::GetLocalTracks { limit, offset, resp } => {
                     let _ = resp.send(queries::get_local_tracks(&conn, limit, offset));
                 }

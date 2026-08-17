@@ -262,6 +262,94 @@ async fn search_provider(state: State<'_, AppState>, provider_id: String, query:
     Ok(results)
 }
 
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomeFeedPayload {
+    pub quick_picks: Vec<crate::db::queries::CanonicalSong>,
+    pub keep_listening: Vec<crate::db::queries::CanonicalSong>,
+    pub forgotten_favorites: Vec<crate::db::queries::CanonicalSong>,
+    pub discover_seeds: Vec<crate::db::queries::CanonicalSong>,
+}
+
+#[tauri::command]
+async fn get_home_feed(state: State<'_, AppState>) -> Result<HomeFeedPayload, String> {
+    let (tx_qp, rx_qp) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalQuickPicks { limit: 20, resp: tx_qp }).map_err(|e| e.to_string())?;
+    let qp = rx_qp.await.map_err(|e| e.to_string())??;
+
+    let (tx_kl, rx_kl) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalKeepListening { limit: 20, resp: tx_kl }).map_err(|e| e.to_string())?;
+    let kl = rx_kl.await.map_err(|e| e.to_string())??;
+
+    let (tx_ff, rx_ff) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalForgottenFavorites { limit: 20, resp: tx_ff }).map_err(|e| e.to_string())?;
+    let ff = rx_ff.await.map_err(|e| e.to_string())??;
+
+    let (tx_ds, rx_ds) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalDiscoverSeeds { limit: 5, resp: tx_ds }).map_err(|e| e.to_string())?;
+    let ds = rx_ds.await.map_err(|e| e.to_string())??;
+
+    Ok(HomeFeedPayload {
+        quick_picks: qp,
+        keep_listening: kl,
+        forgotten_favorites: ff,
+        discover_seeds: ds,
+    })
+}
+
+#[tauri::command]
+async fn record_track_play(
+    state: State<'_, AppState>,
+    title: String,
+    artist: String,
+    album: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: String,
+    source_id: String,
+    duration_ms: Option<u64>,
+) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::RecordPlaybackEvent {
+        title,
+        artist,
+        album,
+        cover_art_url,
+        provider_id,
+        source_id,
+        duration_ms,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn toggle_track_like(
+    state: State<'_, AppState>,
+    canonical_key: String,
+) -> Result<bool, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::ToggleCanonicalLike {
+        canonical_key,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_extension_metrics(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::queries::ExtensionMetric>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetExtensionMetrics { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_explore_feed(state: State<'_, AppState>) -> Result<Vec<crate::providers::AggregatedModule>, String> {
+    let manager = state.provider_manager.lock().await;
+    Ok(manager.get_all_explore_modules().await)
+}
+
 #[tauri::command]
 async fn get_provider_modules(state: State<'_, AppState>, provider_id: String) -> Result<Vec<providers::ProviderModule>, String> {
     let manager = state.provider_manager.lock().await;
@@ -869,6 +957,11 @@ pub fn run() {
             search_provider,
             get_provider_modules,
             fetch_provider_module,
+            get_explore_feed,
+            get_home_feed,
+            record_track_play,
+            toggle_track_like,
+            get_extension_metrics,
             search_library,
             fuzzy_match_tracks,
             scan_local_directory,
