@@ -196,6 +196,41 @@ impl ProviderManager {
         Ok(plugin_arc)
     }
 
+    pub async fn warmup_provider(&self, provider_id: &str) -> Result<(), SandboxError> {
+        let plugin = self.get_or_create_plugin(provider_id, 30)?;
+        let provider_name = self.providers.get(provider_id).map(|p| p.name.clone()).unwrap_or_else(|| provider_id.to_string());
+        
+        spawn_blocking(move || {
+            let mut plugin_guard = plugin.lock().unwrap();
+            match plugin_guard.call::<&str, &str>("warmup", "{}") {
+                Ok(res) => {
+                    tracing::info!("Provider {} warmed up successfully: {}", provider_name, res);
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::warn!("Provider {} warmup warning/skipped: {}", provider_name, e);
+                    Err(SandboxError::ScriptError {
+                        script: provider_name,
+                        message: e.to_string(),
+                    })
+                }
+            }
+        })
+        .await
+        .map_err(|_| SandboxError::ExecutionTimeout {
+            script: provider_id.to_string(),
+            timeout_secs: 30,
+        })?
+    }
+
+    pub fn get_warmup_eligible_providers(&self) -> Vec<String> {
+        self.providers
+            .iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("warmup")))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     pub fn invalidate_plugin_cache(&self, provider_id: &str) {
         let mut cache = self.plugin_cache.lock().unwrap();
         if cache.remove(provider_id).is_some() {

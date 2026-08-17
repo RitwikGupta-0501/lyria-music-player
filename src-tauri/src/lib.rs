@@ -195,13 +195,25 @@ async fn sync_providers(app: AppHandle, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
-async fn get_providers(state: State<'_, AppState>) -> Result<Vec<ProviderInfo>, String> {
+async fn get_providers(app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<Vec<ProviderInfo>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     state.db_tx.send(crate::db::DbRequest::GetProviders { resp: tx }).map_err(|e| e.to_string())?;
     let providers = rx.await.map_err(|e| e.to_string())??;
     
     let mut manager = state.provider_manager.lock().await;
     manager.sync_registry(providers.clone());
+    let warmup_ids = manager.get_warmup_eligible_providers();
+    drop(manager);
+
+    if !warmup_ids.is_empty() {
+        tauri::async_runtime::spawn(async move {
+            let state = app_handle.state::<AppState>();
+            let manager = state.provider_manager.lock().await;
+            for id in warmup_ids {
+                let _ = manager.warmup_provider(&id).await;
+            }
+        });
+    }
     
     Ok(providers)
 }
