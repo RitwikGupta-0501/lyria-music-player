@@ -21,9 +21,10 @@
     import RightDrawer from "$lib/components/RightDrawer.svelte";
     import FullScreenPlayer from "$lib/components/FullScreenPlayer.svelte";
     import GlobalSearch from "$lib/components/GlobalSearch.svelte";
-    import SearchView from "$lib/components/SearchView.svelte";
+    import ExploreView from "$lib/components/ExploreView.svelte";
+    import HomeView from "$lib/components/HomeView.svelte";
 
-    let activeView = $state("albums");
+    let activeView = $state("home");
     let selectedAlbum = $state<Album | null>(null);
     let selectedPlaylist = $state<Playlist | null>(null);
     let queueOpen = $state(false);
@@ -88,8 +89,10 @@
     <Sidebar bind:activeView />
 
     <main class="main-content">
-        {#if activeView === "explore"}
-            <SearchView bind:activeView />
+        {#if activeView === "home"}
+            <HomeView bind:activeView />
+        {:else if activeView === "explore"}
+            <ExploreView bind:activeView />
         {:else if activeView === "albums"}
             <AlbumGrid bind:activeView onSelectAlbum={(a) => { selectedAlbum = a; queueOpen = false; }} selectedAlbumId={selectedAlbum?.id} />
         {:else if activeView === "playlists"}

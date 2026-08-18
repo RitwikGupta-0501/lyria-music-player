@@ -12,11 +12,13 @@ commands.allow = [
     "set_mute",
     "get_providers",
     "toggle_provider",
+    "delete_provider",
     "save_provider_settings",
     "sync_providers",
     "get_provider_config",
     "set_provider_config",
     "search_provider",
+    "search_provider_categorized",
     "get_provider_modules",
     "fetch_provider_module",
     "search_library",
@@ -24,6 +26,8 @@ commands.allow = [
     "scan_local_directory",
     "get_local_tracks",
     "get_albums",
+    "get_recent_albums",
+    "resolve_track",
     "get_album_tracks",
     "get_playlists",
     "create_playlist",
@@ -74,5 +78,9 @@ commands.allow = [
     "toggle_track_like",
     "record_track_play",
     "get_home_feed",
-    "get_explore_feed"
+    "get_explore_feed",
+    "resolve_stream_url",
+    "sandbox_log",
+    "clear_debug_logs",
+    "get_debug_logs"
 ]

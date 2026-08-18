@@ -78,6 +78,10 @@ pub enum DbRequest {
     SearchLibrary { query: String, limit: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     SyncProviders { providers: Vec<crate::ProviderInfo>, resp: oneshot::Sender<Result<(), String>> },
     GetProviders { resp: oneshot::Sender<Result<Vec<crate::ProviderInfo>, String>> },
+    DeleteProvider {
+        provider_id: String,
+        resp: oneshot::Sender<Result<Option<String>, String>>,
+    },
     ToggleProvider { provider_id: String, enabled: bool, resp: oneshot::Sender<Result<(), String>> },
     SaveProviderSettings { provider_id: String, settings_json: String, resp: oneshot::Sender<Result<(), String>> },
     GetProviderStorage { provider_id: String, key: String, resp: oneshot::Sender<Result<Option<String>, String>> },
@@ -189,6 +193,10 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::GetProviders { resp } => {
                     let _ = resp.send(queries::get_providers(&conn));
+                }
+                DbRequest::DeleteProvider { provider_id, resp } => {
+                    let res = queries::delete_provider(&conn, &provider_id);
+                    let _ = resp.send(res);
                 }
                 DbRequest::ToggleProvider { provider_id, enabled, resp } => {
                     let _ = resp.send(queries::toggle_provider(&conn, &provider_id, enabled));

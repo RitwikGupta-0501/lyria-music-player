@@ -1,6 +1,6 @@
-/// Canonical song normalization and deduplication engine for Echo.
-/// Normalizes titles and artists across local files and remote streaming providers
-/// to form a deterministic fingerprint (canonical_key).
+//! Canonical song normalization and deduplication engine for Echo.
+//! Normalizes titles and artists across local files and remote streaming providers
+//! to form a deterministic fingerprint (canonical_key).
 
 pub fn clean_title(title: &str) -> String {
     let mut s = title.to_string();
@@ -52,7 +52,7 @@ pub fn clean_title(title: &str) -> String {
     s = remove_remastered_tags(&s);
 
     // 5. Clean up special characters, punctuation, and extra whitespace
-    s = s.replace(|c: char| c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' || c == '"' || c == '\'', " ");
+    s = s.replace(&['(', ')', '[', ']', '{', '}', '"', '\''][..], " ");
     s = s.split_whitespace().collect::<Vec<&str>>().join(" ");
 
     s.trim().to_string()
@@ -87,7 +87,7 @@ pub fn clean_artist(artist: &str) -> String {
     }
 
     // 4. Clean punctuation and whitespace
-    s = s.replace(|c: char| c == '"' || c == '\'' || c == ',' || c == '&', " ");
+    s = s.replace(&['"', '\'', ',', '&'][..], " ");
     s = s.split_whitespace().collect::<Vec<&str>>().join(" ");
 
     s.trim().to_string()

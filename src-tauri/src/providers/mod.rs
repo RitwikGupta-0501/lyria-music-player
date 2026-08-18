@@ -67,12 +67,72 @@ pub struct GenreItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtistItem {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub subscribers: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TopResultItem {
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub item_type: String, // "artist", "album", "song"
+    pub cover_art_url: Option<String>,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "data")]
+pub enum SearchItem {
+    TopResult(TopResultItem),
+    Track(TrackResult),
+    Album(AlbumItem),
+    Artist(ArtistItem),
+    Playlist(PlaylistItem),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SearchCategorySection {
+    pub category: String, // "Top Result", "Songs", "Albums", "Artists", "Playlists"
+    pub items: Vec<SearchItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CategorizedSearchResult {
+    pub sections: Vec<SearchCategorySection>,
+    pub continuation_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SearchQueryInput {
+    pub query: String,
+    pub filter: Option<String>, // "all", "songs", "albums", "artists", "playlists"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditorialSpotlight {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub cover_art_url: Option<String>,
+    pub description: Option<String>,
+    pub release_year: Option<String>,
+    pub track_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "data")]
 pub enum ModuleItem {
     Track(TrackResult),
     Album(AlbumItem),
     Playlist(PlaylistItem),
     Genre(GenreItem),
+    Artist(ArtistItem),
+    Spotlight(EditorialSpotlight),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -182,7 +242,7 @@ impl ProviderManager {
         }
 
         let manifest = Manifest::new([Wasm::file(wasm_file)])
-            .with_memory_max(400)
+            .with_memory_max(2048)
             .with_timeout(Duration::from_secs(timeout_secs));
 
         let reqwest_client = Arc::new(self.reqwest_client.clone());
@@ -271,11 +331,64 @@ impl ProviderManager {
             .collect()
     }
 
+    pub fn remove_provider(&mut self, provider_id: &str) {
+        self.providers.remove(provider_id);
+        self.invalidate_plugin_cache(provider_id);
+    }
+
     pub fn invalidate_plugin_cache(&self, provider_id: &str) {
         let mut cache = self.plugin_cache.lock().unwrap();
         if cache.remove(provider_id).is_some() {
             tracing::warn!("Evicted failed plugin instance from cache for provider: {}", provider_id);
         }
+    }
+
+        pub async fn search_categorized(&self, provider_id: &str, input: &SearchQueryInput) -> Result<CategorizedSearchResult, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let input_clone = input.clone();
+        
+        tracing::info!("Categorized search for query '{}' (filter: {:?}) in {}", input.query, input.filter, provider_id);
+        
+        let _permit = self.search_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
+            script: provider_id.clone(),
+            message: "Semaphore closed".into(),
+        })?;
+
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
+        
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&input_clone).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("search_categorized", &json_input).map(|res| res.to_vec())
+        }).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                tracing::error!("search_categorized plugin call failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                tracing::error!("search_categorized spawn_blocking failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
+
+        let result: CategorizedSearchResult = serde_json::from_slice(&res_bytes).map_err(|e| {
+            tracing::error!("Failed to parse categorized search results from provider '{}': {}", provider_id, e);
+            SandboxError::ScriptError {
+                script: provider_id,
+                message: format!("Invalid categorized search JSON: {}", e),
+            }
+        })?;
+
+        Ok(result)
     }
 
     pub async fn search(&self, provider_id: &str, query: &str) -> Result<Vec<TrackResult>, SandboxError> {
@@ -436,25 +549,69 @@ impl ProviderManager {
 
         let plugin_arc = self.get_or_create_plugin(&provider_id, MODULE_FETCH_TIMEOUT_SECS)?;
         
-        let res_bytes = spawn_blocking(move || {
+        let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
             let json_input = serde_json::to_vec(&module_id).unwrap_or_default();
             plugin.call::<&[u8], &[u8]>("fetch_module", &json_input).map(|res| res.to_vec())
-        }).await.map_err(|e| SandboxError::ScriptError {
-            script: provider_id.clone(),
-            message: e.to_string(),
-        })?.map_err(|e| SandboxError::ScriptError {
-            script: provider_id.clone(),
-            message: e.to_string(),
-        })?;
+        }).await {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => {
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
 
-        let results: ModuleData = serde_json::from_slice(&res_bytes).map_err(|e| SandboxError::ScriptError {
-            script: provider_id.clone(),
-            message: e.to_string(),
+        let results: ModuleData = serde_json::from_slice(&res_bytes).map_err(|e| {
+            self.invalidate_plugin_cache(&provider_id);
+            SandboxError::ScriptError {
+                script: provider_id,
+                message: e.to_string(),
+            }
         })?;
         
         Ok(results)
     }
+
+    pub async fn resolve_url(&self, url: &str) -> Result<Option<(String, String, TrackResult)>, SandboxError> {
+        let active_providers: Vec<(String, String)> = self.providers.iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("url_resolver") || c.eq_ignore_ascii_case("search")))
+            .map(|(id, p)| (id.clone(), p.name.clone()))
+            .collect();
+
+        for (provider_id, provider_name) in active_providers {
+            let pid = provider_id.clone();
+            let url_str = url.to_string();
+            let plugin_arc = match self.get_or_create_plugin(&pid, 15) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+
+            let res_opt = spawn_blocking(move || {
+                let mut plugin = plugin_arc.lock().unwrap();
+                let json_input = serde_json::to_vec(&url_str).unwrap_or_default();
+                plugin.call::<&[u8], &[u8]>("resolve_url", &json_input).map(|res| res.to_vec())
+            }).await;
+
+            if let Ok(Ok(bytes)) = res_opt {
+                if let Ok(Some(track)) = serde_json::from_slice::<Option<TrackResult>>(&bytes) {
+                    return Ok(Some((provider_id, provider_name, track)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
 }
 pub fn check_url_allowed(url: &str) -> Result<(), String> {
     if url.starts_with("file://") {

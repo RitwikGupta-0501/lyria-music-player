@@ -14,5 +14,4 @@ vite.config.ts.timestamp-*
 
 # Extensions
 extensions/
-providers/
 designs/

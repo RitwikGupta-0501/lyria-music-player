@@ -346,6 +346,18 @@ pub fn search_library(conn: &Connection, query: &str, limit: u32) -> Result<Vec<
 }
 
 pub fn sync_providers(conn: &Connection, providers: Vec<crate::ProviderInfo>) -> Result<(), String> {
+    if providers.is_empty() {
+        let _ = conn.execute("DELETE FROM providers", []);
+        return Ok(());
+    }
+
+    // Prune ghost extensions no longer on disk
+    let active_ids: Vec<String> = providers.iter().map(|p| p.id.clone()).collect();
+    let placeholders = (1..=active_ids.len()).map(|i| format!("?{}", i)).collect::<Vec<_>>().join(", ");
+    let delete_query = format!("DELETE FROM providers WHERE id NOT IN ({})", placeholders);
+    let params: Vec<&dyn rusqlite::ToSql> = active_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+    let _ = conn.execute(&delete_query, rusqlite::params_from_iter(params));
+
     for p in providers {
         conn.execute(
             "INSERT INTO providers (id, name, author, version, file_path, status, error_message, checksum, capabilities, homepage, settings_schema, priority, icon)
@@ -372,6 +384,19 @@ pub fn sync_providers(conn: &Connection, providers: Vec<crate::ProviderInfo>) ->
         ).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+pub fn delete_provider(conn: &Connection, provider_id: &str) -> Result<Option<String>, String> {
+    let file_path: Option<String> = conn.query_row(
+        "SELECT file_path FROM providers WHERE id = ?1",
+        [provider_id],
+        |row| row.get(0),
+    ).ok();
+
+    conn.execute("DELETE FROM providers WHERE id = ?1", [provider_id]).map_err(|e| e.to_string())?;
+    let _ = conn.execute("DELETE FROM extension_metrics WHERE provider_id = ?1", [provider_id]);
+
+    Ok(file_path)
 }
 
 pub fn get_providers(conn: &Connection) -> Result<Vec<crate::ProviderInfo>, String> {
@@ -473,6 +498,7 @@ pub struct ExtensionMetric {
     pub last_used_at: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn record_playback_event(
     conn: &Connection,
     title: &str,
