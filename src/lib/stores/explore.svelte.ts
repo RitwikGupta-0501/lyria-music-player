@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { audioStore } from "./audio.svelte";
+import { libraryStore } from "./library.svelte";
 
 export interface TrackResult {
     id: string;
@@ -8,6 +9,8 @@ export interface TrackResult {
     album?: string | null;
     cover_art_url?: string | null;
     stream_url?: string | null;
+    file_path?: string | null;
+    is_local?: boolean;
     quality_hint?: string | null;
     duration_ms?: number | null;
     provider_id?: string;
@@ -24,6 +27,7 @@ export interface AlbumItem {
     artist: string;
     year?: string | null;
     cover_art_url?: string | null;
+    is_local?: boolean;
     provider_id?: string;
     provider_name?: string;
 }
@@ -74,6 +78,7 @@ export interface TopResultItem {
     subtitle: string;
     item_type: string; // "artist", "album", "song"
     cover_art_url?: string | null;
+    is_local?: boolean;
     provider_id?: string | null;
     provider_name?: string | null;
 }
@@ -94,6 +99,17 @@ export interface CategorizedSearchResult {
     sections: SearchCategorySection[];
     continuation_token?: string | null;
 }
+
+export interface SourceOption {
+    id: string;
+    name: string;
+    badge: string;
+}
+
+export const AVAILABLE_SOURCES: SourceOption[] = [
+    { id: "local", name: "Local Library", badge: "LOSSLESS" },
+    { id: "youtube-wasm", name: "YouTube Music", badge: "WASM" },
+];
 
 export type ModuleItem =
     | { type: "Track"; data: TrackResult }
@@ -144,7 +160,10 @@ export class ExploreStore {
 
     searchQuery = $state("");
     activeSearchFilter = $state<string>("all"); // "all", "songs", "albums", "artists", "playlists"
-    searchSections = $state<SearchCategorySection[]>([]);
+    activeSourceFilters = $state<string[]>(["local", "youtube-wasm"]);
+    isSourceMenuOpen = $state(false);
+
+    rawSections = $state<SearchCategorySection[]>([]);
     isSearching = $state(false);
     private _searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -160,6 +179,35 @@ export class ExploreStore {
 
     filteredRankedTracks = $derived(this.rankedTracks.slice(0, 5));
     filteredNewReleases = $derived(this.newReleases2x2.slice(0, 4));
+
+    // Dynamic filtering based on active source filters and active category filter
+    searchSections = $derived.by(() => {
+        const allowedSources = new Set(this.activeSourceFilters);
+        const filter = this.activeSearchFilter;
+
+        return this.rawSections
+            .map(sec => {
+                // Filter items by source
+                const filteredItems = sec.items.filter(item => {
+                    const pid = item.data.provider_id || "youtube-wasm";
+                    return allowedSources.has(pid);
+                });
+
+                return {
+                    category: sec.category,
+                    items: filteredItems,
+                };
+            })
+            .filter(sec => {
+                if (sec.items.length === 0) return false;
+                if (filter === "all") return true;
+                if (filter === "songs" && (sec.category === "Songs" || sec.category === "Videos")) return true;
+                if (filter === "albums" && sec.category === "Albums") return true;
+                if (filter === "artists" && sec.category === "Artists") return true;
+                if (filter === "playlists" && sec.category === "Playlists") return true;
+                return false;
+            });
+    });
 
     // Helper derivations for search results
     topResultSection = $derived(
@@ -213,7 +261,7 @@ export class ExploreStore {
 
         const trimmed = query.trim();
         if (!trimmed) {
-            this.searchSections = [];
+            this.rawSections = [];
             this.isSearching = false;
             return;
         }
@@ -221,7 +269,7 @@ export class ExploreStore {
         this.isSearching = true;
         this._searchDebounceTimer = setTimeout(async () => {
             await this.performSearch(trimmed);
-        }, 300);
+        }, 260);
     }
 
     setSearchFilter(filter: string) {
@@ -232,74 +280,186 @@ export class ExploreStore {
         }
     }
 
+    toggleSourceFilter(sourceId: string) {
+        if (this.activeSourceFilters.includes(sourceId)) {
+            if (this.activeSourceFilters.length > 1) {
+                this.activeSourceFilters = this.activeSourceFilters.filter(id => id !== sourceId);
+            }
+        } else {
+            this.activeSourceFilters = [...this.activeSourceFilters, sourceId];
+        }
+    }
+
+    isSourceActive(sourceId: string): boolean {
+        return this.activeSourceFilters.includes(sourceId);
+    }
+
+    private searchCache = new Map<string, SearchCategorySection[]>();
+
     async performSearch(query: string) {
+        const trimmed = query.trim();
+        if (!trimmed) {
+            this.clearSearch();
+            return;
+        }
+
+        const cacheKey = `${trimmed.toLowerCase()}:${this.activeSearchFilter}`;
+        if (this.searchCache.has(cacheKey)) {
+            this.rawSections = this.searchCache.get(cacheKey)!;
+            this.isSearching = false;
+            return;
+        }
+
         this.isSearching = true;
         try {
             const filterArg = this.activeSearchFilter === "all" ? null : this.activeSearchFilter;
-            const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
-                providerId: "youtube-wasm",
-                query: query,
-                filter: filterArg,
-            });
+            
+            // 1. Parallel dispatch: Local SQLite + Remote WASM
+            const localTracksPromise = (async () => {
+                try {
+                    const local = await invoke<any[]>("search_library", { query: trimmed, limit: 15 });
+                    return local || [];
+                } catch (e) {
+                    console.error("Local search error:", e);
+                    return [];
+                }
+            })();
 
-            if (this.searchQuery.trim() === query) {
-                // Decorate provenance and deduplicate track items
-                this.searchSections = (res.sections || []).map(sec => ({
-                    ...sec,
-                    items: sec.items.map(item => {
-                        if (item.type === "Track") {
-                            return {
-                                type: "Track",
-                                data: {
-                                    ...item.data,
-                                    provider_id: "youtube-wasm",
-                                    provider_name: "YouTube Music",
-                                }
-                            };
-                        } else if (item.type === "Album") {
-                            return {
-                                type: "Album",
-                                data: {
-                                    ...item.data,
-                                    provider_id: "youtube-wasm",
-                                    provider_name: "YouTube Music",
-                                }
-                            };
-                        } else if (item.type === "Artist") {
-                            return {
-                                type: "Artist",
-                                data: {
-                                    ...item.data,
-                                    provider_id: "youtube-wasm",
-                                    provider_name: "YouTube Music",
-                                }
-                            };
-                        } else if (item.type === "Playlist") {
-                            return {
-                                type: "Playlist",
-                                data: {
-                                    ...item.data,
-                                    provider_id: "youtube-wasm",
-                                    provider_name: "YouTube Music",
-                                }
-                            };
-                        }
-                        return item;
-                    })
+            const remotePromise = (async () => {
+                try {
+                    const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
+                        providerId: "youtube-wasm",
+                        query: trimmed,
+                        filter: filterArg,
+                    });
+                    return res?.sections || [];
+                } catch (e) {
+                    console.error("Remote search error:", e);
+                    return [];
+                }
+            })();
+
+            const [localTracksRaw, remoteSectionsRaw] = await Promise.all([
+                localTracksPromise,
+                remotePromise,
+            ]);
+
+            if (this.searchQuery.trim() !== trimmed) return;
+
+            // 2. Format Local Tracks into SearchItems
+            const localTrackItems: SearchItem[] = localTracksRaw.map(t => ({
+                type: "Track",
+                data: {
+                    id: `local-${t.id}`,
+                    title: t.title,
+                    artist: t.artist || "Unknown Artist",
+                    album: null,
+                    cover_art_url: null,
+                    file_path: t.file_path,
+                    is_local: true,
+                    provider_id: "local",
+                    provider_name: "Local Library",
+                }
+            }));
+
+            // 3. Format Local Albums matching query
+            const localAlbumMatches = libraryStore.albums
+                .filter(a => a.title.toLowerCase().includes(trimmed.toLowerCase()) || (a.artist && a.artist.toLowerCase().includes(trimmed.toLowerCase())))
+                .map(a => ({
+                    type: "Album" as const,
+                    data: {
+                        id: `local-album-${a.id}`,
+                        title: a.title,
+                        artist: a.artist || "Unknown Artist",
+                        cover_art_url: a.cover_art_path,
+                        is_local: true,
+                        provider_id: "local",
+                        provider_name: "Local Library",
+                    }
                 }));
+
+            // 4. Merge Sections: Prepend local items to Songs & Albums shelves
+            const combinedSections: SearchCategorySection[] = [];
+            let songsAdded = false;
+            let albumsAdded = false;
+
+            for (const rSec of remoteSectionsRaw) {
+                if (rSec.category === "Songs" || rSec.category === "Videos") {
+                    const mergedSongs = [...localTrackItems, ...rSec.items];
+                    combinedSections.push({
+                        category: "Songs",
+                        items: mergedSongs,
+                    });
+                    songsAdded = true;
+                } else if (rSec.category === "Albums") {
+                    const mergedAlbums = [...localAlbumMatches, ...rSec.items];
+                    combinedSections.push({
+                        category: "Albums",
+                        items: mergedAlbums,
+                    });
+                    albumsAdded = true;
+                } else {
+                    combinedSections.push(rSec);
+                }
+            }
+
+            // If remote had no Songs shelf but we have local tracks
+            if (!songsAdded && localTrackItems.length > 0) {
+                combinedSections.push({
+                    category: "Songs",
+                    items: localTrackItems,
+                });
+            }
+
+            // If remote had no Albums shelf but we have local albums
+            if (!albumsAdded && localAlbumMatches.length > 0) {
+                combinedSections.push({
+                    category: "Albums",
+                    items: localAlbumMatches,
+                });
+            }
+
+            this.searchCache.set(cacheKey, combinedSections);
+            this.rawSections = combinedSections;
+
+            // Opportunistically prefetch categories in background when on "all"
+            if (this.activeSearchFilter === "all") {
+                this.prefetchCategory(trimmed, "songs");
+                this.prefetchCategory(trimmed, "albums");
+                this.prefetchCategory(trimmed, "artists");
+                this.prefetchCategory(trimmed, "playlists");
             }
         } catch (e) {
             console.error("Categorized search failed:", e);
         } finally {
-            if (this.searchQuery.trim() === query) {
+            if (this.searchQuery.trim() === trimmed) {
                 this.isSearching = false;
             }
         }
     }
 
+    private async prefetchCategory(query: string, category: string) {
+        const cacheKey = `${query.toLowerCase()}:${category}`;
+        if (this.searchCache.has(cacheKey)) return;
+
+        try {
+            const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
+                providerId: "youtube-wasm",
+                query,
+                filter: category,
+            });
+            if (res && Array.isArray(res.sections) && res.sections.length > 0) {
+                this.searchCache.set(cacheKey, res.sections);
+            }
+        } catch {
+            // Silently ignore prefetch background errors
+        }
+    }
+
     clearSearch() {
         this.searchQuery = "";
-        this.searchSections = [];
+        this.rawSections = [];
+        this.searchCache.clear();
         this.isSearching = false;
         this.activeSearchFilter = "all";
         if (this._searchDebounceTimer) {
@@ -333,6 +493,7 @@ export class ExploreStore {
                                     ...item.data,
                                     provider_id: agg.provider_id,
                                     provider_name: agg.provider_name,
+                                    cover_art_url: item.data.cover_art_url || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop",
                                 });
                             } else if (item.type === "Genre") {
                                 const title = item.data.title;
@@ -376,35 +537,20 @@ export class ExploreStore {
                     release_year: "2026",
                     provider_name: "Echo Curated",
                 }];
-                this.activeSpotlightIndex = 0;
             }
 
-            this.categoryGrid = allGenres.length > 0 ? allGenres.slice(0, 8) : [
-                { id: "electronic", title: "Electronic", color_hex: "#D48B38" },
-                { id: "classical", title: "Classical", color_hex: "#946342" },
-                { id: "jazz-soul", title: "Jazz & Soul", color_hex: "#C69055" },
-                { id: "ambient", title: "Ambient", color_hex: "#5C768D" },
-                { id: "rock", title: "Rock", color_hex: "#A84C3C" },
-                { id: "hip-hop", title: "Hip-Hop", color_hex: "#B5733A" },
-                { id: "focus", title: "Focus", color_hex: "#4A6B6C" },
-                { id: "chill", title: "Chill", color_hex: "#6A7B6E" },
-            ];
+            if (allGenres.length > 0) {
+                this.categoryGrid = allGenres;
+            } else {
+                this.categoryGrid = Object.keys(CATEGORY_COLORS).map((title, i) => ({
+                    id: `genre-${i}`,
+                    title,
+                    color_hex: CATEGORY_COLORS[title],
+                }));
+            }
 
-            this.rankedTracks = allTracks.length > 0 ? allTracks.slice(0, 10) : [
-                { id: "track-1", title: "Instant Crush (Master Flac)", artist: "Daft Punk ft. Julian Casablancas", duration_ms: 337000 },
-                { id: "track-2", title: "Nightcall (Drive OST)", artist: "Kavinsky", duration_ms: 259000 },
-                { id: "track-3", title: "Midnight City", artist: "M83", duration_ms: 243000 },
-                { id: "track-4", title: "Resonance", artist: "HOME", duration_ms: 212000 },
-                { id: "track-5", title: "Genesis", artist: "Justice", duration_ms: 234000 },
-            ];
-
-            this.newReleases2x2 = allAlbums.length > 0 ? allAlbums.slice(0, 4) : [
-                { id: "alb-1", title: "Random Access Memories", artist: "Daft Punk" },
-                { id: "alb-2", title: "OutRun (Deluxe)", artist: "Kavinsky" },
-                { id: "alb-3", title: "Hurry Up, We're Dreaming", artist: "M83" },
-                { id: "alb-4", title: "Cross", artist: "Justice" },
-            ];
-
+            this.rankedTracks = allTracks;
+            this.newReleases2x2 = allAlbums;
             this.isLoaded = true;
         } catch (e) {
             console.error("Failed to load explore feed:", e);
@@ -419,20 +565,24 @@ export class ExploreStore {
         this.categoryTracks = [];
 
         try {
-            const providerId = category.provider_id || "youtube-wasm";
-            const query = category.endpoint_params || `genre ${category.title} mix`;
-            const results = await invoke<TrackResult[]>("search_provider", {
-                providerId,
-                query,
+            const pId = category.provider_id || "youtube-wasm";
+            const endpoint = category.endpoint_params || category.id;
+            
+            const data = await invoke<ModuleData>("fetch_provider_module", {
+                providerId: pId,
+                moduleId: endpoint,
             });
 
-            this.categoryTracks = (results || []).map(t => ({
-                ...t,
-                provider_id: providerId,
-                provider_name: category.provider_name || "YouTube Music",
-            }));
+            if (data && data.items) {
+                this.categoryTracks = data.items
+                    .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                    .map(i => ({
+                        ...i.data,
+                        provider_id: pId,
+                    }));
+            }
         } catch (e) {
-            console.error("Failed to fetch category tracks:", e);
+            console.error(`Failed to load tracks for category ${category.title}:`, e);
         } finally {
             this.isCategoryLoading = false;
         }
@@ -444,9 +594,24 @@ export class ExploreStore {
     }
 
     async playTrack(track: TrackResult, providerId?: string) {
+        if (track.is_local || track.file_path) {
+            const localCanonical = {
+                id: track.id ? Number(track.id.toString().replace("local-", "")) : -1,
+                track_id: track.id ? Number(track.id.toString().replace("local-", "")) : -1,
+                title: track.title,
+                artist: track.artist || "Unknown Artist",
+                file_path: track.file_path,
+                is_local: true,
+                duration_ms: track.duration_ms || 210000,
+            };
+            await audioStore.handleTrackClick(localCanonical);
+            return;
+        }
+
         const pId = providerId || track.provider_id || "youtube-wasm";
         const canonicalTrack = {
             id: track.id,
+            remote_track_id: track.id,
             title: track.title,
             artist: track.artist || "Unknown Artist",
             album: track.album || undefined,
@@ -455,7 +620,7 @@ export class ExploreStore {
             provider_id: pId,
         };
 
-        await audioStore.setQueue([canonicalTrack], 0);
+        await audioStore.handleTrackClick(canonicalTrack);
     }
 
     async playSpotlight() {

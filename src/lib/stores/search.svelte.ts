@@ -116,8 +116,9 @@ class SearchStore {
             });
 
             if (resolved && resolved.stream_url) {
-                audioStore.setQueue([{
-                    id: `remote-${provider_id}-${track.id}`,
+                const trackPayload = {
+                    id: track.id,
+                    remote_track_id: track.id,
                     title: track.title,
                     artist: track.artist,
                     album: track.album || '',
@@ -126,7 +127,8 @@ class SearchStore {
                     provider_id,
                     cover_art_url: track.cover_art_url,
                     duration_ms: track.duration_ms,
-                }], 0);
+                };
+                await audioStore.handleTrackClick(trackPayload);
 
                 homeStore.recordPlay({
                     id: 0,
@@ -151,15 +153,18 @@ class SearchStore {
         }
     }
 
-    playLocalTrack(track: any) {
-        audioStore.setQueue([{
-            id: `local-${track.id}`,
+    async playLocalTrack(track: any) {
+        const trackPayload = {
+            id: track.id,
+            track_id: track.id,
             title: track.title,
             artist: track.artist,
             album: track.album || '',
             file_path: track.file_path,
             track_number: track.track_number,
-        }], 0);
+            is_local: true,
+        };
+        await audioStore.handleTrackClick(trackPayload);
 
         homeStore.recordPlay({
             id: 0,
@@ -182,42 +187,34 @@ class SearchStore {
     async playRemoteTrack(track: any) {
         const providerId = track.provider_id || "youtube-wasm";
         try {
-            toastStore.show(`Resolving stream for ${track.title}...`, 'info', 1500);
-            const resolved: any = await invoke("resolve_track", {
-                providerId,
-                trackId: track.id,
+            const trackPayload = {
+                id: track.id,
+                remote_track_id: track.id,
+                title: track.title,
+                artist: track.artist,
+                album: track.album || undefined,
+                duration_ms: track.duration_ms || 210000,
+                cover_art_url: track.cover_art_url || undefined,
+                provider_id: providerId,
+            };
+            await audioStore.handleTrackClick(trackPayload);
+
+            homeStore.recordPlay({
+                id: 0,
+                canonical_key: '',
+                title: track.title,
+                artist: track.artist,
+                album: track.album || null,
+                cover_art_url: track.cover_art_url || null,
+                play_count: 1,
+                last_played_at: null,
+                liked: false,
+                local_track_id: null,
+                local_file_path: null,
+                last_provider_id: providerId,
+                last_source_id: track.id,
+                duration_ms: track.duration_ms || null,
             });
-
-            if (resolved && resolved.stream_url) {
-                audioStore.setQueue([{
-                    id: `remote-${providerId}-${track.id}`,
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album || '',
-                    file_path: resolved.stream_url,
-                    stream_url: resolved.stream_url,
-                    provider_id: providerId,
-                    cover_art_url: track.cover_art_url,
-                    duration_ms: track.duration_ms,
-                }], 0);
-
-                homeStore.recordPlay({
-                    id: 0,
-                    canonical_key: '',
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album || null,
-                    cover_art_url: track.cover_art_url || null,
-                    play_count: 1,
-                    last_played_at: null,
-                    liked: false,
-                    local_track_id: null,
-                    local_file_path: null,
-                    last_provider_id: providerId,
-                    last_source_id: track.id,
-                    duration_ms: track.duration_ms || null,
-                });
-            }
         } catch (e) {
             console.error("Failed to play remote track:", e);
             toastStore.show(`Failed to play ${track.title}`, 'error');

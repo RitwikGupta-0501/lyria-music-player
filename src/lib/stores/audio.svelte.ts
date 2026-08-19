@@ -306,11 +306,18 @@ export class AudioStore {
     private formatQueueTrack(t: any): QueueTrack {
         const instanceId = crypto.randomUUID();
         const isRemote = !!(t.stream_url) || !!(t.provider_id) || (t.type === "Remote");
+        let rawRemoteId = t.remote_track_id ?? t.remoteTrackId ?? t.id ?? null;
+        if (typeof rawRemoteId === 'string' && t.provider_id && rawRemoteId.startsWith(`remote-${t.provider_id}-`)) {
+            rawRemoteId = rawRemoteId.substring(`remote-${t.provider_id}-`.length);
+        } else if (typeof rawRemoteId === 'string' && rawRemoteId.startsWith('remote-youtube-wasm-')) {
+            rawRemoteId = rawRemoteId.substring('remote-youtube-wasm-'.length);
+        }
+
         const source: TrackSource = isRemote
             ? {
                 type: 'Remote',
                 provider_id: t.provider_id ?? 'unknown',
-                remote_track_id: t.id ?? t.remote_track_id ?? t.remoteTrackId ?? null,
+                remote_track_id: rawRemoteId,
                 stream_url: t.stream_url,
                 quality_hint: t.quality_hint ?? null,
                 cover_art_url: t.cover_art_url ?? null,
@@ -330,6 +337,16 @@ export class AudioStore {
             trackNumber: t.track_number ?? t.trackNumber ?? null,
             source,
         };
+    }
+
+    async handleTrackClick(trackPayload: any) {
+        if (this.trackClickBehavior === "interrupt") {
+            await this.playInterrupt(trackPayload);
+        } else if (this.trackClickBehavior === "append") {
+            await this.addToQueue(trackPayload);
+        } else {
+            await this.setQueue([trackPayload], 0);
+        }
     }
 
     async setQueue(tracks: any[], startIndex: number = 0) {

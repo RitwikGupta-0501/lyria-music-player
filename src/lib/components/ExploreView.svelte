@@ -3,6 +3,7 @@
     import { fade } from "svelte/transition";
     import { 
         exploreStore, 
+        AVAILABLE_SOURCES,
         type TrackResult, 
         type AlbumItem, 
         type GenreItem, 
@@ -17,18 +18,33 @@
         Play, 
         Pause, 
         ArrowLeft, 
+        ArrowRight,
         ArrowClockwise, 
         Sparkle, 
         CaretLeft, 
         CaretRight, 
+        CaretDown,
+        Globe,
         X,
         MusicNotes,
         Disc,
         User,
-        Playlist
+        Playlist,
+        Check
     } from "phosphor-svelte";
 
     let { activeView = $bindable("explore") } = $props<{ activeView?: string }>();
+    let isSourceMenuOpen = $state(false);
+
+    function getCategoryFilterId(categoryName: string): string | null {
+        const cat = categoryName.toLowerCase();
+        if (cat.includes("song")) return "songs";
+        if (cat.includes("album")) return "albums";
+        if (cat.includes("artist")) return "artists";
+        if (cat.includes("playlist")) return "playlists";
+        if (cat.includes("video")) return "videos";
+        return null;
+    }
 
     let autoScrollInterval: ReturnType<typeof setInterval> | null = null;
     let isHoveringHero = $state(false);
@@ -136,18 +152,58 @@
             </button>
         </div>
 
-        <!-- Filter Chips (Visible when searching) -->
+        <!-- Filter Chips & Sources Row (Visible when searching) -->
         {#if exploreStore.searchQuery.trim().length > 0}
-            <div class="search-filter-chips">
-                {#each FILTER_CHIPS as chip}
+            <div class="search-controls-row">
+                <div class="search-filter-chips">
+                    {#each FILTER_CHIPS as chip}
+                        <button 
+                            class="filter-chip"
+                            class:active={exploreStore.activeSearchFilter === chip.id}
+                            onclick={() => exploreStore.setSearchFilter(chip.id)}
+                        >
+                            {chip.label}
+                        </button>
+                    {/each}
+                </div>
+
+                <!-- Multi-Select Source Filter (Styled consistently with SettingsView) -->
+                <div class="custom-select-container">
                     <button 
-                        class="filter-chip"
-                        class:active={exploreStore.activeSearchFilter === chip.id}
-                        onclick={() => exploreStore.setSearchFilter(chip.id)}
+                        class="select-trigger" 
+                        onclick={() => { isSourceMenuOpen = !isSourceMenuOpen; }}
+                        aria-expanded={isSourceMenuOpen}
                     >
-                        {chip.label}
+                        <div class="select-trigger-left">
+                            <Globe size={14} weight="bold" />
+                            <span>Sources ({exploreStore.activeSourceFilters.length})</span>
+                        </div>
+                        <CaretDown size={13} weight="bold" class={isSourceMenuOpen ? 'rotated' : ''} />
                     </button>
-                {/each}
+
+                    {#if isSourceMenuOpen}
+                        <div class="source-dropdown-backdrop" role="button" tabindex="-1" onclick={() => { isSourceMenuOpen = false; }} onkeydown={() => { isSourceMenuOpen = false; }}></div>
+                        <div class="custom-select-menu">
+                            <div class="source-menu-header">Filter Sources</div>
+                            {#each AVAILABLE_SOURCES as src}
+                                <button 
+                                    class="source-checkbox-item" 
+                                    onclick={() => exploreStore.toggleSourceFilter(src.id)}
+                                    role="checkbox"
+                                    aria-checked={exploreStore.isSourceActive(src.id)}
+                                >
+                                    <div class="echo-checkbox" class:checked={exploreStore.isSourceActive(src.id)}>
+                                        {#if exploreStore.isSourceActive(src.id)}
+                                            <Check size={12} weight="bold" />
+                                        {/if}
+                                    </div>
+                                    <span class="source-item-name">{src.name}</span>
+                                    <span class="source-badge">{src.badge}</span>
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
             </div>
         {/if}
     </div>
@@ -183,17 +239,75 @@
                     {#each exploreStore.searchSections as section}
                         {#if section.items.length > 0}
                             <div class="search-shelf">
-                                <div class="shelf-header">
-                                    <h3>{section.category}</h3>
-                                    <span class="shelf-count">{section.items.length}</span>
-                                </div>
+                                <!-- Shelf Header (Omitted entirely for Top Result) -->
+                                {#if section.category !== "Top Result"}
+                                    <div class="shelf-header">
+                                        <h3>{section.category}</h3>
+                                        {#if exploreStore.activeSearchFilter === "all" && getCategoryFilterId(section.category)}
+                                            <button 
+                                                class="shelf-see-more-btn" 
+                                                onclick={() => exploreStore.setSearchFilter(getCategoryFilterId(section.category)!)}
+                                            >
+                                                <span>See more</span>
+                                                <CaretRight size={13} weight="bold" />
+                                            </button>
+                                        {/if}
+                                    </div>
+                                {/if}
 
                                 <!-- A. Top Result Hero Card -->
                                 {#if section.category === "Top Result"}
                                     <div class="top-result-cluster">
                                         {#each section.items as item}
                                             {#if item.type === "TopResult"}
-                                                <div class="top-result-card" class:is-glass={settingsStore.glassyPlayerBar}>
+                                                <div 
+                                                    class="top-result-card interactive" 
+                                                    class:is-glass={settingsStore.glassyPlayerBar}
+                                                    role="button"
+                                                    tabindex="0"
+                                                    onclick={() => {
+                                                        if (item.data.item_type === "album") {
+                                                            exploreStore.playAlbum({
+                                                                id: item.data.id,
+                                                                title: item.data.title,
+                                                                artist: item.data.subtitle,
+                                                                cover_art_url: item.data.cover_art_url,
+                                                                provider_id: item.data.provider_id || "youtube-wasm",
+                                                            });
+                                                        } else if (item.data.item_type === "song") {
+                                                            exploreStore.playTrack({
+                                                                id: item.data.id,
+                                                                title: item.data.title,
+                                                                artist: item.data.subtitle,
+                                                                cover_art_url: item.data.cover_art_url,
+                                                                provider_id: item.data.provider_id || "youtube-wasm",
+                                                            });
+                                                        } else if (item.data.item_type === "artist") {
+                                                            exploreStore.setSearchQuery(item.data.title);
+                                                        }
+                                                    }}
+                                                    onkeydown={(e) => {
+                                                        if (e.key === "Enter") {
+                                                            if (item.data.item_type === "album") {
+                                                                exploreStore.playAlbum({
+                                                                    id: item.data.id,
+                                                                    title: item.data.title,
+                                                                    artist: item.data.subtitle,
+                                                                    cover_art_url: item.data.cover_art_url,
+                                                                    provider_id: item.data.provider_id || "youtube-wasm",
+                                                                });
+                                                            } else {
+                                                                exploreStore.playTrack({
+                                                                    id: item.data.id,
+                                                                    title: item.data.title,
+                                                                    artist: item.data.subtitle,
+                                                                    cover_art_url: item.data.cover_art_url,
+                                                                    provider_id: item.data.provider_id || "youtube-wasm",
+                                                                });
+                                                            }
+                                                        }
+                                                    }}
+                                                >
                                                     <div class="top-result-art-wrapper">
                                                         {#if item.data.cover_art_url}
                                                             <img src={item.data.cover_art_url} alt={item.data.title} class="top-result-art" />
@@ -202,6 +316,11 @@
                                                                 <span>{getInitial(item.data.title)}</span>
                                                             </div>
                                                         {/if}
+                                                        <div class="top-result-play-overlay">
+                                                            <div class="echo-play-btn">
+                                                                <Play size={22} weight="fill" />
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                     <div class="top-result-info">
                                                         <div class="top-result-eyebrow">
@@ -258,10 +377,10 @@
                                         {/each}
                                     </div>
 
-                                <!-- B. Songs / Videos Shelf (Ranked Ledger) -->
+                                <!-- B. Songs / Videos Shelf (Ranked Ledger - Capped at 8 in "all" view) -->
                                 {:else if section.category === "Songs" || section.category === "Videos"}
                                     <div class="search-tracks-ledger">
-                                        {#each section.items as item, index}
+                                        {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 8) : section.items) as item, index}
                                             {#if item.type === "Track"}
                                                 <div 
                                                     class="ledger-row"
@@ -309,12 +428,13 @@
                                                 </div>
                                             {/if}
                                         {/each}
+
                                     </div>
 
                                 <!-- C. Albums Shelf (Uniform Symmetrical Grid) -->
                                 {:else if section.category === "Albums"}
                                     <div class="albums-search-grid">
-                                        {#each section.items as item}
+                                        {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 5) : section.items) as item}
                                             {#if item.type === "Album"}
                                                 <div 
                                                     class="echo-album-card"
@@ -349,7 +469,7 @@
                                 <!-- D. Artists Shelf (Circular Avatars) -->
                                 {:else if section.category === "Artists"}
                                     <div class="artists-search-grid">
-                                        {#each section.items as item}
+                                        {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 6) : section.items) as item}
                                             {#if item.type === "Artist"}
                                                 <div class="artist-card">
                                                     <div class="artist-avatar-wrapper">
@@ -830,14 +950,7 @@
         margin: 0;
         color: #EAEAEA;
     }
-    .shelf-count {
-        font-size: 0.75rem;
-        font-family: ui-monospace, monospace;
-        color: rgba(255, 255, 255, 0.4);
-        background: rgba(255, 255, 255, 0.06);
-        padding: 0.1rem 0.4rem;
-        border-radius: 4px;
-    }
+
 
     /* Top Result Hero Card */
     .top-result-cluster {
@@ -1124,14 +1237,16 @@
         color: #fff;
     }
 
-    /* ─── Featured Spotlight (16:7 Rotating Editorial Banner) ─── */
+    /* ─── Featured Spotlight (Strict Fixed 300px Geometry & Clamping) ─── */
     .spotlight-banner-wrapper {
         width: 100%;
     }
     .spotlight-banner {
         position: relative;
         width: 100%;
-        min-height: 280px;
+        height: 300px;
+        min-height: 300px;
+        max-height: 300px;
         border-radius: 12px;
         overflow: hidden;
         background: #141416;
@@ -1145,8 +1260,10 @@
     .spotlight-slide {
         position: relative;
         width: 100%;
-        height: 100%;
-        min-height: 280px;
+        height: 300px;
+        min-height: 300px;
+        max-height: 300px;
+        overflow: hidden;
     }
     .spotlight-backdrop {
         position: absolute;
@@ -1160,21 +1277,22 @@
     .spotlight-content {
         position: relative;
         z-index: 2;
-        padding: 2.2rem 2.5rem;
+        padding: 2rem 2.5rem;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: flex-start;
-        gap: 0.65rem;
-        background: linear-gradient(to right, rgba(18, 18, 22, 0.96) 35%, rgba(18, 18, 22, 0.6) 70%, transparent 100%);
-        min-height: 280px;
+        gap: 0.55rem;
+        background: linear-gradient(to right, rgba(18, 18, 22, 0.96) 38%, rgba(18, 18, 22, 0.6) 72%, transparent 100%);
+        height: 100%;
+        box-sizing: border-box;
     }
     .spotlight-eyebrow {
         display: flex;
         align-items: center;
         gap: 0.5rem;
         font-family: ui-monospace, SFMono-Regular, monospace;
-        font-size: 0.76rem;
+        font-size: 0.74rem;
         font-weight: 700;
         letter-spacing: 0.1em;
         color: #B58E62; /* Brass Accent */
@@ -1190,22 +1308,32 @@
     }
     .spotlight-title {
         font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-        font-size: 2.2rem;
+        font-size: 2.1rem;
         font-weight: 700;
-        line-height: 1.15;
+        line-height: 1.18;
         color: #FFFFFF;
         margin: 0;
-        max-width: 600px;
+        max-width: 620px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .spotlight-meta {
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
         color: rgba(255, 255, 255, 0.85);
     }
     .meta-artist {
         font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 320px;
     }
     .meta-dot {
         color: rgba(255, 255, 255, 0.4);
@@ -1225,9 +1353,17 @@
         margin-left: 0.3rem;
     }
     .spotlight-desc {
-        font-size: 0.88rem;
+        font-size: 0.86rem;
         color: rgba(255, 255, 255, 0.6);
-        margin: 0.1rem 0 0.5rem 0;
+        margin: 0;
+        max-width: 600px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.35;
     }
     .play-spotlight-btn {
         background: #FFFFFF;
@@ -1654,4 +1790,289 @@
         color: rgba(255, 255, 255, 0.4);
         padding: 1.5rem 0;
     }
+
+    /* Search Controls Row & Settings-Consistent Custom Select */
+    .search-controls-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        width: 100%;
+    }
+
+    .custom-select-container {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .select-trigger {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        background: var(--echo-surface, #161618);
+        border: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.1));
+        color: var(--echo-text-1, #FFFFFF);
+        padding: 0.42rem 0.85rem;
+        border-radius: 8px;
+        font-family: var(--echo-font-body, inherit);
+        font-size: 0.82rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .select-trigger:hover {
+        border-color: rgba(181, 142, 98, 0.4);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .select-trigger-left {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: #B58E62;
+    }
+
+    .select-trigger-left span {
+        color: var(--echo-text-1, #FFFFFF);
+    }
+
+    :global(.select-trigger svg) {
+        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.6));
+    }
+
+    :global(.select-trigger svg.rotated) {
+        transform: rotate(180deg);
+        color: #B58E62;
+    }
+
+    .source-dropdown-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+    }
+
+    .custom-select-menu {
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        right: 0;
+        width: 220px;
+        display: flex;
+        flex-direction: column;
+        background: var(--echo-surface, #161618);
+        border: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.12));
+        border-radius: 8px;
+        padding: 0.35rem;
+        z-index: 101;
+        box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+        animation: slideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        transform-origin: top center;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px) scale(0.98);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    .source-menu-header {
+        font-family: ui-monospace, monospace;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.4));
+        padding: 0.3rem 0.5rem;
+        letter-spacing: 0.06em;
+    }
+
+
+
+    :global(.select-option .check-icon) {
+        color: #B58E62;
+        flex-shrink: 0;
+    }
+
+    .source-badge {
+        font-size: 0.58rem;
+        font-family: ui-monospace, monospace;
+        font-weight: 700;
+        padding: 0.08rem 0.32rem;
+        border-radius: 3px;
+        background: rgba(181, 142, 98, 0.15);
+        color: #B58E62;
+        border: 1px solid rgba(181, 142, 98, 0.3);
+    }
+
+    /* Shelf Header Action */
+    .shelf-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.9rem;
+    }
+
+    :global(.shelf-header-left) {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    :global(.see-all-shelf-btn) {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: #B58E62;
+        padding: 0.25rem 0.65rem;
+        border-radius: 16px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    :global(.see-all-shelf-btn:hover) {
+        background: rgba(181, 142, 98, 0.15);
+        border-color: #B58E62;
+        color: #fff;
+    }
+
+    /* Local Lossless Badges */
+    :global(.lossless-badge) {
+        font-size: 0.65rem;
+        font-family: ui-monospace, monospace;
+        font-weight: 700;
+        background: rgba(181, 142, 98, 0.2);
+        border: 1px solid rgba(181, 142, 98, 0.45);
+        color: #B58E62;
+        padding: 0.12rem 0.45rem;
+        border-radius: 4px;
+        letter-spacing: 0.04em;
+    }
+
+    :global(.lossless-badge-mini) {
+        font-size: 0.58rem;
+        font-family: ui-monospace, monospace;
+        font-weight: 700;
+        background: rgba(181, 142, 98, 0.2);
+        border: 1px solid rgba(181, 142, 98, 0.45);
+        color: #B58E62;
+        padding: 0.08rem 0.3rem;
+        border-radius: 3px;
+    }
+
+    :global(.album-sub-row) {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.4rem;
+    }
+
+    /* Top Result Interactive Overlay */
+    :global(.top-result-card.interactive) {
+        cursor: pointer;
+        transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+    :global(.top-result-card.interactive:hover) {
+        transform: translateY(-2px);
+        border-color: rgba(181, 142, 98, 0.4);
+        background: #1C1C20;
+    }
+    :global(.top-result-play-overlay) {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+    }
+    :global(.top-result-card.interactive:hover .top-result-play-overlay) {
+        opacity: 1;
+    }
+
+    /* Checkbox Items in Sources Dropdown */
+    .source-checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        width: 100%;
+        background: transparent;
+        border: none;
+        padding: 0.5rem 0.6rem;
+        border-radius: 6px;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.7));
+        cursor: pointer;
+        transition: background 0.12s ease;
+        text-align: left;
+    }
+    .source-checkbox-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--echo-text-1, #FFFFFF);
+    }
+    .echo-checkbox {
+        width: 17px;
+        height: 17px;
+        border-radius: 4px;
+        border: 1.5px solid rgba(255, 255, 255, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        transition: all 0.15s ease;
+        flex-shrink: 0;
+    }
+    .echo-checkbox.checked {
+        background: #B58E62;
+        border-color: #B58E62;
+        color: #000000;
+    }
+    .source-item-name {
+        flex: 1;
+        font-size: 0.82rem;
+        color: inherit;
+        font-weight: 500;
+    }
+
+
+    /* Shelf See More Buttons */
+    .shelf-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        margin-bottom: 0.2rem;
+    }
+    .shelf-see-more-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        background: transparent;
+        border: none;
+        color: #B58E62;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 0.78rem;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        transition: all 0.15s ease;
+    }
+    .shelf-see-more-btn:hover {
+        background: rgba(181, 142, 98, 0.12);
+        color: #fff;
+    }
+
+
 </style>
