@@ -102,6 +102,41 @@ pub struct SearchCategorySection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AlbumDetailResult {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<String>,
+    pub description: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub track_count: Option<u32>,
+    pub tracks: Vec<TrackResult>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtistDetailResult {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub banner_url: Option<String>,
+    pub subscribers: Option<String>,
+    pub bio: Option<String>,
+    pub top_tracks: Vec<TrackResult>,
+    pub albums: Vec<AlbumItem>,
+    pub singles: Vec<AlbumItem>,
+    #[serde(default)]
+    pub videos: Vec<TrackResult>,
+    #[serde(default)]
+    pub featured_on: Vec<PlaylistItem>,
+    #[serde(default)]
+    pub similar_artists: Vec<ArtistItem>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CategorizedSearchResult {
     pub sections: Vec<SearchCategorySection>,
     pub continuation_token: Option<String>,
@@ -579,6 +614,41 @@ impl ProviderManager {
             }
         })?;
         
+        Ok(results)
+    }
+
+
+    pub async fn browse_album(&self, provider_id: &str, album_id: &str) -> Result<AlbumDetailResult, SandboxError> {
+        let plugin_arc = self.get_or_create_plugin(provider_id, 15)?;
+        let album_id_str = album_id.to_string();
+        let res_bytes = spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&album_id_str).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("browse_album", &json_input).map(|res| res.to_vec())
+        }).await.map_err(|e| SandboxError::ScriptError { script: provider_id.to_string(), message: e.to_string() })?
+        .map_err(|e| SandboxError::ScriptError { script: provider_id.to_string(), message: e.to_string() })?;
+
+        let results: AlbumDetailResult = serde_json::from_slice(&res_bytes).map_err(|e| SandboxError::ScriptError {
+            script: provider_id.to_string(),
+            message: e.to_string(),
+        })?;
+        Ok(results)
+    }
+
+    pub async fn browse_artist(&self, provider_id: &str, artist_id: &str) -> Result<ArtistDetailResult, SandboxError> {
+        let plugin_arc = self.get_or_create_plugin(provider_id, 15)?;
+        let artist_id_str = artist_id.to_string();
+        let res_bytes = spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&artist_id_str).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("browse_artist", &json_input).map(|res| res.to_vec())
+        }).await.map_err(|e| SandboxError::ScriptError { script: provider_id.to_string(), message: e.to_string() })?
+        .map_err(|e| SandboxError::ScriptError { script: provider_id.to_string(), message: e.to_string() })?;
+
+        let results: ArtistDetailResult = serde_json::from_slice(&res_bytes).map_err(|e| SandboxError::ScriptError {
+            script: provider_id.to_string(),
+            message: e.to_string(),
+        })?;
         Ok(results)
     }
 

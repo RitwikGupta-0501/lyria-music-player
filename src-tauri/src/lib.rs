@@ -303,6 +303,27 @@ async fn save_provider_settings(
     Ok(())
 }
 
+
+#[tauri::command]
+async fn browse_provider_album(
+    state: State<'_, AppState>,
+    provider_id: String,
+    album_id: String,
+) -> Result<crate::providers::AlbumDetailResult, String> {
+    let manager = state.provider_manager.lock().await;
+    manager.browse_album(&provider_id, &album_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn browse_provider_artist(
+    state: State<'_, AppState>,
+    provider_id: String,
+    artist_id: String,
+) -> Result<crate::providers::ArtistDetailResult, String> {
+    let manager = state.provider_manager.lock().await;
+    manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn search_provider_categorized(
     state: State<'_, AppState>,
@@ -1104,6 +1125,8 @@ pub fn run() {
             set_provider_config,
             search_provider,
             search_provider_categorized,
+            browse_provider_album,
+            browse_provider_artist,
             get_provider_modules,
             fetch_provider_module,
             get_explore_feed,

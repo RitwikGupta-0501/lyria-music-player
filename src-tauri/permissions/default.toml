@@ -19,6 +19,8 @@ commands.allow = [
     "set_provider_config",
     "search_provider",
     "search_provider_categorized",
+    "browse_provider_album",
+    "browse_provider_artist",
     "get_provider_modules",
     "fetch_provider_module",
     "search_library",
