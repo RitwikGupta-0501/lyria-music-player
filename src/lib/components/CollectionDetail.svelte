@@ -1,46 +1,85 @@
 <script lang="ts">
     import {
+        getCanonicalKey,
         libraryStore,
+        type Album,
         type Playlist,
         type LocalTrack,
     } from "$lib/stores/library.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
     import {
+        Playlist as PlaylistIcon,
+        Disc as DiscIcon,
         DotsThreeIcon,
         PlayIcon,
         PauseIcon,
-        PlusIcon,
         TrashIcon,
         PencilIcon,
+        Heart as HeartIcon,
     } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
-    import { exploreStore, type AlbumDetailResult } from "$lib/stores/explore.svelte";
+    import { exploreStore, type DrawerCollection } from "$lib/stores/explore.svelte";
+    import { convertFileSrc } from "@tauri-apps/api/core";
 
-    let { playlist = null, remotePlaylist = null, onBack, onDeleted } = $props<{ 
-        playlist?: Playlist | null; 
-        remotePlaylist?: AlbumDetailResult | null; 
+    let { 
+        collection, 
+        onBack, 
+        onDeleted 
+    } = $props<{ 
+        collection: DrawerCollection; 
         onBack: () => void; 
-        onDeleted: () => void; 
+        onDeleted?: () => void; 
     }>();
 
-    let effectiveRemote = $derived(remotePlaylist || exploreStore.selectedRemotePlaylist);
     let tracks = $state<any[]>([]);
-    let artUrls = $state<string[]>([]);
+    let localArtUrl = $state<string | null>(null);
+    let mosaicUrls = $state<string[]>([]);
     let isEditingName = $state(false);
     let editName = $state("");
-
-    let playlistTitle = $derived(effectiveRemote?.title || playlist?.name || "Playlist");
-    let playlistAuthor = $derived(effectiveRemote?.artist || "Curated Playlist");
-    let artUrl = $derived(effectiveRemote?.cover_art_url || (artUrls.length > 0 ? artUrls[0] : null));
-
     let activeDropdown = $state<number | null>(null);
+
+    let isRemote = $derived(collection.source === "remote");
+    let isPlaylist = $derived(collection.kind === "playlist");
+    let isFavorites = $derived(collection.id === "favorites");
+    let isCustomLocalPlaylist = $derived(!isRemote && isPlaylist && !isFavorites);
+
+    let likedKeys = $derived(new Set(libraryStore.likedSongs.map(s => s.canonical_key.toLowerCase().trim())));
+
+    let favoriteTracks = $derived(
+        libraryStore.likedSongs.map((s, idx) => ({
+            id: s.last_source_id || s.local_track_id || idx,
+            title: s.title,
+            artist: s.artist,
+            album: s.album,
+            file_path: s.local_file_path || s.file_path,
+            cover_art_url: s.cover_art_url,
+            provider_id: s.last_provider_id || (s.local_file_path || s.file_path ? undefined : "youtube-wasm"),
+            duration_ms: s.duration_ms,
+            canonical_key: s.canonical_key,
+            liked: true,
+        }))
+    );
+
+    let displayTracks = $derived(isFavorites ? favoriteTracks : tracks);
+
+    let artUrl = $derived(
+        collection.cover_art_url ||
+        (collection.cover_art_path ? convertFileSrc(collection.cover_art_path) : localArtUrl) ||
+        (mosaicUrls.length > 0 ? mosaicUrls[0] : null)
+    );
+
+    let collectionTitle = $derived(collection.title || (isPlaylist ? "Playlist" : "Album"));
+    let collectionSubtitle = $derived(
+        collection.subtitle || 
+        (isPlaylist ? "Playlist" : "Unknown Artist")
+    );
 
     let scrollContainer = $state<HTMLElement | null>(null);
     let virtStore = $derived.by(() => {
         const container = scrollContainer;
         return createVirtualizer({
-            count: tracks.length,
+            count: displayTracks.length,
             getScrollElement: () => container,
             estimateSize: () => 52,
             overscan: 10,
@@ -48,27 +87,32 @@
     });
 
     async function loadData() {
-        if (effectiveRemote) {
-            tracks = (effectiveRemote.tracks || []).map((t, idx) => ({
-                id: t.id || idx,
-                title: t.title,
-                artist: t.artist,
-                album: effectiveRemote.title,
-                file_path: t.id,
-                duration_ms: t.duration_ms,
-                cover_art_url: t.cover_art_url || effectiveRemote.cover_art_url,
-            }));
-        } else if (playlist) {
-            tracks = await libraryStore.getPlaylistTracks(playlist.id);
-            artUrls = await libraryStore.getPlaylistArtworkMosaic(playlist.id);
+        if (collection.id === "favorites") {
+            tracks = collection.tracks || [];
+        } else if (collection.source === "remote") {
+            tracks = collection.tracks || [];
+        } else if (collection.kind === "album") {
+            const albumId = Number(collection.id);
+            const localTracks = await libraryStore.getAlbumTracks(albumId);
+            tracks = localTracks;
+            if (localTracks.length > 0 && !collection.cover_art_path) {
+                localArtUrl = await libraryStore.getArtworkUrl(localTracks[0].id, localTracks[0].file_path);
+            }
+        } else if (collection.kind === "playlist") {
+            const playlistId = Number(collection.id);
+            tracks = await libraryStore.getPlaylistTracks(playlistId);
+            mosaicUrls = await libraryStore.getPlaylistArtworkMosaic(playlistId);
             if (!isEditingName) {
-                editName = playlist.name;
+                editName = collection.title;
             }
         }
     }
 
     $effect(() => {
-        loadData();
+        // Reload whenever collection ID or tracks change
+        if (collection) {
+            loadData();
+        }
 
         const closeDropdowns = () => {
             activeDropdown = null;
@@ -84,42 +128,44 @@
 
     async function removeTrack(e: Event, trackId: number) {
         e.stopPropagation();
-        if (playlist) {
-            await libraryStore.removeFromPlaylist(playlist.id, trackId);
+        if (isLocalPlaylist) {
+            await libraryStore.removeFromPlaylist(Number(collection.id), trackId);
             await loadData();
         }
         activeDropdown = null;
     }
 
     async function deletePlaylist() {
-        if (playlist && confirm("Are you sure you want to delete this playlist?")) {
-            await libraryStore.deletePlaylist(playlist.id);
-            onDeleted();
+        if (isCustomLocalPlaylist && confirm("Are you sure you want to delete this playlist?")) {
+            await libraryStore.deletePlaylist(Number(collection.id));
+            if (onDeleted) onDeleted();
+            exploreStore.closeDrawerCollection();
         }
     }
 
     async function saveName() {
-        if (playlist && editName.trim() && editName !== playlist.name) {
-            await libraryStore.renamePlaylist(playlist.id, editName);
+        if (isCustomLocalPlaylist && editName.trim() && editName !== collection.title) {
+            await libraryStore.renamePlaylist(Number(collection.id), editName.trim());
+            collection.title = editName.trim();
         }
         isEditingName = false;
     }
 
     async function playTrack(index: number) {
-        if (tracks.length === 0) return;
+        if (displayTracks.length === 0) return;
 
-        const current = tracks[index];
+        const current = displayTracks[index];
 
-        if (effectiveRemote) {
-            const pId = current.provider_id || effectiveRemote.provider_id || "youtube-wasm";
+        if (isRemote) {
+            const pId = current.provider_id || collection.provider_id || "youtube-wasm";
             const trackPayload = {
                 id: current.id,
                 title: current.title,
                 artist: current.artist,
-                album: effectiveRemote.title,
+                album: collection.title,
                 remote_track_id: current.id,
                 provider_id: pId,
-                cover_art_url: current.cover_art_url || effectiveRemote.cover_art_url,
+                cover_art_url: current.cover_art_url || collection.cover_art_url,
                 duration_ms: current.duration_ms,
             };
 
@@ -133,66 +179,89 @@
                     return;
                 }
             }
-            const queueTracks = tracks.map((t) => ({
+
+            const queueTracks = displayTracks.map((t) => ({
                 id: t.id,
                 title: t.title,
                 artist: t.artist,
-                album: effectiveRemote.title,
+                album: collection.title,
                 remote_track_id: t.id,
                 provider_id: t.provider_id || pId,
-                cover_art_url: t.cover_art_url || effectiveRemote.cover_art_url,
+                cover_art_url: t.cover_art_url || collection.cover_art_url,
                 duration_ms: t.duration_ms,
             }));
             await audioStore.setQueue(queueTracks, index);
             return;
         }
 
-        if (playlist) {
-            if (audioStore.queue.length > 0) {
-                const trackPayload = {
-                    id: current.id,
-                    title: current.title,
-                    artist: current.artist,
-                    album: playlist.name,
-                    file_path: current.file_path,
-                };
+        // Local Playback
+        if (audioStore.queue.length > 0) {
+            const trackPayload = {
+                id: current.id,
+                title: current.title,
+                artist: current.artist,
+                album: collection.title,
+                file_path: current.file_path,
+                track_number: current.track_number,
+            };
 
-                if (audioStore.trackClickBehavior === "interrupt") {
-                    await audioStore.playInterrupt(trackPayload);
-                    return;
-                } else if (audioStore.trackClickBehavior === "append") {
-                    await audioStore.addToQueue(trackPayload);
-                    toastStore.show("Added to queue", "info", 1500);
-                    return;
-                }
+            if (audioStore.trackClickBehavior === "interrupt") {
+                await audioStore.playInterrupt(trackPayload);
+                return;
+            } else if (audioStore.trackClickBehavior === "append") {
+                await audioStore.addToQueue(trackPayload);
+                toastStore.show("Added to queue", "info", 1500);
+                return;
             }
-
-            const queueTracks = tracks.map((t) => ({
-                id: t.id,
-                title: t.title,
-                artist: t.artist,
-                album: playlist.name,
-                file_path: t.file_path,
-            }));
-
-            await audioStore.setQueue(queueTracks, index);
         }
+
+        const queueTracks = displayTracks.map((t) => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            album: collection.title,
+            file_path: t.file_path,
+            track_number: t.track_number,
+        }));
+
+        await audioStore.setQueue(queueTracks, index);
     }
 </script>
 
 <div class="view-album">
     <div class="album-header">
-        <div class="art-container">
-            {#if artUrl}
-                <img src={artUrl} alt={playlistTitle} class="art-img" loading="eager" />
+        <div class="art-container" class:favorites-art-container={collection.id === "favorites"}>
+            {#if collection.id === "favorites"}
+                <div class="favorites-art-gradient">
+                    <HeartIcon size={54} weight="fill" color="#D4A86E" class="favorites-heart-icon" />
+                </div>
+            {:else if collection.cover_art_url}
+                <img src={collection.cover_art_url} alt={collectionTitle} class="art-img" loading="eager" />
+            {:else if collection.cover_art_path}
+                <img src={convertFileSrc(collection.cover_art_path)} alt={collectionTitle} class="art-img" loading="eager" />
+            {:else if localArtUrl}
+                <img src={localArtUrl} alt={collectionTitle} class="art-img" loading="eager" />
+            {:else if mosaicUrls.length >= 4}
+                <div class="mosaic-grid">
+                    <img src={mosaicUrls[0]} alt="Cover" class="mosaic-img" />
+                    <img src={mosaicUrls[1]} alt="Cover" class="mosaic-img" />
+                    <img src={mosaicUrls[2]} alt="Cover" class="mosaic-img" />
+                    <img src={mosaicUrls[3]} alt="Cover" class="mosaic-img" />
+                </div>
+            {:else if mosaicUrls.length > 0}
+                <img src={mosaicUrls[0]} alt={collectionTitle} class="art-img" loading="eager" />
+            {:else if isPlaylist}
+                <div class="art-placeholder">
+                    <PlaylistIcon size={40} weight="thin" color="rgba(255, 255, 255, 0.35)" />
+                </div>
             {:else}
-                <div class="art-placeholder font-headline-lg">
-                    <span>{playlistTitle.charAt(0).toUpperCase()}</span>
+                <div class="art-placeholder">
+                    <DiscIcon size={40} weight="thin" color="rgba(255, 255, 255, 0.35)" />
                 </div>
             {/if}
         </div>
         <div class="album-info">
-            {#if isEditingName && playlist}
+            {#if isEditingName && isCustomLocalPlaylist}
                 <div class="edit-name-row">
                     <input 
                         type="text" 
@@ -204,29 +273,51 @@
                     <button class="save-name-btn" onclick={saveName}>Save</button>
                 </div>
             {:else}
-                <h3 class="album-title font-headline-lg">
-                    {playlistTitle}
-                    {#if playlist}
-                        <button class="icon-action-btn" onclick={() => isEditingName = true} title="Rename playlist">
-                            <PencilIcon size={14} />
-                        </button>
-                    {/if}
+                <h3 class="album-title font-headline-lg" title={collectionTitle}>
+                    <span class="title-text">{collectionTitle}</span>
                 </h3>
             {/if}
-            <p class="album-artist">
-                {playlistAuthor} • {tracks.length} {tracks.length === 1 ? "track" : "tracks"}
+
+            <p class="album-artist" title={isFavorites ? `${displayTracks.length} Favorite Songs` : (isCustomLocalPlaylist ? `${displayTracks.length} tracks` : collectionSubtitle)}>
+                {#if isFavorites}
+                    {displayTracks.length} {displayTracks.length === 1 ? "Favorite Song" : "Favorite Songs"}
+                {:else if isCustomLocalPlaylist}
+                    {displayTracks.length} {displayTracks.length === 1 ? "track" : "tracks"}
+                {:else if isRemote && !isPlaylist && collection.subtitle}
+                    <button 
+                        class="artist-clickable-link" 
+                        onclick={() => exploreStore.openArtist({ id: collection.subtitle!, name: collection.subtitle, provider_id: collection.provider_id })}
+                    >
+                        {collectionSubtitle}
+                    </button>
+                    {#if displayTracks.length > 0}
+                        • {displayTracks.length} {displayTracks.length === 1 ? "track" : "tracks"}
+                    {/if}
+                {:else}
+                    {collectionSubtitle}
+                    {#if displayTracks.length > 0}
+                        • {displayTracks.length} {displayTracks.length === 1 ? "track" : "tracks"}
+                    {/if}
+                {/if}
             </p>
-            {#if playlist}
-                <button class="delete-playlist-link" onclick={deletePlaylist}>
-                    <TrashIcon size={13} />
-                    <span>Delete Playlist</span>
-                </button>
+
+            {#if isCustomLocalPlaylist}
+                <div class="playlist-actions-row">
+                    <button class="action-btn" onclick={() => isEditingName = true} title="Rename playlist">
+                        <PencilIcon size={16} />
+                        <span>Edit</span>
+                    </button>
+                    <button class="action-btn text-danger" onclick={deletePlaylist} title="Delete playlist">
+                        <TrashIcon size={16} />
+                        <span>Delete</span>
+                    </button>
+                </div>
             {/if}
         </div>
     </div>
 
     <div class="track-list" bind:this={scrollContainer}>
-        {#if exploreStore.isLoadingPlaylist && tracks.length === 0}
+        {#if exploreStore.isLoadingCollection && displayTracks.length === 0}
             <div class="album-tracks-loading">
                 <div class="track-skeleton-row"></div>
                 <div class="track-skeleton-row"></div>
@@ -240,13 +331,16 @@
         >
             {#each $virtStore.getVirtualItems() as row (row.index)}
                 {@const i = row.index}
-                {@const track = tracks[i]}
+                {@const track = displayTracks[i]}
+                {@const trackKey = getCanonicalKey(track, collection.subtitle)}
+                {@const isTrackLiked = isFavorites ? true : likedKeys.has(trackKey)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                     class="track-row"
                     class:active={audioStore.currentTrack === track.title ||
                         audioStore.currentTrack === track.file_path}
+                    class:menu-open={activeDropdown === i}
                     style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start}px);"
                     onclick={() => playTrack(i)}
                 >
@@ -268,7 +362,7 @@
                                     />
                                 {/if}
                             {:else}
-                                <span class="track-number">{i + 1}</span>
+                                <span class="track-number">{track.track_number || i + 1}</span>
                                 <PlayIcon
                                     size={18}
                                     weight="bold"
@@ -278,13 +372,24 @@
                         </div>
 
                         <div class="track-details">
-                            <span class="track-name">{track.title}</span>
-                            <span class="track-artist-sub">{track.artist || "Unknown Artist"}</span>
+                            <span class="track-name" title={track.title}>{track.title}</span>
+                            <span class="track-artist-sub" title={track.artist || "Unknown Artist"}>{track.artist || "Unknown Artist"}</span>
                         </div>
                     </div>
 
                     <div class="track-right">
-                        {#if playlist}
+                        <button 
+                            class="row-like-btn"
+                            class:liked={isTrackLiked}
+                            onclick={(e) => {
+                                e.stopPropagation();
+                                libraryStore.toggleLike(track, collection.subtitle);
+                            }}
+                            title={isTrackLiked ? "Unlike track" : "Like track"}
+                        >
+                            <HeartIcon size={15} weight={isTrackLiked ? "fill" : "regular"} color={isTrackLiked ? "var(--echo-primary, #B58E62)" : "rgba(255,255,255,0.3)"} />
+                        </button>
+                        {#if isCustomLocalPlaylist}
                             <button
                                 class="more-btn"
                                 onclick={(e) => toggleDropdown(e, i)}
@@ -325,13 +430,15 @@
     .album-header {
         display: flex;
         align-items: center;
-        gap: 1.5rem;
+        gap: 1.25rem;
         margin-bottom: 2rem;
+        width: 100%;
+        min-width: 0;
     }
 
     .art-container {
-        width: 7rem;
-        height: 7rem;
+        width: 6.5rem;
+        height: 6.5rem;
         flex-shrink: 0;
         border-radius: 1rem;
         background-color: #27272a;
@@ -362,34 +469,51 @@
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
     }
 
     .album-title {
-        font-size: 1.4rem;
+        font-size: 1.35rem;
         color: var(--echo-text-1);
         margin: 0;
-        line-height: 1.2;
+        line-height: 1.25;
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        width: 100%;
+        min-width: 0;
     }
 
-    .icon-action-btn {
+    .title-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex: 1;
+        display: block;
+    }
+
+    .artist-clickable-link {
         background: transparent;
         border: none;
+        padding: 0;
+        margin: 0;
         color: var(--echo-text-2);
+        font-family: inherit;
+        font-size: inherit;
+        font-weight: 600;
         cursor: pointer;
-        padding: 0.2rem;
-        display: inline-flex;
-        align-items: center;
-        border-radius: 4px;
-        transition: color 0.15s ease, background 0.15s ease;
+        transition: color 0.15s ease, text-decoration 0.15s ease;
     }
 
-    .icon-action-btn:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.08);
+    .artist-clickable-link:hover {
+        color: #B58E62;
+        text-decoration: underline;
     }
+
+    
 
     .edit-name-row {
         display: flex;
@@ -423,26 +547,12 @@
         color: var(--echo-text-2);
         margin: 0;
         font-family: var(--echo-font-body);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
-    .delete-playlist-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: transparent;
-        border: none;
-        color: rgba(239, 68, 68, 0.8);
-        font-size: 0.75rem;
-        cursor: pointer;
-        padding: 0;
-        margin-top: 0.3rem;
-        transition: color 0.15s ease;
-    }
-
-    .delete-playlist-link:hover {
-        color: rgb(239, 68, 68);
-        text-decoration: underline;
-    }
+    
 
     .track-list {
         flex: 1;
@@ -482,16 +592,31 @@
         cursor: pointer;
         transition: all 0.2s ease;
         position: relative;
+        border: 1px solid transparent;
     }
 
     .track-row:hover {
         background-color: rgba(255, 255, 255, 0.03);
     }
 
+    .track-row.menu-open {
+        background-color: rgba(255, 255, 255, 0.06);
+        border-color: rgba(181, 142, 98, 0.35);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        z-index: 25;
+    }
+
+    .track-row.menu-open .more-btn {
+        color: var(--echo-primary, #B58E62);
+        background-color: rgba(255, 255, 255, 0.08);
+    }
+
     .track-left {
         display: flex;
         align-items: center;
         gap: 0.8rem;
+        min-width: 0;
+        flex: 1;
     }
 
     .track-status {
@@ -500,6 +625,7 @@
         color: var(--echo-text-2);
         display: flex;
         align-items: center;
+        flex-shrink: 0;
     }
 
     .track-number {
@@ -523,6 +649,8 @@
         display: flex;
         flex-direction: column;
         gap: 0.1rem;
+        min-width: 0;
+        flex: 1;
     }
 
     .track-name {
@@ -540,6 +668,9 @@
     .track-artist-sub {
         font-size: 0.75rem;
         color: var(--echo-text-3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .track-row:hover .track-name {
@@ -640,4 +771,96 @@
     .dropdown-row.text-danger {
         color: rgb(239, 68, 68);
     }
+
+    .row-like-btn {
+        background: transparent;
+        border: none;
+        padding: 0.3rem;
+        margin-right: 0.4rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: transform 0.15s ease;
+    }
+
+    .row-like-btn:hover {
+        transform: scale(1.15);
+    }
+
+
+    .art-container.favorites-art-container {
+        border: 1px solid rgba(181, 142, 98, 0.22);
+        background: #121215;
+        box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    }
+
+    .favorites-art-gradient {
+        width: 100%;
+        height: 100%;
+        background: 
+            radial-gradient(circle at 20% 20%, rgba(212, 168, 110, 0.16) 0%, rgba(181, 142, 98, 0.05) 45%, transparent 72%),
+            linear-gradient(145deg, #1a1a1e 0%, #121215 55%, #0a0a0c 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    :global(.favorites-heart-icon) {
+        filter: drop-shadow(0 4px 16px rgba(212, 168, 110, 0.35));
+    }
+
+    .mosaic-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        width: 100%;
+        height: 100%;
+    }
+
+    .mosaic-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+
+    .playlist-actions-row {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.25rem;
+    }
+
+    .action-btn {
+        background: transparent;
+        border: none;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.5));
+        cursor: pointer;
+        padding: 0.3rem 0.55rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        transition: color 0.15s ease, background 0.15s ease;
+    }
+
+    .action-btn:hover {
+        color: var(--echo-text-1, #FFFFFF);
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .action-btn.text-danger {
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.5));
+        background: transparent;
+    }
+
+    .action-btn.text-danger:hover {
+        color: rgb(239, 68, 68);
+        background: rgba(239, 68, 68, 0.12);
+    }
+
 </style>

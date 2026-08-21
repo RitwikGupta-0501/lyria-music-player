@@ -1,17 +1,24 @@
 <script lang="ts">
-    import { invoke } from "@tauri-apps/api/core";
+    import { searchStore } from "$lib/stores/search.svelte";
+    import { exploreStore } from "$lib/stores/explore.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
-    import { toastStore } from "$lib/stores/toast.svelte";
+    import { 
+        MagnifyingGlass, 
+        X, 
+        Lightning, 
+        LinkSimple, 
+        HardDrives, 
+        Globe, 
+        Play, 
+        Pause, 
+        MusicNote, 
+        ArrowClockwise,
+        ArrowRight
+    } from "phosphor-svelte";
 
-    let { isOpen = $bindable(false) } = $props();
-
-    let query = $state("");
-    let localResults = $state<any[]>([]);
-    let isSearching = $state(false);
-    let alternatives = $state<Record<number, any[]>>({});
+    let { isOpen = $bindable(false) } = $props<{ isOpen?: boolean }>();
 
     let inputRef = $state<HTMLInputElement | null>(null);
-    let currentRequestId = $state(0);
 
     $effect(() => {
         if (isOpen && inputRef) {
@@ -19,336 +26,689 @@
         }
     });
 
-    let searchTimeout: ReturnType<typeof setTimeout>;
+    function openInExplore() {
+        if (!searchStore.query.trim()) return;
+        const q = searchStore.query.trim();
+        exploreStore.setSearchQuery(q);
+        isOpen = false;
+        document.dispatchEvent(new CustomEvent('echo:navigate-explore'));
+    }
 
     function handleKeyDown(e: KeyboardEvent) {
-        if (e.key === 'Enter') {
-            document.dispatchEvent(new CustomEvent('echo:navigate-explore', { detail: { query } }));
+        if (e.key === 'Escape') {
             isOpen = false;
-        }
-    }
-
-    function handleInput() {
-        if (searchTimeout) clearTimeout(searchTimeout);
-        
-        if (!query.trim()) {
-            localResults = [];
-            alternatives = {};
-            return;
-        }
-
-        searchTimeout = setTimeout(async () => {
-            const reqId = ++currentRequestId;
-            isSearching = true;
-            try {
-                // 1. Instant Local Search
-                const local = await invoke<any[]>("search_library", { query, limit: 10 });
-                if (reqId !== currentRequestId) return;
-                localResults = local;
-                
-                // 2. Background Async Gathering
-                const providers: any[] = await invoke("get_providers");
-                const enabledProviders = providers.filter(p => p.status === 'enabled' && p.capabilities?.includes('search'));
-                
-                const searchPromises = enabledProviders.map(p => 
-                    invoke("search_provider", { providerId: p.id, query })
-                        .then((results: any) => (results || []).map((r: any) => ({ ...r, provider_name: p.name, provider_id: p.id })))
-                        .catch(e => {
-                            console.error(`Search failed for provider ${p.name}:`, e);
-                            return [];
-                        })
-                );
-                
-                const resultsArray = await Promise.all(searchPromises);
-                if (reqId !== currentRequestId) return;
-                
-                const remoteResults: any[] = resultsArray.flat();
-
-                // 3. Fuzzy Matching
-                if (remoteResults && remoteResults.length > 0) {
-                    for (const localTrack of localResults) {
-                        const matches: any[] = await invoke("fuzzy_match_tracks", {
-                            localTrack: localTrack,
-                            remoteTracks: remoteResults
-                        });
-                        if (reqId !== currentRequestId) return;
-                        if (matches.length > 0) {
-                            alternatives[localTrack.id] = matches;
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error("Search failed", e);
-            } finally {
-                if (reqId === currentRequestId) {
-                    isSearching = false;
-                }
-            }
-        }, 250);
-    }
-
-    function playTrack(track: any) {
-        if (audioStore.queue.length > 0) {
-            if (audioStore.trackClickBehavior === "interrupt") {
-                audioStore.playInterrupt(track);
+        } else if (e.key === 'Enter') {
+            if (e.shiftKey) {
+                openInExplore();
+            } else if (searchStore.resolvedUrl) {
+                searchStore.playResolvedUrl();
                 isOpen = false;
-                return;
-            } else if (audioStore.trackClickBehavior === "append") {
-                audioStore.addToQueue(track);
-                toastStore.show("Added to queue", 'info', 1500);
-                isOpen = false;
-                return;
             }
         }
-        audioStore.setQueue([track], 0);
-        isOpen = false;
-    }
-    
-    function playAlternative(alt: any) {
-        const payload = {
-            title: alt.title,
-            artist: alt.artist,
-            stream_url: alt.stream_url,
-            provider_id: alt.provider_id ?? 'remote',
-            quality_hint: alt.quality_hint ?? null,
-            cover_art_url: alt.cover_art_url ?? null,
-        };
-        
-        if (audioStore.queue.length > 0) {
-            if (audioStore.trackClickBehavior === "interrupt") {
-                audioStore.playInterrupt(payload);
-                isOpen = false;
-                return;
-            } else if (audioStore.trackClickBehavior === "append") {
-                audioStore.addToQueue(payload);
-                toastStore.show("Added to queue", 'info', 1500);
-                isOpen = false;
-                return;
-            }
-        }
-        
-        audioStore.setQueue([payload], 0);
-        isOpen = false;
     }
 
-    let openPopoverId = $state<number | null>(null);
+    function formatDuration(ms: number | null | undefined): string {
+        if (!ms) return "";
+        const totalSec = Math.floor(ms / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function isCurrent(track: any): boolean {
+        const cur = audioStore.currentQueueTrack;
+        if (!cur) return false;
+        return cur.title.toLowerCase() === track.title.toLowerCase()
+            && (cur.artist || "").toLowerCase() === (track.artist || "").toLowerCase();
+    }
 </script>
 
+<svelte:window onkeydown={handleKeyDown} />
+
 {#if isOpen}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) isOpen = false; }}>
-        <div class="search-modal">
-            <div class="search-header">
+    <div 
+        class="search-backdrop" 
+        role="button" 
+        tabindex="-1"
+        onclick={() => isOpen = false}
+        onkeydown={(e) => { if (e.key === 'Escape') isOpen = false; }}
+    >
+        <div 
+            class="search-modal" 
+            role="dialog" 
+            aria-modal="true" 
+            tabindex="0"
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+        >
+            <!-- Input Header -->
+            <div class="search-input-wrapper">
+                <MagnifyingGlass size={20} weight="bold" class="search-icon" />
                 <input 
                     bind:this={inputRef}
-                    bind:value={query}
-                    oninput={handleInput}
-                    onkeydown={handleKeyDown}
-                    placeholder="Search music..."
-                    class="search-input"
+                    type="text" 
+                    placeholder="Search local library, streams, or paste any URL..." 
+                    value={searchStore.query}
+                    oninput={(e) => searchStore.handleQueryChange((e.target as HTMLInputElement).value)}
                 />
-                {#if isSearching}
-                    <div class="spinner"></div>
+                {#if searchStore.isSearching || searchStore.isResolvingUrl}
+                    <div class="spinner-icon">
+                        <ArrowClockwise size={16} weight="bold" />
+                    </div>
+                {/if}
+                {#if searchStore.query}
+                    <button class="clear-btn" onclick={() => searchStore.clear()} title="Clear query">
+                        <X size={16} weight="bold" />
+                    </button>
                 {/if}
             </div>
 
-            <div class="results-list">
-                {#each localResults as track (track.id)}
-                    <div class="track-row">
-                        <div class="track-info" onclick={() => playTrack(track)}>
-                            <div class="track-title">{track.title}</div>
-                            <div class="track-artist">{track.artist || 'Unknown Artist'}</div>
+            <!-- Filter Pills Bar -->
+            <div class="filter-bar">
+                <button 
+                    class="filter-pill" 
+                    class:active={searchStore.activeFilter === "all"}
+                    onclick={() => searchStore.activeFilter = "all"}
+                >
+                    All
+                </button>
+                <button 
+                    class="filter-pill" 
+                    class:active={searchStore.activeFilter === "local"}
+                    onclick={() => searchStore.activeFilter = "local"}
+                >
+                    <HardDrives size={13} weight="bold" />
+                    <span>Local Library</span>
+                </button>
+                <button 
+                    class="filter-pill" 
+                    class:active={searchStore.activeFilter === "online"}
+                    onclick={() => searchStore.activeFilter = "online"}
+                >
+                    <Globe size={13} weight="bold" />
+                    <span>Online Streams</span>
+                </button>
+            </div>
+
+            <!-- Scrollable Results Container (Fixed Height) -->
+            <div class="results-container">
+                <!-- 1. Direct Resolved URL Card (Sandboxed Extension) -->
+                {#if searchStore.resolvedUrl}
+                    {@const r = searchStore.resolvedUrl}
+                    <div class="direct-url-card">
+                        <div class="url-badge">
+                            <Lightning size={15} weight="fill" />
+                            <span>Direct Stream URL Intercepted</span>
                         </div>
-                        
-                        {#if alternatives[track.id]}
-                            <div class="alternatives-wrapper">
-                                <button class="alt-btn" onclick={() => openPopoverId = openPopoverId === track.id ? null : track.id}>
-                                    Sources ▾
-                                </button>
-                                
-                                {#if openPopoverId === track.id}
-                                    <div class="popover">
-                                        <div class="popover-title">Alternative Sources</div>
-                                        {#each alternatives[track.id] as alt}
-                                            <button class="popover-item" onclick={() => playAlternative(alt)}>
-                                                {alt.title} ({alt.provider_name || 'Remote'})
-                                            </button>
-                                        {/each}
-                                    </div>
-                                {/if}
+                        <div class="url-content">
+                            {#if r.track.cover_art_url}
+                                <img src={r.track.cover_art_url} alt={r.track.title} class="url-thumb" />
+                            {/if}
+                            <div class="url-meta">
+                                <span class="url-title">{r.track.title}</span>
+                                <span class="url-artist">{r.track.artist}</span>
+                                <span class="url-provider">
+                                    <LinkSimple size={13} />
+                                    Resolved via {r.provider_name}
+                                </span>
                             </div>
-                        {/if}
+                            <button 
+                                class="url-play-btn" 
+                                onclick={() => { searchStore.playResolvedUrl(); isOpen = false; }}
+                            >
+                                <Play size={16} weight="fill" />
+                                <span>Play Stream</span>
+                            </button>
+                        </div>
                     </div>
-                {/each}
-                {#if query && localResults.length === 0 && !isSearching}
-                    <div class="no-results">No local results found</div>
+                {/if}
+
+                <!-- 2. Local Library Tracks -->
+                {#if (searchStore.activeFilter === "all" || searchStore.activeFilter === "local") && searchStore.localTracks.length > 0}
+                    <div class="result-group">
+                        <div class="group-header">
+                            <HardDrives size={14} weight="bold" />
+                            <span>Local Lossless Tracks ({searchStore.localTracks.length})</span>
+                        </div>
+                        {#each searchStore.localTracks as track}
+                            <div 
+                                class="track-row"
+                                class:playing={isCurrent(track)}
+                                role="button"
+                                tabindex="0"
+                                onclick={() => { searchStore.playLocalTrack(track); isOpen = false; }}
+                                onkeydown={(e) => { if (e.key === 'Enter') { searchStore.playLocalTrack(track); isOpen = false; } }}
+                            >
+                                <div class="row-left">
+                                    <div class="row-icon">
+                                        {#if isCurrent(track) && audioStore.playbackState === "Playing"}
+                                            <Pause size={14} weight="fill" />
+                                        {:else}
+                                            <MusicNote size={14} />
+                                        {/if}
+                                    </div>
+                                    <div class="row-info">
+                                        <span class="row-title">{track.title}</span>
+                                        <span class="row-artist">{track.artist || "Unknown Artist"} {track.album ? `• ${track.album}` : ''}</span>
+                                    </div>
+                                </div>
+                                <div class="row-right">
+                                    <span class="local-badge">FLAC / LOCAL</span>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+
+                <!-- 3. Remote Online Extensions Matches -->
+                {#if (searchStore.activeFilter === "all" || searchStore.activeFilter === "online") && searchStore.remoteTracks.length > 0}
+                    <div class="result-group">
+                        <div class="group-header">
+                            <Globe size={14} weight="bold" />
+                            <span>Online Extensions ({searchStore.remoteTracks.length})</span>
+                        </div>
+                        {#each searchStore.remoteTracks as track}
+                            <div 
+                                class="track-row"
+                                class:playing={isCurrent(track)}
+                                role="button"
+                                tabindex="0"
+                                onclick={() => { searchStore.playRemoteTrack(track); isOpen = false; }}
+                                onkeydown={(e) => { if (e.key === 'Enter') { searchStore.playRemoteTrack(track); isOpen = false; } }}
+                            >
+                                <div class="row-left">
+                                    {#if track.cover_art_url}
+                                        <img src={track.cover_art_url} alt={track.title} class="track-thumb" />
+                                    {:else}
+                                        <div class="row-icon">
+                                            <MusicNote size={14} />
+                                        </div>
+                                    {/if}
+                                    <div class="row-info">
+                                        <span class="row-title">{track.title}</span>
+                                        <span class="row-artist">{track.artist}</span>
+                                    </div>
+                                </div>
+                                <div class="row-right">
+                                    {#if track.duration_ms}
+                                        <span class="duration">{formatDuration(track.duration_ms)}</span>
+                                    {/if}
+                                    <span class="provider-badge">{track.provider_name || 'YouTube'}</span>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+
+                <!-- Empty State -->
+                {#if searchStore.query && !searchStore.isSearching && !searchStore.isResolvingUrl && searchStore.localTracks.length === 0 && searchStore.remoteTracks.length === 0 && !searchStore.resolvedUrl}
+                    <div class="no-results">
+                        <p>No immediate matches found for "{searchStore.query}".</p>
+                        <button class="open-explore-btn" onclick={openInExplore}>
+                            <span>Search in Explore Canvas</span>
+                            <ArrowRight size={14} weight="bold" />
+                        </button>
+                    </div>
+                {/if}
+
+                <!-- Fresh Placeholder State -->
+                {#if !searchStore.query}
+                    <div class="search-tip">
+                        <p>Type keywords to search local files and extensions simultaneously, or paste any stream URL.</p>
+                    </div>
                 {/if}
             </div>
+
+            <!-- Fixed Modal Footer -->
+            <footer class="modal-footer">
+                <div class="footer-shortcuts">
+                    <span class="shortcut-item"><kbd>↵</kbd> Play</span>
+                    <span class="shortcut-dot">•</span>
+                    <span class="shortcut-item"><kbd>Esc</kbd> Close</span>
+                </div>
+
+                {#if searchStore.query.trim()}
+                    <button class="footer-explore-btn" onclick={openInExplore} title="View categorized shelves in Explore (Shift+Enter)">
+                        <span>Explore full results</span>
+                        <kbd>Shift + ↵</kbd>
+                    </button>
+                {/if}
+            </footer>
         </div>
     </div>
 {/if}
 
 <style>
-    .modal-backdrop {
+    .search-backdrop {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(4px);
-        z-index: 1000;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        z-index: 9999;
         display: flex;
         align-items: flex-start;
         justify-content: center;
-        padding-top: 10vh;
+        padding-top: 8vh;
     }
 
+    /* Fixed Geometry: Never resizes or jumps */
     .search-modal {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        width: 100%;
-        max-width: 600px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-        overflow: visible;
+        background: #141417;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        width: 640px;
+        max-width: 92vw;
+        height: 500px;
+        max-height: 500px;
         display: flex;
         flex-direction: column;
-    }
-
-    .search-header {
-        padding: 16px;
-        border-bottom: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    .search-input {
-        flex: 1;
-        background: transparent;
-        border: none;
-        color: var(--text-primary);
-        font-size: 1.2rem;
+        overflow: hidden;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
         outline: none;
     }
 
-    .search-input::placeholder {
-        color: var(--text-muted);
+    .search-input-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        padding: 1.1rem 1.35rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: #18181C;
     }
 
-    .spinner {
-        width: 20px;
-        height: 20px;
-        border: 2px solid var(--border);
-        border-top-color: var(--primary);
-        border-radius: 50%;
+    :global(.search-icon) {
+        color: #B58E62; /* Brass */
+        flex-shrink: 0;
+    }
+
+    .search-input-wrapper input {
+        flex: 1;
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.95rem;
+        color: #fff;
+        font-weight: 500;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .search-input-wrapper input::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .spinner-icon {
+        color: #B58E62;
         animation: spin 1s linear infinite;
     }
 
     @keyframes spin {
+        from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
 
-    .results-list {
-        max-height: 400px;
+    .clear-btn {
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.5);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.2rem;
+        border-radius: 4px;
+        transition: color 0.15s ease;
+    }
+
+    .clear-btn:hover {
+        color: #fff;
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.65rem 1.35rem;
+        background: rgba(255, 255, 255, 0.02);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .filter-pill {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.75rem;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 0.78rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .filter-pill:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+    }
+
+    .filter-pill.active {
+        background: #B58E62;
+        color: #000;
+        border-color: #B58E62;
+        font-weight: 700;
+    }
+
+    /* Results Scrollable Container */
+    .results-container {
+        flex: 1;
+        padding: 0.85rem 1.25rem;
         overflow-y: auto;
-        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 1.1rem;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    }
+
+    /* Direct URL Card */
+    .direct-url-card {
+        background: rgba(181, 142, 98, 0.1);
+        border: 1px solid rgba(181, 142, 98, 0.3);
+        border-radius: 10px;
+        padding: 0.9rem 1.1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+
+    .url-badge {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        font-family: ui-monospace, monospace;
+        color: #B58E62;
+    }
+
+    .url-content {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+    }
+
+    .url-thumb {
+        width: 44px;
+        height: 44px;
+        border-radius: 6px;
+        object-fit: cover;
+    }
+
+    .url-meta {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        min-width: 0;
+    }
+
+    .url-title {
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: #fff;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .url-artist {
+        font-size: 0.78rem;
+        color: rgba(255, 255, 255, 0.6);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .url-provider {
+        font-size: 0.72rem;
+        color: #B58E62;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-family: ui-monospace, monospace;
+    }
+
+    .url-play-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: #B58E62;
+        color: #000;
+        border: none;
+        padding: 0.45rem 0.9rem;
+        border-radius: 6px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+    }
+
+    .url-play-btn:hover {
+        transform: scale(1.04);
+    }
+
+    /* Result Groups */
+    .result-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .group-header {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.74rem;
+        font-weight: 700;
+        font-family: ui-monospace, monospace;
+        color: rgba(255, 255, 255, 0.45);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        margin-bottom: 0.2rem;
     }
 
     .track-row {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        padding: 12px;
-        border-radius: 8px;
+        justify-content: space-between;
+        padding: 0.5rem 0.65rem;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.02);
         cursor: pointer;
-        position: relative;
+        transition: background-color 0.12s ease;
     }
 
     .track-row:hover {
-        background: var(--surface-hover);
+        background: rgba(255, 255, 255, 0.07);
     }
 
-    .track-info {
+    .track-row.playing {
+        background: rgba(181, 142, 98, 0.15);
+        border: 1px solid rgba(181, 142, 98, 0.3);
+    }
+
+    .row-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
         flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
+        min-width: 0;
     }
 
-    .track-title {
-        color: var(--text-primary);
-        font-weight: 500;
-    }
-
-    .track-artist {
-        color: var(--text-muted);
-        font-size: 0.9rem;
-    }
-
-    .alternatives-wrapper {
-        position: relative;
-    }
-
-    .alt-btn {
-        background: var(--surface-light);
-        border: 1px solid var(--border);
-        color: var(--text-secondary);
-        padding: 4px 8px;
+    .row-icon {
+        width: 32px;
+        height: 32px;
         border-radius: 6px;
-        font-size: 0.8rem;
-        cursor: pointer;
+        background: #232328;
+        color: #B58E62;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
     }
 
-    .alt-btn:hover {
-        background: var(--surface-hover);
-        color: var(--text-primary);
+    .track-thumb {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        object-fit: cover;
+        flex-shrink: 0;
     }
 
-    .popover {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        margin-top: 8px;
-        background: var(--surface-light);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 8px;
-        min-width: 200px;
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-        z-index: 1010;
+    .row-info {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 0.1rem;
+        min-width: 0;
     }
 
-    .popover-title {
+    .row-title {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: #fff;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .row-artist {
+        font-size: 0.76rem;
+        color: rgba(255, 255, 255, 0.5);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .row-right {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-left: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .local-badge {
+        font-size: 0.65rem;
+        font-family: ui-monospace, monospace;
+        font-weight: 700;
+        background: rgba(181, 142, 98, 0.15);
+        border: 1px solid rgba(181, 142, 98, 0.35);
+        color: #B58E62;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+    }
+
+    .provider-badge {
+        font-size: 0.65rem;
+        font-family: ui-monospace, monospace;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.5);
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+    }
+
+    .duration {
+        font-size: 0.74rem;
+        font-family: ui-monospace, monospace;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .no-results, .search-tip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+        text-align: center;
+        gap: 0.85rem;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.86rem;
+    }
+
+    .open-explore-btn {
+        background: transparent;
+        border: 1px solid rgba(181, 142, 98, 0.4);
+        color: #B58E62;
+        padding: 0.45rem 0.9rem;
+        border-radius: 6px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        transition: all 0.15s ease;
+    }
+
+    .open-explore-btn:hover {
+        background: rgba(181, 142, 98, 0.15);
+        color: #fff;
+    }
+
+    /* Fixed Modal Footer */
+    .modal-footer {
+        height: 42px;
+        background: #111114;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 1.25rem;
         font-size: 0.75rem;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: 4px;
+        color: rgba(255, 255, 255, 0.45);
+        font-family: ui-monospace, monospace;
     }
 
-    .popover-item {
+    .footer-shortcuts {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .shortcut-dot {
+        color: rgba(255, 255, 255, 0.2);
+    }
+
+    kbd {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+        padding: 0.1rem 0.35rem;
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 0.7rem;
+    }
+
+    .footer-explore-btn {
         background: transparent;
         border: none;
-        color: var(--text-primary);
-        text-align: left;
-        padding: 8px;
-        border-radius: 4px;
+        color: #B58E62;
         cursor: pointer;
-        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0;
+        transition: color 0.15s ease;
     }
 
-    .popover-item:hover {
-        background: var(--surface-hover);
-    }
-
-    .no-results {
-        padding: 24px;
-        text-align: center;
-        color: var(--text-muted);
+    .footer-explore-btn:hover {
+        color: #fff;
     }
 </style>

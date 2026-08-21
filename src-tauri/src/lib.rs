@@ -206,6 +206,70 @@ async fn get_providers(state: State<'_, AppState>) -> Result<Vec<ProviderInfo>, 
     Ok(providers)
 }
 
+pub async fn warmup_all_eligible_providers(state: &AppState) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if let Err(e) = state.db_tx.send(crate::db::DbRequest::GetProviders { resp: tx }) {
+        tracing::warn!("Failed to request providers for warmup: {}", e);
+        return;
+    }
+    
+    let providers = match rx.await {
+        Ok(Ok(p)) => p,
+        _ => return,
+    };
+    
+    let mut manager = state.provider_manager.lock().await;
+    manager.sync_registry(providers);
+    let warmup_ids = manager.get_warmup_eligible_providers();
+    
+    if warmup_ids.is_empty() {
+        return;
+    }
+    
+    tracing::info!("Starting background prewarm for {} provider(s): {:?}", warmup_ids.len(), warmup_ids);
+    for id in warmup_ids {
+        if let Err(e) = manager.warmup_provider(&id).await {
+            tracing::warn!("Failed to warmup provider '{}': {}", id, e);
+        }
+    }
+    tracing::info!("Background prewarm for all eligible providers completed successfully");
+}
+
+
+#[tauri::command]
+async fn delete_provider(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::DeleteProvider {
+        provider_id: provider_id.clone(),
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+
+    let file_path_opt = rx.await.map_err(|e| e.to_string())??;
+
+    if let Some(file_path) = file_path_opt {
+        let path = std::path::PathBuf::from(&file_path);
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+        let json_manifest = path.with_extension("json");
+        if json_manifest.exists() {
+            let _ = std::fs::remove_file(&json_manifest);
+        }
+    }
+
+    {
+        let mut manager = state.provider_manager.lock().await;
+        manager.remove_provider(&provider_id);
+    }
+
+    let _ = sync_providers(app, state).await;
+    Ok(())
+}
+
 #[tauri::command]
 async fn toggle_provider(
     provider_id: String,
@@ -239,6 +303,44 @@ async fn save_provider_settings(
     Ok(())
 }
 
+
+#[tauri::command]
+async fn browse_provider_album(
+    state: State<'_, AppState>,
+    provider_id: String,
+    album_id: String,
+) -> Result<crate::providers::AlbumDetailResult, String> {
+    let manager = state.provider_manager.lock().await;
+    manager.browse_album(&provider_id, &album_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn browse_provider_artist(
+    state: State<'_, AppState>,
+    provider_id: String,
+    artist_id: String,
+) -> Result<crate::providers::ArtistDetailResult, String> {
+    let manager = state.provider_manager.lock().await;
+    manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn search_provider_categorized(
+    state: State<'_, AppState>,
+    provider_id: String,
+    query: String,
+    filter: Option<String>,
+) -> Result<crate::providers::CategorizedSearchResult, String> {
+    let manager = state.provider_manager.lock().await;
+    let input = crate::providers::SearchQueryInput { query, filter };
+    let results = manager
+        .search_categorized(&provider_id, &input)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
 #[tauri::command]
 async fn search_provider(state: State<'_, AppState>, provider_id: String, query: String) -> Result<Vec<TrackResult>, String> {
     let manager = state.provider_manager.lock().await;
@@ -248,6 +350,151 @@ async fn search_provider(state: State<'_, AppState>, provider_id: String, query:
         .map_err(|e| e.to_string())?;
 
     Ok(results)
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomeFeedPayload {
+    pub quick_picks: Vec<crate::db::queries::CanonicalSong>,
+    pub keep_listening: Vec<crate::db::queries::CanonicalSong>,
+    pub forgotten_favorites: Vec<crate::db::queries::CanonicalSong>,
+    pub discover_seeds: Vec<crate::db::queries::CanonicalSong>,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedUrlPayload {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub track: crate::providers::TrackResult,
+}
+
+#[tauri::command]
+async fn resolve_stream_url(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<Option<ResolvedUrlPayload>, String> {
+    let manager = state.provider_manager.lock().await;
+    match manager.resolve_url(&url).await {
+        Ok(Some((provider_id, provider_name, track))) => {
+            Ok(Some(ResolvedUrlPayload {
+                provider_id,
+                provider_name,
+                track,
+            }))
+        }
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_home_feed(state: State<'_, AppState>) -> Result<HomeFeedPayload, String> {
+    let (tx_qp, rx_qp) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalQuickPicks { limit: 20, resp: tx_qp }).map_err(|e| e.to_string())?;
+    let qp = rx_qp.await.map_err(|e| e.to_string())??;
+
+    let (tx_kl, rx_kl) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalKeepListening { limit: 20, resp: tx_kl }).map_err(|e| e.to_string())?;
+    let kl = rx_kl.await.map_err(|e| e.to_string())??;
+
+    let (tx_ff, rx_ff) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalForgottenFavorites { limit: 20, resp: tx_ff }).map_err(|e| e.to_string())?;
+    let ff = rx_ff.await.map_err(|e| e.to_string())??;
+
+    let (tx_ds, rx_ds) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalDiscoverSeeds { limit: 5, resp: tx_ds }).map_err(|e| e.to_string())?;
+    let ds = rx_ds.await.map_err(|e| e.to_string())??;
+
+    Ok(HomeFeedPayload {
+        quick_picks: qp,
+        keep_listening: kl,
+        forgotten_favorites: ff,
+        discover_seeds: ds,
+    })
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn record_track_play(
+    state: State<'_, AppState>,
+    title: String,
+    artist: String,
+    album: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: String,
+    source_id: String,
+    duration_ms: Option<u64>,
+) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::RecordPlaybackEvent {
+        title,
+        artist,
+        album,
+        cover_art_url,
+        provider_id,
+        source_id,
+        duration_ms,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_liked_songs(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<crate::db::queries::CanonicalSong>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalLikedSongs {
+        limit: limit.unwrap_or(500),
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn toggle_track_like(
+    state: State<'_, AppState>,
+    canonical_key: String,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: Option<String>,
+    source_id: Option<String>,
+    local_track_id: Option<i64>,
+    duration_ms: Option<u64>,
+) -> Result<bool, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::ToggleCanonicalLike {
+        canonical_key,
+        title,
+        artist,
+        album,
+        cover_art_url,
+        provider_id,
+        source_id,
+        local_track_id,
+        duration_ms,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_extension_metrics(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::queries::ExtensionMetric>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetExtensionMetrics { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_explore_feed(state: State<'_, AppState>) -> Result<Vec<crate::providers::AggregatedModule>, String> {
+    let manager = state.provider_manager.lock().await;
+    Ok(manager.get_all_explore_modules().await)
 }
 
 #[tauri::command]
@@ -404,6 +651,27 @@ async fn get_local_tracks(state: State<'_, AppState>, limit: u32, offset: u32) -
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::GetLocalTracks { limit, offset, resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())?
+}
+
+
+#[tauri::command]
+async fn get_recent_albums(
+    state: State<'_, AppState>,
+    limit: u32,
+) -> Result<Vec<crate::Album>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetRecentAlbums { limit, resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn resolve_track(
+    state: State<'_, AppState>,
+    provider_id: String,
+    track_id: String,
+) -> Result<crate::providers::ResolvedTrack, String> {
+    let manager = state.provider_manager.lock().await;
+    manager.resolve(&provider_id, &track_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -803,18 +1071,33 @@ pub fn run() {
 
             let db_thread_handle = db::start_db_thread(conn, db_rx);
             
-            if let Ok(entries) = std::fs::read_dir(&providers_dir) {
-                if entries.count() == 0 {
-                    if let Ok(resource_dir) = app.path().resource_dir() {
-                        let bundled_providers = resource_dir.join("providers");
-                        if bundled_providers.exists() {
-                            if let Ok(bundled_entries) = std::fs::read_dir(bundled_providers) {
-                                for entry in bundled_entries.flatten() {
-                                    if entry.path().is_file() {
-                                        if let Some(filename) = entry.file_name().to_str() {
-                                            let dest_path = providers_dir.join(filename);
-                                            let _ = std::fs::copy(entry.path(), dest_path);
-                                        }
+            // Copy / update extension bundles into providers_dir
+            let mut source_dirs = Vec::new();
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                source_dirs.push(resource_dir.join("providers"));
+                source_dirs.push(resource_dir.join("extensions"));
+            }
+            // Dev workspace fallback
+            source_dirs.push(std::path::PathBuf::from("../extensions"));
+            source_dirs.push(std::path::PathBuf::from("extensions"));
+
+            for src in source_dirs {
+                if src.exists() && src.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(&src) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            if p.is_file() {
+                                if let Some(name) = p.file_name() {
+                                    let dest = providers_dir.join(name);
+                                    let should_copy = if !dest.exists() {
+                                        true
+                                    } else if let (Ok(meta_src), Ok(meta_dest)) = (p.metadata(), dest.metadata()) {
+                                        meta_src.len() != meta_dest.len() || meta_src.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) > meta_dest.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                                    } else {
+                                        false
+                                    };
+                                    if should_copy {
+                                        let _ = std::fs::copy(&p, &dest);
                                     }
                                 }
                             }
@@ -824,7 +1107,7 @@ pub fn run() {
             }
 
             let provider_manager = ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone());
-            let audio_thread_handle = audio::start_audio_thread(audio_rx, handle, reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
+            let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
 
             app.manage(AppState {
                 audio_tx: std::sync::Mutex::new(audio_tx),
@@ -835,6 +1118,20 @@ pub fn run() {
                 queue: std::sync::Mutex::new(recovered_queue),
                 reqwest_client,
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
+            });
+
+            // Automatic background startup provider discovery, sync, and warmup
+            let handle_for_sync = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Manager;
+                let state = handle_for_sync.state::<AppState>();
+                if let Err(e) = sync_providers(handle_for_sync.clone(), state.clone()).await {
+                    tracing::warn!("Background startup sync_providers failed: {}", e);
+                } else {
+                    tracing::info!("Background startup sync_providers completed successfully");
+                }
+                
+                warmup_all_eligible_providers(&state).await;
             });
             
             Ok(())
@@ -850,18 +1147,31 @@ pub fn run() {
             audio::commands::set_mute,
             get_providers,
             toggle_provider,
+            delete_provider,
             save_provider_settings,
             sync_providers,
             get_provider_config,
             set_provider_config,
             search_provider,
+            search_provider_categorized,
+            browse_provider_album,
+            browse_provider_artist,
             get_provider_modules,
             fetch_provider_module,
+            get_explore_feed,
+            resolve_stream_url,
+            get_home_feed,
+            record_track_play,
+            toggle_track_like,
+            get_liked_songs,
+            get_extension_metrics,
             search_library,
             fuzzy_match_tracks,
             scan_local_directory,
             get_local_tracks,
             get_albums,
+            get_recent_albums,
+            resolve_track,
             get_album_tracks,
             get_playlists,
             create_playlist,
@@ -904,6 +1214,7 @@ pub fn run() {
             is_feature_enabled,
             set_feature_enabled,
             toggle_provider,
+            delete_provider,
             sync_playback_state,
             open_in_file_explorer,
             sandbox_callback,

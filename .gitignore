@@ -10,9 +10,9 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vscode
 .claude/
+.kilo/
 
 
 # Extensions
 extensions/
-providers/
 designs/

@@ -1,8 +1,8 @@
 <script lang="ts">
     import { audioStore } from "$lib/stores/audio.svelte";
     import { libraryStore } from "$lib/stores/library.svelte";
-    import { CornersIn, Play, Pause, SkipBack, SkipForward, Playlist } from "phosphor-svelte";
-    import { slide, fade } from "svelte/transition";
+    import { CornersIn, Play, Pause, SkipBack, SkipForward } from "phosphor-svelte";
+    import { fade } from "svelte/transition";
 
     let { 
         isOpen = $bindable(false),
@@ -228,5 +228,6 @@
         transform: scale(1.05);
         box-shadow: 0 15px 35px rgba(226, 169, 115, 0.6);
     }
+    
 </style>
 

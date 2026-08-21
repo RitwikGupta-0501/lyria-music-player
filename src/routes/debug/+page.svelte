@@ -268,9 +268,8 @@
             transform: scale(1);
         }
     }
-</style>
 
-<style>
+
     .debug-page {
         display: flex;
         flex-direction: column;

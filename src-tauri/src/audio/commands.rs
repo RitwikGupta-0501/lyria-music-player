@@ -28,13 +28,13 @@ pub async fn load_audio(
             (crate::audio::TrackSource::Local(pb), None)
         }
         crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, duration_ms, .. } => {
-            let (final_url, headers) = {
+            let (final_url, headers, resolved_duration) = {
                 let manager = state.provider_manager.lock().await;
                 let resolved = manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
                     tracing::error!("Failed to resolve track '{}' via '{}': {}", remote_track_id, provider_id, e);
                     e.to_string()
                 })?;
-                (resolved.stream_url, resolved.headers)
+                (resolved.stream_url, resolved.headers, resolved.duration_ms)
             };
             
             if final_url.is_empty() {
@@ -50,7 +50,8 @@ pub async fn load_audio(
                 tracing::error!("Invalid URL parsed: {}", e);
                 format!("Invalid URL: {}", e)
             })?;
-            (crate::audio::TrackSource::Remote(parsed_url, headers), duration_ms)
+            let final_duration = resolved_duration.or(duration_ms);
+            (crate::audio::TrackSource::Remote(parsed_url, headers), final_duration)
         }
     };
 
@@ -86,13 +87,13 @@ pub async fn queue_next_audio(
             (crate::audio::TrackSource::Local(pb), None)
         }
         crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, duration_ms, .. } => {
-            let (final_url, headers) = {
+            let (final_url, headers, resolved_duration) = {
                 let manager = state.provider_manager.lock().await;
                 let resolved = manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
                     tracing::error!("Failed to resolve track '{}' via '{}': {}", remote_track_id, provider_id, e);
                     e.to_string()
                 })?;
-                (resolved.stream_url, resolved.headers)
+                (resolved.stream_url, resolved.headers, resolved.duration_ms)
             };
             
             if final_url.is_empty() {
@@ -108,7 +109,8 @@ pub async fn queue_next_audio(
                 tracing::error!("Invalid URL parsed: {}", e);
                 format!("Invalid URL: {}", e)
             })?;
-            (crate::audio::TrackSource::Remote(parsed_url, headers), duration_ms)
+            let final_duration = resolved_duration.or(duration_ms);
+            (crate::audio::TrackSource::Remote(parsed_url, headers), final_duration)
         }
     };
 

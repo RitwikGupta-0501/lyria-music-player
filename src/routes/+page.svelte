@@ -1,7 +1,8 @@
 <script lang="ts">
     import { audioStore } from "$lib/stores/audio.svelte";
-    import { libraryStore, type Album } from "$lib/stores/library.svelte";
+    import { libraryStore } from "$lib/stores/library.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { exploreStore } from "$lib/stores/explore.svelte";
 
     import Sidebar from "$lib/components/Sidebar.svelte";
     import PlayerBar from "$lib/components/PlayerBar.svelte";
@@ -12,37 +13,34 @@
     import ProvidersView from "$lib/components/ProvidersView.svelte";
 
     import AlbumGrid from "$lib/components/AlbumGrid.svelte";
-    import AlbumDetail from "$lib/components/AlbumDetail.svelte";
+    import ArtistDetail from "$lib/components/ArtistDetail.svelte";
     import PlaylistView from "$lib/components/PlaylistView.svelte";
-    import PlaylistDetail from "$lib/components/PlaylistDetail.svelte";
-    import type { Playlist } from "$lib/stores/library.svelte";
+    import CollectionDetail from "$lib/components/CollectionDetail.svelte";
 
     import { onMount } from "svelte";
     import RightDrawer from "$lib/components/RightDrawer.svelte";
     import FullScreenPlayer from "$lib/components/FullScreenPlayer.svelte";
     import GlobalSearch from "$lib/components/GlobalSearch.svelte";
-    import SearchView from "$lib/components/SearchView.svelte";
+    import ExploreView from "$lib/components/ExploreView.svelte";
+    import HomeView from "$lib/components/HomeView.svelte";
 
-    let activeView = $state("albums");
-    let selectedAlbum = $state<Album | null>(null);
-    let selectedPlaylist = $state<Playlist | null>(null);
+    let activeView = $state("home");
     let queueOpen = $state(false);
     let fullScreenOpen = $state(false);
     let globalSearchOpen = $state(false);
 
-    let drawerOpen = $derived(queueOpen || selectedAlbum !== null || selectedPlaylist !== null);
+    let drawerOpen = $derived(queueOpen || exploreStore.activeDrawerCollection !== null);
     
     function getDrawerTitle() {
         if (queueOpen) return "Up Next";
-        if (selectedAlbum) return "Album Details";
-        if (selectedPlaylist) return "Playlist Details";
+        if (exploreStore.activeDrawerCollection?.kind === "album") return "Album Details";
+        if (exploreStore.activeDrawerCollection?.kind === "playlist") return "Playlist Details";
         return "";
     }
 
     function closeDrawer() {
         queueOpen = false;
-        selectedAlbum = null;
-        selectedPlaylist = null;
+        exploreStore.closeDrawerCollection();
     }
 
     // One-time initialization — runs once on mount, never re-runs on state change.
@@ -52,25 +50,29 @@
             await libraryStore.fetchAlbums();
             await libraryStore.fetchPlaylists();
             await settingsStore.init();
+            exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
         })();
 
         const handleSearch = () => { globalSearchOpen = true; };
         const handleNavigateExplore = () => { activeView = "explore"; };
+        const handleNavigateArtist = () => { activeView = "artist"; };
         const handleEscape = () => {
             if (globalSearchOpen) {
                 globalSearchOpen = false;
-            } else if (activeView === "settings") {
-                activeView = "albums";
+            } else if (activeView === "settings" || activeView === "artist") {
+                activeView = "explore";
             } else {
                 closeDrawer();
             }
         };
         document.addEventListener('echo:search', handleSearch);
         document.addEventListener('echo:navigate-explore', handleNavigateExplore);
+        document.addEventListener('echo:navigate-artist', handleNavigateArtist);
         document.addEventListener('echo:escape', handleEscape);
         return () => {
             document.removeEventListener('echo:search', handleSearch);
             document.removeEventListener('echo:navigate-explore', handleNavigateExplore);
+            document.removeEventListener('echo:navigate-artist', handleNavigateArtist);
             document.removeEventListener('echo:escape', handleEscape);
         };
     });
@@ -88,12 +90,16 @@
     <Sidebar bind:activeView />
 
     <main class="main-content">
-        {#if activeView === "explore"}
-            <SearchView bind:activeView />
+        {#if activeView === "home"}
+            <HomeView bind:activeView />
+        {:else if activeView === "explore"}
+            <ExploreView bind:activeView />
+        {:else if activeView === "artist"}
+            <ArtistDetail onBack={() => { activeView = "explore"; }} />
         {:else if activeView === "albums"}
-            <AlbumGrid bind:activeView onSelectAlbum={(a) => { selectedAlbum = a; queueOpen = false; }} selectedAlbumId={selectedAlbum?.id} />
+            <AlbumGrid bind:activeView onSelectAlbum={(a) => { exploreStore.openLocalAlbum(a); queueOpen = false; }} selectedAlbumId={exploreStore.activeDrawerCollection?.id} />
         {:else if activeView === "playlists"}
-            <PlaylistView bind:activeView onSelectPlaylist={(p) => { selectedPlaylist = p; queueOpen = false; }} />
+            <PlaylistView bind:activeView onSelectPlaylist={(p) => { exploreStore.openLocalPlaylist(p); queueOpen = false; }} />
         {:else if activeView === "providers"}
             <ProvidersView />
         {:else if activeView === "settings"}
@@ -108,12 +114,10 @@
     >
         {#if queueOpen}
             <QueueSidebar bind:open={queueOpen} />
-        {:else if selectedAlbum}
-            <AlbumDetail album={selectedAlbum} onBack={closeDrawer} />
-        {:else if selectedPlaylist}
-            <PlaylistDetail
-                playlist={selectedPlaylist}
-                onBack={closeDrawer}
+        {:else if exploreStore.activeDrawerCollection}
+            <CollectionDetail 
+                collection={exploreStore.activeDrawerCollection} 
+                onBack={closeDrawer} 
                 onDeleted={closeDrawer}
             />
         {/if}
@@ -124,10 +128,5 @@
 <PlayerBar bind:queueOpen bind:fullScreenOpen />
 
 <FullScreenPlayer bind:isOpen={fullScreenOpen} onToggleQueue={() => { queueOpen = !queueOpen; }} />
-
 <GlobalSearch bind:isOpen={globalSearchOpen} />
-
 <ToastContainer />
-
-<style>
-</style>

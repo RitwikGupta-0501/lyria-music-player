@@ -2,7 +2,7 @@
     import { invoke } from '@tauri-apps/api/core';
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { onMount, tick } from 'svelte';
-    import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin } from 'phosphor-svelte';
+    import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, Trash, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin } from 'phosphor-svelte';
     import { audioStore } from '../stores/audio.svelte';
 
     interface ProviderInfo {
@@ -94,7 +94,26 @@
         }
     }
 
-    async function handleVerifyChecksum() {
+    
+    let isDeleting = $state(false);
+    let showDeleteConfirm = $state(false);
+
+    async function handleDeleteProvider() {
+        if (!activeProvider) return;
+        isDeleting = true;
+        try {
+            await invoke('delete_provider', { providerId: activeProvider.id });
+            activeProviderPath = null;
+            showDeleteConfirm = false;
+            await loadProviders();
+        } catch (e) {
+            console.error("Failed to delete provider:", e);
+        } finally {
+            isDeleting = false;
+        }
+    }
+
+async function handleVerifyChecksum() {
         isVerifyingChecksum = true;
         checksumVerified = false;
         // Mock a verification delay
@@ -559,6 +578,28 @@
             {/if}
         </div>
     </div>
+
+    <!-- Uninstall Confirmation Modal -->
+    {#if showDeleteConfirm && activeProvider}
+        <div class="confirm-backdrop" role="dialog" aria-modal="true">
+            <div class="confirm-card">
+                <h3>Uninstall {activeProvider.name}?</h3>
+                <p>This will delete the extension binary from your system. You can re-install it later if needed.</p>
+                <div class="confirm-actions">
+                    <button class="cancel-btn" onclick={() => showDeleteConfirm = false} disabled={isDeleting}>Cancel</button>
+                    <button class="danger-btn" onclick={handleDeleteProvider} disabled={isDeleting}>
+                        {#if isDeleting}
+                            <SpinnerGap size={16} class="spinner" />
+                            <span>Uninstalling...</span>
+                        {:else}
+                            <Trash size={16} />
+                            <span>Uninstall</span>
+                        {/if}
+                    </button>
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -1067,5 +1108,92 @@
     .bento-action-btn:disabled {
         opacity: 0.6;
         cursor: not-allowed;
+    }
+
+    .danger-btn:hover {
+        background: #ff5252;
+        transform: translateY(-1px);
+    }
+
+    .confirm-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    }
+
+    .confirm-card {
+        background: rgba(24, 24, 28, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        padding: 1.75rem;
+        max-width: 420px;
+        width: 90%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .confirm-card h3 {
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 700;
+    }
+
+    .confirm-card p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--text-muted, rgba(255, 255, 255, 0.7));
+        line-height: 1.45;
+    }
+
+    .confirm-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        margin-top: 0.5rem;
+    }
+
+    .cancel-btn {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #fff;
+        padding: 0.55rem 1rem;
+        border-radius: 8px;
+        font-size: 0.88rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+    .cancel-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .danger-btn {
+        background: #ff6b6b;
+        color: #000;
+        border: none;
+        padding: 0.55rem 1.1rem;
+        border-radius: 8px;
+        font-size: 0.88rem;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    .danger-btn:hover {
+        background: #ff5252;
+        transform: translateY(-1px);
     }
 </style>
