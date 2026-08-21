@@ -1,24 +1,46 @@
 <script lang="ts">
     import { libraryStore, type Playlist } from "$lib/stores/library.svelte";
-    import { flip } from "svelte/animate";
-    import { cubicOut } from "svelte/easing";
-    import { Plus, ListPlus } from "phosphor-svelte";
+    import { exploreStore } from "$lib/stores/explore.svelte";
+    import { Plus, ListPlus, Playlist as PlaylistIcon, Play, Heart } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { onMount } from "svelte";
     import LibraryHeader from "./LibraryHeader.svelte";
     import PromptModal from "./PromptModal.svelte";
 
+    interface DisplayPlaylist {
+        id: number | string;
+        name: string;
+        isFavorites?: boolean;
+    }
+
     let { activeView = $bindable("playlists"), onSelectPlaylist } = $props<{ activeView?: string, onSelectPlaylist: (p: Playlist) => void }>();
 
     let mosaics = $state<Record<number, string[]>>({});
+    let trackCounts = $state<Record<number, number>>({});
     let promptOpen = $state(false);
 
     let containerWidth = $state(0);
     let cols = $derived(Math.max(1, Math.floor((containerWidth + 32) / 222))); // 190px + 32px gap
 
+    let allPlaylists = $derived.by(() => {
+        const list: DisplayPlaylist[] = [
+            {
+                id: "favorites",
+                name: "Liked Songs",
+                isFavorites: true,
+            },
+            ...libraryStore.playlists.map(p => ({
+                id: p.id,
+                name: p.name,
+                isFavorites: false,
+            }))
+        ];
+        return list;
+    });
+
     let rows = $derived.by(() => {
         const result = [];
-        const playlists = libraryStore.playlists;
+        const playlists = allPlaylists;
         for (let i = 0; i < playlists.length; i += cols) {
             result.push(playlists.slice(i, i + cols));
         }
@@ -59,15 +81,19 @@
 
     async function loadMosaics() {
         const entries = await Promise.all(
-            libraryStore.playlists.map(async p => [p.id, await libraryStore.getPlaylistArtworkMosaic(p.id)] as const)
+            libraryStore.playlists.map(async p => {
+                const tracks = await libraryStore.getPlaylistTracks(p.id);
+                trackCounts[p.id] = tracks.length;
+                return [p.id, await libraryStore.getPlaylistArtworkMosaic(p.id)] as const;
+            })
         );
         mosaics = Object.fromEntries(entries);
     }
 
-    // Reactively load mosaics when playlists change
     $effect(() => {
         if (libraryStore.playlists) {
             loadMosaics();
+            libraryStore.fetchLikedSongs();
         }
     });
 </script>
@@ -75,7 +101,7 @@
 <LibraryHeader bind:activeView>
     {#snippet actions()}
         <div style="display: flex; gap: 1rem; align-items: center;">
-            <span class="text-muted">{libraryStore.playlists.length} Playlists</span>
+            <span class="text-muted">{libraryStore.playlists.length + 1} Playlists</span>
             <div style="display: flex; gap: 0.5rem;">
                 <button class="ghost" onclick={handleCreatePrompt}>
                     <Plus size={16} />
@@ -86,54 +112,65 @@
     {/snippet}
 </LibraryHeader>
 
-{#if libraryStore.playlists.length === 0}
-    <div class="empty-state">
-        <div class="empty-icon">
-            <ListPlus size={48} weight="thin" />
-        </div>
-        <h2 class="empty-heading font-headline-lg">You have no playlists</h2>
-        <p class="empty-sub">Create a playlist to organize your favorite tracks.</p>
-        <button class="ghost" onclick={handleCreatePrompt} style="margin-top: 1.75rem;">
-            <Plus size={16} />
-            Create Playlist
-        </button>
-    </div>
-{:else}
-    <div class="playlist-grid">
-        <div bind:clientWidth={containerWidth} style="position: relative; width: 100%; height: {$virtStore.getTotalSize()}px;">
-            {#each $virtStore.getVirtualItems() as virtualRow (virtualRow.index)}
-                {@const r = virtualRow.index}
-                {@const rowPlaylists = rows[r]}
-                <div class="virtual-row" style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualRow.start}px); grid-template-columns: repeat({cols}, minmax(0, 1fr));">
-                    {#each rowPlaylists as playlist (playlist.id)}
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div 
-                            class="playlist-card glass-panel" 
-                            onclick={() => onSelectPlaylist(playlist)}
-                        >
-                            <div class="art">
-                                {#if mosaics[playlist.id] && mosaics[playlist.id].length >= 4}
-                                    <div class="mosaic">
-                                        <img src={mosaics[playlist.id][0]} alt="Cover" />
-                                        <img src={mosaics[playlist.id][1]} alt="Cover" />
-                                        <img src={mosaics[playlist.id][2]} alt="Cover" />
-                                        <img src={mosaics[playlist.id][3]} alt="Cover" />
-                                    </div>
-                                {:else if mosaics[playlist.id] && mosaics[playlist.id].length > 0}
-                                    <img src={mosaics[playlist.id][0]} alt="Cover" style="width: 100%; height: 100%; object-fit: cover;" />
-                                {:else}
-                                    <div class="icon">📝</div>
-                                {/if}
+<div class="playlist-grid">
+    <div bind:clientWidth={containerWidth} style="position: relative; width: 100%; height: {$virtStore.getTotalSize()}px;">
+        {#each $virtStore.getVirtualItems() as virtualRow (virtualRow.index)}
+            {@const r = virtualRow.index}
+            {@const rowPlaylists = rows[r]}
+            <div class="virtual-row" style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualRow.start}px); grid-template-columns: repeat({cols}, minmax(0, 1fr));">
+                {#each rowPlaylists as playlist (playlist.id)}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div 
+                        class="playlist-card group" 
+                        class:favorites-card={playlist.isFavorites}
+                        onclick={() => {
+                            if (playlist.isFavorites) {
+                                exploreStore.openFavorites();
+                            } else {
+                                onSelectPlaylist(playlist as Playlist);
+                            }
+                        }}
+                    >
+                        <div class="art-container" class:favorites-art-container={playlist.isFavorites}>
+                            {#if playlist.isFavorites}
+                                <div class="favorites-art-gradient">
+                                    <Heart size={64} weight="fill" color="#D4A86E" class="favorites-heart-icon" />
+                                </div>
+                            {:else if mosaics[playlist.id] && mosaics[playlist.id].length >= 4}
+                                <div class="mosaic-grid">
+                                    <img src={mosaics[playlist.id][0]} alt="Cover" class="mosaic-img" />
+                                    <img src={mosaics[playlist.id][1]} alt="Cover" class="mosaic-img" />
+                                    <img src={mosaics[playlist.id][2]} alt="Cover" class="mosaic-img" />
+                                    <img src={mosaics[playlist.id][3]} alt="Cover" class="mosaic-img" />
+                                </div>
+                            {:else if mosaics[playlist.id] && mosaics[playlist.id].length > 0}
+                                <img src={mosaics[playlist.id][0]} alt={playlist.name} class="art-img" />
+                            {:else}
+                                <div class="art-placeholder">
+                                    <PlaylistIcon size={56} weight="thin" color="rgba(255, 255, 255, 0.35)" />
+                                </div>
+                            {/if}
+
+                            <div class="play-overlay">
+                                <div class="play-btn">
+                                    <Play weight="fill" size={28} />
+                                </div>
                             </div>
-                            <h3 style="margin-top: 0.5rem; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{playlist.name}</h3>
                         </div>
-                    {/each}
-                </div>
-            {/each}
-        </div>
+
+                        <h3 class="card-title">{playlist.name}</h3>
+                        {#if playlist.isFavorites}
+                            <p class="card-artist">{libraryStore.likedSongs.length} {libraryStore.likedSongs.length === 1 ? 'Favorite Song' : 'Favorite Songs'}</p>
+                        {:else}
+                            <p class="card-artist">{trackCounts[playlist.id] ?? 0} {trackCounts[playlist.id] === 1 ? 'track' : 'tracks'}</p>
+                        {/if}
+                    </div>
+                {/each}
+            </div>
+        {/each}
     </div>
-{/if}
+</div>
 
 {#if promptOpen}
     <PromptModal
@@ -157,66 +194,153 @@
         display: flex;
         flex-direction: column;
         cursor: pointer;
-        transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+        width: 100%;
+        min-width: 0;
     }
-    .playlist-card:hover {
-        transform: translateY(-4px);
-    }
-    .art {
+
+    .art-container {
         width: 100%;
         aspect-ratio: 1;
-        background-color: #27272a;
         border-radius: 1.5rem;
-        overflow: hidden;
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        background-color: #27272a;
         border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+        margin-bottom: 0.85rem;
+        position: relative;
+        transition: border-color 0.25s ease, box-shadow 0.25s ease;
     }
-    .mosaic {
+
+    .art-container.favorites-art-container {
+        border: 1px solid rgba(181, 142, 98, 0.22);
+        background: #121215;
+        box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    }
+
+    .playlist-card:hover .art-container.favorites-art-container {
+        border-color: rgba(212, 168, 110, 0.55);
+        box-shadow: 0 14px 28px -4px rgba(0, 0, 0, 0.8), 0 0 20px rgba(181, 142, 98, 0.16);
+    }
+
+    .favorites-art-gradient {
+        width: 100%;
+        height: 100%;
+        background: 
+            radial-gradient(circle at 20% 20%, rgba(212, 168, 110, 0.16) 0%, rgba(181, 142, 98, 0.05) 45%, transparent 72%),
+            linear-gradient(145deg, #1a1a1e 0%, #121215 55%, #0a0a0c 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    :global(.favorites-heart-icon) {
+        filter: drop-shadow(0 4px 16px rgba(212, 168, 110, 0.35));
+    }
+
+    .playlist-card:hover .favorites-art-gradient {
+        transform: scale(1.05);
+    }
+
+    .art-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .playlist-card:hover .art-img {
+        transform: scale(1.05);
+    }
+
+    .mosaic-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
         grid-template-rows: 1fr 1fr;
         width: 100%;
         height: 100%;
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .mosaic img {
+
+    .playlist-card:hover .mosaic-grid {
+        transform: scale(1.05);
+    }
+
+    .mosaic-img {
         width: 100%;
         height: 100%;
         object-fit: cover;
     }
-    .icon {
-        font-size: 3rem;
-        opacity: 0.5;
-    }
-    .empty-state {
+
+    .art-placeholder {
+        width: 100%;
+        height: 100%;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        min-height: 65vh;
-        text-align: center;
-        gap: 0.5rem;
+        background: #1e1e24;
     }
 
-    .empty-icon {
-        color: var(--echo-text-3);
-        margin-bottom: 1.25rem;
-        opacity: 0.6;
+    .play-overlay {
+        position: absolute;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
-    .empty-heading {
-        font-size: 2rem;
-        font-weight: 500;
-        color: var(--echo-text-1);
-        letter-spacing: -0.025em;
+    .playlist-card:hover .play-overlay {
+        opacity: 1;
     }
 
-    .empty-sub {
-        font-size: 1rem;
-        color: var(--echo-text-2);
-        max-width: 280px;
-        line-height: 1.6;
+    .play-btn {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background-color: var(--echo-primary, #B58E62);
+        color: #000000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        transform: translateY(6px);
+        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
+    }
+
+    .playlist-card:hover .play-btn {
+        transform: translateY(0);
+    }
+
+    .play-btn:hover {
+        background-color: #c9a276;
+    }
+
+    .card-title {
+        font-family: var(--echo-font-body, inherit);
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--echo-text-1, #FFFFFF);
+        margin: 0;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: 100%;
+    }
+
+    .card-artist {
+        font-size: 0.8rem;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.6));
+        margin: 0.2rem 0 0 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: 100%;
     }
 </style>

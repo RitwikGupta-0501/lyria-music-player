@@ -82,15 +82,26 @@ class HomeStore {
         }));
         this.discoverShelves = shelves;
 
+        function sanitizeSeedQuery(artist?: string | null, title?: string | null): string {
+            const a = (artist || "").trim();
+            let t = (title || "").trim();
+            t = t.replace(/\s*[\(\[](official\s*(music\s*)?video|audio|remastered|lyric\s*video|official\s*audio|hd|4k)[\)\]]/gi, "").trim();
+            if (a && t.toLowerCase().startsWith(a.toLowerCase())) {
+                return t;
+            }
+            return a ? `${a} ${t}` : t;
+        }
+
         // Fetch related tracks for each seed in parallel
         for (let i = 0; i < seeds.length; i++) {
             const seed = seeds[i];
-            const providerId = seed.last_provider_id || "youtube-wasm";
+            const providerId = (seed.last_provider_id && seed.last_provider_id !== "local") ? seed.last_provider_id : "youtube-wasm";
+            const query = sanitizeSeedQuery(seed.artist, seed.title);
             
             try {
                 const results: any[] = await invoke("search_provider", {
                     providerId,
-                    query: `${seed.artist} ${seed.title}`,
+                    query,
                 });
                 if (results && results.length > 0) {
                     this.discoverShelves[i].tracks = results.slice(0, 10).map(r => ({

@@ -50,7 +50,19 @@ pub enum DbRequest {
     },
     ToggleCanonicalLike {
         canonical_key: String,
+        title: Option<String>,
+        artist: Option<String>,
+        album: Option<String>,
+        cover_art_url: Option<String>,
+        provider_id: Option<String>,
+        source_id: Option<String>,
+        local_track_id: Option<i64>,
+        duration_ms: Option<u64>,
         resp: oneshot::Sender<Result<bool, String>>,
+    },
+    GetCanonicalLikedSongs {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
     },
     GetExtensionMetrics {
         resp: oneshot::Sender<Result<Vec<queries::ExtensionMetric>, String>>,
@@ -117,8 +129,34 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                     let res = queries::get_canonical_discover_seeds(&conn, limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
-                DbRequest::ToggleCanonicalLike { canonical_key, resp } => {
-                    let res = queries::toggle_canonical_like(&conn, &canonical_key).map_err(|e| e.to_string());
+                DbRequest::ToggleCanonicalLike {
+                    canonical_key,
+                    title,
+                    artist,
+                    album,
+                    cover_art_url,
+                    provider_id,
+                    source_id,
+                    local_track_id,
+                    duration_ms,
+                    resp,
+                } => {
+                    let res = queries::toggle_canonical_like(
+                        &conn,
+                        &canonical_key,
+                        title.as_deref(),
+                        artist.as_deref(),
+                        album.as_deref(),
+                        cover_art_url.as_deref(),
+                        provider_id.as_deref(),
+                        source_id.as_deref(),
+                        local_track_id,
+                        duration_ms,
+                    ).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCanonicalLikedSongs { limit, resp } => {
+                    let res = queries::get_canonical_liked_songs(&conn, limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
                 DbRequest::GetExtensionMetrics { resp } => {

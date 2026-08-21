@@ -305,10 +305,17 @@ export class AudioStore {
 
     private formatQueueTrack(t: any): QueueTrack {
         const instanceId = crypto.randomUUID();
-        const isRemote = !!(t.stream_url) || !!(t.provider_id) || (t.type === "Remote");
-        let rawRemoteId = t.remote_track_id ?? t.remoteTrackId ?? t.id ?? null;
-        if (typeof rawRemoteId === 'string' && t.provider_id && rawRemoteId.startsWith(`remote-${t.provider_id}-`)) {
-            rawRemoteId = rawRemoteId.substring(`remote-${t.provider_id}-`.length);
+        const isRemote = (t.source?.type === 'Remote') ||
+                         !!(t.source?.provider_id) ||
+                         !!(t.stream_url) ||
+                         !!(t.provider_id) ||
+                         (t.type === "Remote");
+
+        let rawRemoteId = t.source?.remote_track_id ?? t.remote_track_id ?? t.remoteTrackId ?? t.id ?? null;
+        const providerId = t.source?.provider_id ?? t.provider_id ?? t.providerId ?? 'unknown';
+
+        if (typeof rawRemoteId === 'string' && providerId && rawRemoteId.startsWith(`remote-${providerId}-`)) {
+            rawRemoteId = rawRemoteId.substring(`remote-${providerId}-`.length);
         } else if (typeof rawRemoteId === 'string' && rawRemoteId.startsWith('remote-youtube-wasm-')) {
             rawRemoteId = rawRemoteId.substring('remote-youtube-wasm-'.length);
         }
@@ -316,25 +323,25 @@ export class AudioStore {
         const source: TrackSource = isRemote
             ? {
                 type: 'Remote',
-                provider_id: t.provider_id ?? 'unknown',
+                provider_id: providerId,
                 remote_track_id: rawRemoteId,
-                stream_url: t.stream_url,
-                quality_hint: t.quality_hint ?? null,
-                cover_art_url: t.cover_art_url ?? null,
-                duration_ms: t.duration_ms ?? null,
+                stream_url: t.source?.stream_url ?? t.stream_url,
+                quality_hint: t.source?.quality_hint ?? t.quality_hint ?? null,
+                cover_art_url: t.source?.cover_art_url ?? t.cover_art_url ?? null,
+                duration_ms: t.source?.duration_ms ?? t.duration_ms ?? null,
             }
             : {
                 type: 'Local',
-                track_id: t.id ?? t.track_id ?? t.trackId ?? -1,
-                file_path: t.file_path ?? t.filePath ?? '',
-                album_id: t.album_id ?? t.albumId ?? null,
+                track_id: t.source?.track_id ?? t.id ?? t.track_id ?? t.trackId ?? -1,
+                file_path: t.source?.file_path ?? t.file_path ?? t.filePath ?? '',
+                album_id: t.source?.album_id ?? t.album_id ?? t.albumId ?? null,
             };
 
         return {
             instanceId,
             title: t.title,
             artist: t.artist ?? null,
-            trackNumber: t.track_number ?? t.trackNumber ?? null,
+            trackNumber: t.trackNumber ?? t.track_number ?? null,
             source,
         };
     }
@@ -367,9 +374,7 @@ export class AudioStore {
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
-                    if (tracksWithIds.length > startIndex + 1) {
-                        await this.skipForward(1);
-                    }
+                    toastStore.error(`Failed to play ${t.title}`);
                 }
             }
         } catch (e) {
@@ -453,9 +458,7 @@ export class AudioStore {
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
-                    if (this.queue.length > 1) {
-                        await this.skipForward(1);
-                    }
+                    toastStore.error(`Failed to play ${t.title}`);
                 }
             }
         } catch (e) {
@@ -478,9 +481,7 @@ export class AudioStore {
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
-                    if (this.queue.length > 1) {
-                        await this.skipForward(1);
-                    }
+                    toastStore.error(`Failed to play ${t.title}`);
                 }
             }
         } catch (e) {
@@ -505,9 +506,7 @@ export class AudioStore {
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
-                    if (this.queue.length > 1) {
-                        await this.skipForward(1);
-                    }
+                    toastStore.error(`Failed to play ${t.title}`);
                 }
             }
         } catch (e) {

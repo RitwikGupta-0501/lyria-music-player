@@ -1,7 +1,7 @@
 <script lang="ts">
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { libraryStore } from "$lib/stores/library.svelte";
+    import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
     import {
         Play,
         Pause,
@@ -14,6 +14,7 @@
         SpeakerX,
         ListNumbers,
         CornersOut,
+        Heart,
     } from "phosphor-svelte";
     import { transitionLayout } from "$lib/utils/transitions";
 
@@ -179,9 +180,37 @@
                 </div>
 
                 <div class="song-details">
-                    <span class="song-title">
-                        {trackTitle}
-                    </span>
+                    <div class="song-title-row">
+                        <span class="song-title">
+                            {trackTitle}
+                        </span>
+                        {#if hasTrack}
+                            {@const currentTrackObj = audioStore.currentQueueTrack}
+                            {@const trackTitleStr = currentTrackObj?.title || (audioStore.currentTrack !== "None" ? audioStore.currentTrack : "")}
+                            {@const trackArtistStr = currentTrackObj?.artist || (audioStore.currentArtist !== "Unknown Artist" ? audioStore.currentArtist : "unknown")}
+                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr, canonical_key: currentTrackObj?.canonical_key }, audioStore.currentArtist)}
+                            {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === trackKey)}
+                            <button 
+                                class="like-btn" 
+                                class:liked={isLiked}
+                                onclick={() => {
+                                    if (trackTitleStr) {
+                                        libraryStore.toggleLike({
+                                            title: trackTitleStr,
+                                            artist: trackArtistStr,
+                                            canonical_key: trackKey,
+                                            album: currentTrackObj?.album || audioStore.currentAlbum,
+                                            cover_art_url: currentTrackObj?.cover_art_url || playerArtUrl || undefined,
+                                            duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : undefined,
+                                        });
+                                    }
+                                }}
+                                title={isLiked ? "Unlike" : "Like song"}
+                            >
+                                <Heart size={14} weight={isLiked ? "fill" : "bold"} color={isLiked ? "var(--echo-primary, #B58E62)" : "rgba(255,255,255,0.4)"} />
+                            </button>
+                        {/if}
+                    </div>
                     <div class="song-time">
                         <span>{formatTime(audioStore.currentTime)}</span>
                         <span class="text-white-20">/</span>
@@ -705,4 +734,27 @@
     .player-pill-wrapper[data-state="paused"] .album-art-container {
         filter: grayscale(40%) brightness(0.6);
     }
+
+    .song-title-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .like-btn {
+        background: transparent;
+        border: none;
+        padding: 0.2rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .like-btn:hover {
+        transform: scale(1.15);
+    }
+
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { libraryStore, type Album } from "$lib/stores/library.svelte";
-    import { Play } from "phosphor-svelte";
+    import { convertFileSrc } from "@tauri-apps/api/core";
+    import { Play, Disc } from "phosphor-svelte";
 
     let { 
         album, 
@@ -15,13 +16,17 @@
     let artUrl = $state<string | null>(null);
 
     $effect(() => {
-        libraryStore.getAlbumTracks(album.id).then(tracks => {
-            if (tracks && tracks.length > 0) {
-                libraryStore.getArtworkUrl(tracks[0].id, tracks[0].file_path).then(url => {
-                    artUrl = url;
-                });
-            }
-        }).catch(() => {});
+        if (album.cover_art_path) {
+            artUrl = convertFileSrc(album.cover_art_path);
+        } else {
+            libraryStore.getAlbumTracks(album.id).then(tracks => {
+                if (tracks && tracks.length > 0) {
+                    libraryStore.getArtworkUrl(tracks[0].id, tracks[0].file_path).then(url => {
+                        artUrl = url;
+                    });
+                }
+            }).catch(() => {});
+        }
     });
 </script>
 
@@ -30,26 +35,21 @@
 <div class="album-card group {selected ? 'selected' : ''}" {onclick}>
     <div class="art-container">
         {#if artUrl}
-            <div 
+            <img 
+                src={artUrl} 
+                alt={album.title}
                 class="art-img" 
-                style="background-image: url({artUrl});"
-            ></div>
+                loading="lazy"
+            />
         {:else}
             <div class="art-placeholder">
-                <!-- SVG vinyl/disc placeholder -->
-                <svg viewBox="0 0 120 120" aria-hidden="true">
-                    <circle cx="60" cy="60" r="58" fill="rgba(255 255 255 / 0.03)" stroke="rgba(255 255 255 / 0.06)" stroke-width="1" />
-                    <circle cx="60" cy="60" r="40" fill="rgba(255 255 255 / 0.02)" stroke="rgba(255 255 255 / 0.05)" stroke-width="0.75" />
-                    <circle cx="60" cy="60" r="22" fill="rgba(255 255 255 / 0.02)" stroke="rgba(255 255 255 / 0.04)" stroke-width="0.75" />
-                    <circle cx="60" cy="60" r="7" fill="rgba(255 255 255 / 0.08)" />
-                    <circle cx="60" cy="60" r="3" fill="rgba(255 255 255 / 0.12)" />
-                </svg>
+                <Disc size={56} weight="thin" color="rgba(255, 255, 255, 0.35)" />
             </div>
         {/if}
 
         <div class="play-overlay">
             <div class="play-btn">
-                <Play weight="fill" size={32} />
+                <Play weight="fill" size={28} />
             </div>
         </div>
     </div>
@@ -59,9 +59,12 @@
 </div>
 
 <style>
-
     .album-card {
         cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-width: 0;
     }
 
     .album-card.selected .art-container {
@@ -72,25 +75,25 @@
     .art-container {
         width: 100%;
         aspect-ratio: 1;
-        border-radius: 1.5rem; /* rounded-[1.5rem] */
-        background-color: #27272a; /* bg-zinc-800 */
+        border-radius: 1.5rem;
+        background-color: #27272a;
         border: 1px solid rgba(255, 255, 255, 0.1);
         overflow: hidden;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5); /* shadow-lg */
-        margin-bottom: 1rem; /* mb-4 */
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+        margin-bottom: 0.85rem;
         position: relative;
     }
 
     .art-img {
         width: 100%;
         height: 100%;
-        background-size: cover;
-        background-position: center;
-        transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+        object-fit: cover;
+        display: block;
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .album-card:hover .art-img {
-        transform: scale(1.05); /* group-hover:scale-105 */
+        transform: scale(1.05);
     }
 
     .art-placeholder {
@@ -99,12 +102,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-    }
-
-    .art-placeholder svg {
-        width: 60%;
-        height: 60%;
-        opacity: 0.6;
+        background: #1e1e24;
     }
 
     .play-overlay {
@@ -112,8 +110,9 @@
         inset: 0;
         background-color: rgba(0, 0, 0, 0.4);
         backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
         opacity: 0;
-        transition: opacity 0.3s ease;
+        transition: opacity 0.25s ease;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -124,35 +123,47 @@
     }
 
     .play-btn {
-        width: 56px; /* w-14 */
-        height: 56px; /* h-14 */
-        border-radius: 9999px; /* rounded-full */
-        background-color: var(--echo-primary-dark); /* bg-[#B58E62] */
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background-color: var(--echo-primary, #B58E62);
+        color: #000000;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #000;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        transform: translateY(6px);
+        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
+    }
+
+    .album-card:hover .play-btn {
+        transform: translateY(0);
+    }
+
+    .play-btn:hover {
+        background-color: #c9a276;
     }
 
     .card-title {
-        font-family: var(--echo-font-body); /* Should not be headline-lg in grid */
-        font-size: 1rem; /* text-base */
-        font-weight: 500;
-        color: var(--echo-text-1);
+        font-family: var(--echo-font-body, inherit);
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--echo-text-1, #FFFFFF);
+        margin: 0;
+        line-height: 1.3;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        margin: 0;
+        width: 100%;
     }
 
     .card-artist {
-        font-family: var(--echo-font-body);
-        font-size: 0.875rem; /* text-sm */
-        color: var(--echo-text-2);
-        margin-top: 0.25rem; /* mt-1 */
+        font-size: 0.8rem;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.6));
+        margin: 0.2rem 0 0 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        width: 100%;
     }
 </style>

@@ -1,3 +1,15 @@
+export function getCanonicalKey(
+    track: { title: string; artist?: string | null; canonical_key?: string },
+    fallbackArtist?: string | null
+): string {
+    if (track.canonical_key && track.canonical_key.trim()) {
+        return track.canonical_key.trim().toLowerCase();
+    }
+    const artist = (track.artist || fallbackArtist || "unknown").trim().toLowerCase();
+    const title = (track.title || "unknown").trim().toLowerCase();
+    return `${artist}::${title}`;
+}
+
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { toastStore } from './toast.svelte';
@@ -27,6 +39,7 @@ export class LibraryStore {
     albums = $state<Album[]>([]);
     recentAlbums = $state<Album[]>([]);
     playlists = $state<Playlist[]>([]);
+    likedSongs = $state<any[]>([]);
     isScanning = $state(false);
     lastScanResult = $state<number | null>(null);
 
@@ -51,6 +64,49 @@ export class LibraryStore {
             this.playlists = await invoke("get_playlists", { limit: 500, offset: 0 });
         } catch (e) {
             console.error(e);
+        }
+    }
+
+    async fetchLikedSongs(): Promise<any[]> {
+        try {
+            const songs = await invoke<any[]>("get_liked_songs", { limit: 500 });
+            this.likedSongs = songs || [];
+            return this.likedSongs;
+        } catch (e) {
+            console.error("Failed to fetch liked songs:", e);
+            return [];
+        }
+    }
+
+    async toggleLike(track: { 
+        title: string; 
+        artist?: string; 
+        album?: string;
+        canonical_key?: string;
+        cover_art_url?: string;
+        provider_id?: string;
+        id?: any;
+        local_track_id?: number;
+        duration_ms?: number;
+    }, fallbackArtist?: string | null): Promise<boolean> {
+        try {
+            const key = getCanonicalKey(track, fallbackArtist);
+            const isLiked = await invoke<boolean>("toggle_track_like", { 
+                canonicalKey: key,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                coverArtUrl: track.cover_art_url,
+                providerId: track.provider_id,
+                sourceId: String(track.id || key),
+                localTrackId: track.local_track_id,
+                durationMs: track.duration_ms,
+            });
+            await this.fetchLikedSongs();
+            return isLiked;
+        } catch (e) {
+            console.error("Failed to toggle like:", e);
+            return false;
         }
     }
 

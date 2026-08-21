@@ -1,6 +1,21 @@
+export interface DrawerCollection {
+    kind: 'album' | 'playlist';
+    source: 'local' | 'remote';
+    id: string | number;
+    title: string;
+    subtitle?: string;
+    cover_art_url?: string | null;
+    cover_art_path?: string | null;
+    provider_id?: string;
+    tracks?: any[];
+    rawLocal?: any;
+    rawRemote?: AlbumDetailResult | null;
+}
+
 import { invoke } from "@tauri-apps/api/core";
 import { audioStore } from "./audio.svelte";
 import { libraryStore } from "./library.svelte";
+import { toastStore } from "./toast.svelte";
 
 export interface TrackResult {
     id: string;
@@ -95,6 +110,35 @@ export interface SearchCategorySection {
     items: SearchItem[];
 }
 
+
+export interface AlbumDetailResult {
+    id: string;
+    title: string;
+    artist: string;
+    year?: string | null;
+    description?: string | null;
+    cover_art_url?: string | null;
+    track_count?: number | null;
+    tracks: TrackResult[];
+    provider_id?: string;
+}
+
+export interface ArtistDetailResult {
+    id: string;
+    name: string;
+    avatar_url?: string | null;
+    banner_url?: string | null;
+    subscribers?: string | null;
+    bio?: string | null;
+    top_tracks: TrackResult[];
+    albums: AlbumItem[];
+    singles: AlbumItem[];
+    videos?: TrackResult[];
+    featured_on?: PlaylistItem[];
+    similar_artists?: ArtistItem[];
+    provider_id?: string;
+}
+
 export interface CategorizedSearchResult {
     sections: SearchCategorySection[];
     continuation_token?: string | null;
@@ -165,6 +209,213 @@ export class ExploreStore {
 
     rawSections = $state<SearchCategorySection[]>([]);
     isSearching = $state(false);
+    activeDrawerCollection = $state<DrawerCollection | null>(null);
+    isLoadingCollection = $state(false);
+    selectedRemoteAlbum = $state<AlbumDetailResult | null>(null);
+    selectedRemotePlaylist = $state<AlbumDetailResult | null>(null);
+    isLoadingPlaylist = $state(false);
+    selectedArtist = $state<ArtistDetailResult | null>(null);
+    isLoadingArtist = $state(false);
+    isLoadingAlbum = $state(false);
+    lastFetchedAt = $state<number | null>(null);
+    readonly CACHE_TTL_MS = 15 * 60 * 1000;
+
+    openLocalAlbum(album: any) {
+        this.activeDrawerCollection = {
+            kind: 'album',
+            source: 'local',
+            id: album.id,
+            title: album.title,
+            subtitle: album.artist || 'Unknown Artist',
+            cover_art_path: album.cover_art_path,
+            rawLocal: album,
+            tracks: [],
+        };
+        this.selectedRemoteAlbum = null;
+        this.selectedRemotePlaylist = null;
+    }
+
+    openLocalPlaylist(playlist: any) {
+        this.activeDrawerCollection = {
+            kind: 'playlist',
+            source: 'local',
+            id: playlist.id,
+            title: playlist.name,
+            subtitle: 'Local Playlist',
+            rawLocal: playlist,
+            tracks: [],
+        };
+        this.selectedRemoteAlbum = null;
+        this.selectedRemotePlaylist = null;
+    }
+
+    async openFavorites() {
+        const liked = await libraryStore.fetchLikedSongs();
+        const tracks = liked.map((s, idx) => ({
+            id: s.last_source_id || s.local_track_id || idx,
+            title: s.title,
+            artist: s.artist,
+            album: s.album,
+            file_path: s.file_path,
+            cover_art_url: s.cover_art_url,
+            provider_id: s.last_provider_id || (s.file_path ? undefined : "youtube-wasm"),
+            duration_ms: s.duration_ms,
+            canonical_key: s.canonical_key,
+            liked: true,
+        }));
+        this.activeDrawerCollection = {
+            kind: 'playlist',
+            source: 'local',
+            id: 'favorites',
+            title: 'Liked Songs',
+            subtitle: `${tracks.length} ${tracks.length === 1 ? 'Favorite Song' : 'Favorite Songs'}`,
+            tracks,
+        };
+        this.selectedRemoteAlbum = null;
+        this.selectedRemotePlaylist = null;
+    }
+
+    closeDrawerCollection() {
+        this.activeDrawerCollection = null;
+        this.selectedRemoteAlbum = null;
+        this.selectedRemotePlaylist = null;
+    }
+
+    async openAlbum(album: { id: string; title?: string; artist?: string; cover_art_url?: string | null; is_local?: boolean; provider_id?: string }) {
+        if (album.is_local || album.id.startsWith("local-")) {
+            return;
+        }
+
+        const pId = album.provider_id || "youtube-wasm";
+        // Instantly populate drawer stub with card metadata so drawer opens immediately with title and cover art!
+        this.activeDrawerCollection = {
+            kind: 'album',
+            source: 'remote',
+            id: album.id,
+            title: album.title || "Album",
+            subtitle: album.artist || "Unknown Artist",
+            cover_art_url: album.cover_art_url || null,
+            provider_id: pId,
+            tracks: [],
+        };
+        this.selectedRemoteAlbum = {
+            id: album.id,
+            title: album.title || "Album",
+            artist: album.artist || "Unknown Artist",
+            cover_art_url: album.cover_art_url || null,
+            tracks: [],
+            provider_id: pId,
+        };
+        this.selectedRemotePlaylist = null;
+        this.isLoadingCollection = true;
+        this.isLoadingAlbum = true;
+
+        try {
+            const res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                providerId: pId,
+                albumId: album.id,
+            });
+            if (res && this.activeDrawerCollection?.id === album.id) {
+                this.activeDrawerCollection = {
+                    ...this.activeDrawerCollection,
+                    title: res.title || album.title || "Album",
+                    subtitle: res.artist || album.artist || "Unknown Artist",
+                    cover_art_url: res.cover_art_url || album.cover_art_url || null,
+                    tracks: res.tracks || [],
+                    rawRemote: res,
+                };
+                this.selectedRemoteAlbum = {
+                    ...res,
+                    title: res.title || album.title || "Album",
+                    artist: res.artist || album.artist || "Unknown Artist",
+                    cover_art_url: res.cover_art_url || album.cover_art_url || null,
+                };
+                document.dispatchEvent(new CustomEvent("echo:navigate-album"));
+            }
+        } catch (e) {
+            console.error("Failed to browse album:", e);
+            toastStore.error("Failed to load album details");
+        } finally {
+            this.isLoadingCollection = false;
+            this.isLoadingAlbum = false;
+        }
+    }
+
+    async openPlaylist(playlist: { id: string; title?: string; author?: string; cover_art_url?: string | null; provider_id?: string }) {
+        const pId = playlist.provider_id || "youtube-wasm";
+        // Instantly populate drawer stub so drawer opens immediately with title and cover art!
+        this.activeDrawerCollection = {
+            kind: 'playlist',
+            source: 'remote',
+            id: playlist.id,
+            title: playlist.title || "Playlist",
+            subtitle: playlist.author || "Curated Playlist",
+            cover_art_url: playlist.cover_art_url || null,
+            provider_id: pId,
+            tracks: [],
+        };
+        this.selectedRemotePlaylist = {
+            id: playlist.id,
+            title: playlist.title || "Playlist",
+            artist: playlist.author || "Curated Playlist",
+            cover_art_url: playlist.cover_art_url || null,
+            tracks: [],
+            provider_id: pId,
+        };
+        this.selectedRemoteAlbum = null;
+        this.isLoadingCollection = true;
+        this.isLoadingPlaylist = true;
+
+        try {
+            const res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                providerId: pId,
+                albumId: playlist.id,
+            });
+            if (res && this.activeDrawerCollection?.id === playlist.id) {
+                this.activeDrawerCollection = {
+                    ...this.activeDrawerCollection,
+                    title: res.title || playlist.title || "Playlist",
+                    subtitle: res.artist || playlist.author || "Curated Playlist",
+                    cover_art_url: res.cover_art_url || playlist.cover_art_url || null,
+                    tracks: res.tracks || [],
+                    rawRemote: res,
+                };
+                this.selectedRemotePlaylist = {
+                    ...res,
+                    title: res.title || playlist.title || "Playlist",
+                    artist: res.artist || playlist.author || "Curated Playlist",
+                    cover_art_url: res.cover_art_url || playlist.cover_art_url || null,
+                };
+                document.dispatchEvent(new CustomEvent("echo:navigate-playlist"));
+            }
+        } catch (e) {
+            console.error("Failed to browse playlist:", e);
+            toastStore.error("Failed to load playlist details");
+        } finally {
+            this.isLoadingCollection = false;
+            this.isLoadingPlaylist = false;
+        }
+    }
+
+    async openArtist(artist: { id: string; name?: string; provider_id?: string }) {
+        this.isLoadingArtist = true;
+        try {
+            const res = await invoke<ArtistDetailResult>("browse_provider_artist", {
+                providerId: artist.provider_id || "youtube-wasm",
+                artistId: artist.id,
+            });
+            if (res) {
+                this.selectedArtist = res;
+                document.dispatchEvent(new CustomEvent("echo:navigate-artist"));
+            }
+        } catch (e) {
+            console.error("Failed to browse artist:", e);
+            toastStore.error("Failed to load artist page");
+        } finally {
+            this.isLoadingArtist = false;
+        }
+    }
+
     private _searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     isLoading = $state(false);
@@ -247,9 +498,11 @@ export class ExploreStore {
         }
     }
 
-    async init() {
-        if (this.isLoaded) return;
-        await this.loadExplore();
+    async init(force = false) {
+        if (this.isLoaded && !force && this.lastFetchedAt && (Date.now() - this.lastFetchedAt < this.CACHE_TTL_MS)) {
+            return;
+        }
+        await this.loadExplore(force);
     }
 
     setSearchQuery(query: string) {
@@ -470,7 +723,9 @@ export class ExploreStore {
 
     async loadExplore(force = false) {
         if (this.isLoading) return;
-        this.isLoading = true;
+        if (!this.isLoaded) {
+            this.isLoading = true;
+        }
         try {
             const modules = await invoke<AggregatedModule[]>("get_explore_feed");
 
@@ -552,6 +807,7 @@ export class ExploreStore {
             this.rankedTracks = allTracks;
             this.newReleases2x2 = allAlbums;
             this.isLoaded = true;
+            this.lastFetchedAt = Date.now();
         } catch (e) {
             console.error("Failed to load explore feed:", e);
         } finally {

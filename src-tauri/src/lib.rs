@@ -441,13 +441,42 @@ async fn record_track_play(
 }
 
 #[tauri::command]
+async fn get_liked_songs(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<crate::db::queries::CanonicalSong>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalLikedSongs {
+        limit: limit.unwrap_or(500),
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn toggle_track_like(
     state: State<'_, AppState>,
     canonical_key: String,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: Option<String>,
+    source_id: Option<String>,
+    local_track_id: Option<i64>,
+    duration_ms: Option<u64>,
 ) -> Result<bool, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     state.db_tx.send(crate::db::DbRequest::ToggleCanonicalLike {
         canonical_key,
+        title,
+        artist,
+        album,
+        cover_art_url,
+        provider_id,
+        source_id,
+        local_track_id,
+        duration_ms,
         resp: tx,
     }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())?
@@ -1134,6 +1163,7 @@ pub fn run() {
             get_home_feed,
             record_track_play,
             toggle_track_like,
+            get_liked_songs,
             get_extension_metrics,
             search_library,
             fuzzy_match_tracks,

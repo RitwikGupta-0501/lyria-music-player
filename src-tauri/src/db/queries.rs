@@ -638,6 +638,24 @@ pub fn get_canonical_forgotten_favorites(conn: &Connection, limit: usize) -> Sql
     Ok(results)
 }
 
+pub fn get_canonical_liked_songs(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mut stmt = conn.prepare(
+        "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
+         FROM song_telemetry st
+         LEFT JOIN tracks t ON st.local_track_id = t.id
+         WHERE st.liked = 1
+         ORDER BY st.last_played_at DESC
+         LIMIT ?1"
+    )?;
+
+    let rows = stmt.query_map([limit as i64], map_canonical_row)?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
 pub fn get_canonical_discover_seeds(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
     let mut stmt = conn.prepare(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
@@ -656,11 +674,58 @@ pub fn get_canonical_discover_seeds(conn: &Connection, limit: usize) -> SqlResul
     Ok(results)
 }
 
-pub fn toggle_canonical_like(conn: &Connection, canonical_key: &str) -> SqlResult<bool> {
-    conn.execute(
-        "UPDATE song_telemetry SET liked = CASE WHEN liked = 1 THEN 0 ELSE 1 END WHERE canonical_key = ?1",
+pub fn toggle_canonical_like(
+    conn: &Connection,
+    canonical_key: &str,
+    title: Option<&str>,
+    artist: Option<&str>,
+    album: Option<&str>,
+    cover_art_url: Option<&str>,
+    provider_id: Option<&str>,
+    source_id: Option<&str>,
+    local_track_id: Option<i64>,
+    duration_ms: Option<u64>,
+) -> SqlResult<bool> {
+    let exists: bool = conn.query_row(
+        "SELECT 1 FROM song_telemetry WHERE canonical_key = ?1",
         [canonical_key],
-    )?;
+        |_| Ok(true),
+    ).unwrap_or(false);
+
+    if exists {
+        conn.execute(
+            "UPDATE song_telemetry SET liked = CASE WHEN liked = 1 THEN 0 ELSE 1 END WHERE canonical_key = ?1",
+            [canonical_key],
+        )?;
+    } else {
+        let parts: Vec<&str> = canonical_key.split("::").collect();
+        let fallback_artist = if parts.len() > 1 { parts[0] } else { "Unknown Artist" };
+        let fallback_title = if parts.len() > 1 { parts[1] } else { canonical_key };
+
+        let actual_title = title.unwrap_or(fallback_title);
+        let actual_artist = artist.unwrap_or(fallback_artist);
+        let actual_provider = provider_id.unwrap_or("local");
+        let actual_source = source_id.unwrap_or(canonical_key);
+
+        conn.execute(
+            "INSERT INTO song_telemetry (
+                canonical_key, title, artist, album, cover_art_url,
+                play_count, liked, local_track_id, last_provider_id,
+                last_source_id, duration_ms, last_played_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)",
+            rusqlite::params![
+                canonical_key,
+                actual_title,
+                actual_artist,
+                album,
+                cover_art_url,
+                local_track_id,
+                actual_provider,
+                actual_source,
+                duration_ms.map(|d| d as i64),
+            ],
+        )?;
+    }
 
     let liked: i64 = conn.query_row(
         "SELECT liked FROM song_telemetry WHERE canonical_key = ?1",
@@ -763,7 +828,7 @@ mod tests {
         assert_eq!(yt_m.total_duration_ms, 213000);
 
         // 5. Test Like Toggle
-        let is_liked = toggle_canonical_like(&conn, "rick astley::never gonna give you up").unwrap();
+        let is_liked = toggle_canonical_like(&conn, "rick astley::never gonna give you up", None, None, None, None, None, None, None, None).unwrap();
         assert!(is_liked);
     }
 

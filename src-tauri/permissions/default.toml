@@ -78,6 +78,7 @@ commands.allow = [
     "get_log_collection_enabled",
     "get_extension_metrics",
     "toggle_track_like",
+    "get_liked_songs",
     "record_track_play",
     "get_home_feed",
     "get_explore_feed",

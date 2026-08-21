@@ -255,7 +255,7 @@
                                     </div>
                                 {/if}
 
-                                <!-- A. Top Result Hero Card -->
+                                <!-- A. Top Result Hero Card (Adaptive) -->
                                 {#if section.category === "Top Result"}
                                     <div class="top-result-cluster">
                                         {#each section.items as item}
@@ -267,14 +267,28 @@
                                                     tabindex="0"
                                                     onclick={() => {
                                                         if (item.data.item_type === "album") {
-                                                            exploreStore.playAlbum({
+                                                            exploreStore.openAlbum({
                                                                 id: item.data.id,
                                                                 title: item.data.title,
                                                                 artist: item.data.subtitle,
                                                                 cover_art_url: item.data.cover_art_url,
                                                                 provider_id: item.data.provider_id || "youtube-wasm",
                                                             });
-                                                        } else if (item.data.item_type === "song") {
+                                                        } else if (item.data.item_type === "playlist") {
+                                                            exploreStore.openPlaylist({
+                                                                id: item.data.id,
+                                                                title: item.data.title,
+                                                                author: item.data.subtitle,
+                                                                cover_art_url: item.data.cover_art_url,
+                                                                provider_id: item.data.provider_id || "youtube-wasm",
+                                                            });
+                                                        } else if (item.data.item_type === "artist") {
+                                                            exploreStore.openArtist({
+                                                                id: item.data.id,
+                                                                name: item.data.title,
+                                                                provider_id: item.data.provider_id || "youtube-wasm",
+                                                            });
+                                                        } else {
                                                             exploreStore.playTrack({
                                                                 id: item.data.id,
                                                                 title: item.data.title,
@@ -282,18 +296,22 @@
                                                                 cover_art_url: item.data.cover_art_url,
                                                                 provider_id: item.data.provider_id || "youtube-wasm",
                                                             });
-                                                        } else if (item.data.item_type === "artist") {
-                                                            exploreStore.setSearchQuery(item.data.title);
                                                         }
                                                     }}
                                                     onkeydown={(e) => {
                                                         if (e.key === "Enter") {
                                                             if (item.data.item_type === "album") {
-                                                                exploreStore.playAlbum({
+                                                                exploreStore.openAlbum({
                                                                     id: item.data.id,
                                                                     title: item.data.title,
                                                                     artist: item.data.subtitle,
                                                                     cover_art_url: item.data.cover_art_url,
+                                                                    provider_id: item.data.provider_id || "youtube-wasm",
+                                                                });
+                                                            } else if (item.data.item_type === "artist") {
+                                                                exploreStore.openArtist({
+                                                                    id: item.data.id,
+                                                                    name: item.data.title,
                                                                     provider_id: item.data.provider_id || "youtube-wasm",
                                                                 });
                                                             } else {
@@ -317,9 +335,37 @@
                                                             </div>
                                                         {/if}
                                                         <div class="top-result-play-overlay">
-                                                            <div class="echo-play-btn">
+                                                            <button 
+                                                                class="echo-play-btn"
+                                                                onclick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (item.data.item_type === "album") {
+                                                                        exploreStore.playAlbum({
+                                                                            id: item.data.id,
+                                                                            title: item.data.title,
+                                                                            artist: item.data.subtitle,
+                                                                            cover_art_url: item.data.cover_art_url,
+                                                                            provider_id: item.data.provider_id || "youtube-wasm",
+                                                                        });
+                                                                    } else if (item.data.item_type === "artist") {
+                                                                        exploreStore.openArtist({
+                                                                            id: item.data.id,
+                                                                            name: item.data.title,
+                                                                            provider_id: item.data.provider_id || "youtube-wasm",
+                                                                        });
+                                                                    } else {
+                                                                        exploreStore.playTrack({
+                                                                            id: item.data.id,
+                                                                            title: item.data.title,
+                                                                            artist: item.data.subtitle,
+                                                                            cover_art_url: item.data.cover_art_url,
+                                                                            provider_id: item.data.provider_id || "youtube-wasm",
+                                                                        });
+                                                                    }
+                                                                }}
+                                                            >
                                                                 <Play size={22} weight="fill" />
-                                                            </div>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                     <div class="top-result-info">
@@ -331,7 +377,24 @@
                                                             {/if}
                                                         </div>
                                                         <h2 class="top-result-title">{item.data.title}</h2>
-                                                        <p class="top-result-sub">{item.data.subtitle}</p>
+                                                        <p class="top-result-sub">
+                                                            {#if item.data.item_type !== "artist" && item.data.subtitle}
+                                                                <button 
+                                                                    class="artist-inline-btn"
+                                                                    onclick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        exploreStore.openArtist({
+                                                                            id: item.data.subtitle,
+                                                                            name: item.data.subtitle,
+                                                                        });
+                                                                    }}
+                                                                >
+                                                                    {item.data.subtitle}
+                                                                </button>
+                                                            {:else}
+                                                                {item.data.subtitle}
+                                                            {/if}
+                                                        </p>
                                                     </div>
                                                 </div>
                                             {:else if item.type === "Track"}
@@ -440,8 +503,8 @@
                                                     class="echo-album-card"
                                                     role="button"
                                                     tabindex="0"
-                                                    onclick={() => exploreStore.playAlbum(item.data)}
-                                                    onkeydown={(e) => { if (e.key === 'Enter') exploreStore.playAlbum(item.data); }}
+                                                    onclick={() => exploreStore.openAlbum(item.data)}
+                                                    onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openAlbum(item.data); }}
                                                 >
                                                     <div class="echo-album-art-container">
                                                         {#if item.data.cover_art_url}
@@ -452,14 +515,34 @@
                                                             </div>
                                                         {/if}
                                                         <div class="echo-album-overlay">
-                                                            <div class="echo-play-btn">
+                                                            <button 
+                                                                class="echo-play-btn"
+                                                                onclick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    exploreStore.playAlbum(item.data);
+                                                                }}
+                                                            >
                                                                 <Play size={24} weight="fill" />
-                                                            </div>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                     <div class="echo-album-meta">
                                                         <span class="echo-album-title" title={item.data.title}>{item.data.title}</span>
-                                                        <span class="echo-album-artist" title={item.data.artist}>{item.data.artist} {#if item.data.year}• {item.data.year}{/if}</span>
+                                                        <span class="echo-album-artist" title={item.data.artist}>
+                                                            <button 
+                                                                class="artist-inline-btn"
+                                                                onclick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    exploreStore.openArtist({
+                                                                        id: item.data.artist,
+                                                                        name: item.data.artist,
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {item.data.artist}
+                                                            </button>
+                                                            {#if item.data.year} • {item.data.year}{/if}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             {/if}
@@ -471,7 +554,13 @@
                                     <div class="artists-search-grid">
                                         {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 6) : section.items) as item}
                                             {#if item.type === "Artist"}
-                                                <div class="artist-card">
+                                                <div 
+                                                    class="artist-card interactive-artist-card"
+                                                    role="button"
+                                                    tabindex="0"
+                                                    onclick={() => exploreStore.openArtist(item.data)}
+                                                    onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openArtist(item.data); }}
+                                                >
                                                     <div class="artist-avatar-wrapper">
                                                         {#if item.data.avatar_url}
                                                             <img src={item.data.avatar_url} alt={item.data.name} class="artist-avatar" />
@@ -942,7 +1031,9 @@
     .shelf-header {
         display: flex;
         align-items: center;
-        gap: 0.6rem;
+        justify-content: space-between;
+        width: 100%;
+        margin-bottom: 0.85rem;
     }
     .shelf-header h3 {
         font-size: 1.15rem;
@@ -989,6 +1080,8 @@
         display: flex;
         flex-direction: column;
         gap: 0.35rem;
+        min-width: 0;
+        flex: 1;
     }
     .top-result-eyebrow {
         display: flex;
@@ -1005,6 +1098,9 @@
         font-weight: 700;
         margin: 0;
         color: #FFFFFF;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .top-result-sub {
         font-size: 0.9rem;
@@ -1152,7 +1248,7 @@
     /* Artists Search Grid */
     .artists-search-grid {
         display: grid;
-        grid-template-columns: repeat(6, 1fr);
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
         gap: 1rem;
     }
     @media (max-width: 1024px) {
@@ -1656,18 +1752,24 @@
     /* Right Column — New Releases 2x2 Grid */
     .albums-2x2-grid {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-rows: 1fr;
         gap: 0.85rem;
+        width: 100%;
     }
     .album-card {
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
         cursor: pointer;
-        padding: 0.5rem;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.02);
-        transition: background 0.15s ease, transform 0.15s ease;
+        padding: 0.6rem;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+        min-width: 0;
+        height: 100%;
+        box-sizing: border-box;
     }
     .album-card:hover {
         background: rgba(255, 255, 255, 0.05);
@@ -1714,6 +1816,8 @@
         display: flex;
         flex-direction: column;
         gap: 0.15rem;
+        min-width: 0;
+        width: 100%;
     }
     .album-title {
         font-family: ui-serif, Georgia, serif;
@@ -2047,13 +2151,7 @@
 
 
     /* Shelf See More Buttons */
-    .shelf-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        margin-bottom: 0.2rem;
-    }
+    
     .shelf-see-more-btn {
         display: flex;
         align-items: center;
@@ -2075,4 +2173,26 @@
     }
 
 
-</style>
+
+    .artist-inline-btn {
+        background: none;
+        border: none;
+        color: inherit;
+        font-family: inherit;
+        font-size: inherit;
+        padding: 0;
+        cursor: pointer;
+        transition: color 0.15s ease;
+    }
+    .artist-inline-btn:hover {
+        color: #B58E62 !important;
+        text-decoration: underline;
+    }
+    .interactive-artist-card {
+        cursor: pointer;
+        transition: transform 0.18s ease;
+    }
+    .interactive-artist-card:hover {
+        transform: translateY(-3px);
+    }
+    </style>

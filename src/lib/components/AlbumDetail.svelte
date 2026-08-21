@@ -15,10 +15,23 @@
     } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
 
-    let { album, onBack } = $props<{ album: Album; onBack: () => void }>();
+    import { exploreStore, type AlbumDetailResult } from "$lib/stores/explore.svelte";
 
-    let tracks = $state<LocalTrack[]>([]);
-    let artUrl = $state<string | null>(null);
+    let { album = null, remoteAlbum = null, onBack } = $props<{ 
+        album?: Album | null; 
+        remoteAlbum?: AlbumDetailResult | null; 
+        onBack: () => void 
+    }>();
+
+    let effectiveRemote = $derived(remoteAlbum || exploreStore.selectedRemoteAlbum);
+    let tracks = $state<any[]>([]);
+    let localArtUrl = $state<string | null>(null);
+    let artUrl = $derived(
+        effectiveRemote?.cover_art_url || 
+        (album?.cover_art_path ? convertFileSrc(album.cover_art_path) : localArtUrl)
+    );
+    let albumTitle = $derived(effectiveRemote?.title || album?.title || "Album");
+    let albumArtist = $derived(effectiveRemote?.artist || album?.artist || "Unknown Artist");
 
     let activeDropdown = $state<number | null>(null);
     let isCreatingPlaylistForTrack = $state<number | null>(null);
@@ -36,14 +49,18 @@
     });
 
     $effect(() => {
-        libraryStore.getAlbumTracks(album.id).then((t) => {
-            tracks = t;
-            if (t.length > 0) {
-                libraryStore
-                    .getArtworkUrl(t[0].id, t[0].file_path)
-                    .then((url) => (artUrl = url));
-            }
-        });
+        if (effectiveRemote) {
+            tracks = effectiveRemote.tracks || [];
+        } else if (album) {
+            libraryStore.getAlbumTracks(album.id).then((t) => {
+                tracks = t;
+                if (t && t.length > 0 && !album?.cover_art_path) {
+                    libraryStore.getArtworkUrl(t[0].id, t[0].file_path).then(url => {
+                        localArtUrl = url;
+                    });
+                }
+            });
+        }
 
         const closeDropdowns = () => {
             activeDropdown = null;
@@ -85,58 +102,119 @@
     }
 
     async function playTrack(index: number) {
-        if (!album || tracks.length === 0) return;
+        if (tracks.length === 0) return;
 
-        if (audioStore.queue.length > 0) {
+        if (effectiveRemote) {
+            const current = tracks[index];
+            const pId = current.provider_id || effectiveRemote.provider_id || album?.provider_id || "youtube-wasm";
             const trackPayload = {
-                id: tracks[index].id,
-                title: tracks[index].title,
-                artist: tracks[index].artist,
-                album: album.title,
-                file_path: tracks[index].file_path,
-                track_number: tracks[index].track_number,
+                id: current.id,
+                title: current.title,
+                artist: current.artist,
+                album: effectiveRemote.title,
+                remote_track_id: current.id,
+                provider_id: pId,
+                cover_art_url: current.cover_art_url || effectiveRemote.cover_art_url,
+                duration_ms: current.duration_ms,
             };
 
-            if (audioStore.trackClickBehavior === "interrupt") {
-                await audioStore.playInterrupt(trackPayload);
-                return;
-            } else if (audioStore.trackClickBehavior === "append") {
-                await audioStore.addToQueue(trackPayload);
-                toastStore.show("Added to queue", "info", 1500);
-                return;
+            if (audioStore.queue.length > 0) {
+                if (audioStore.trackClickBehavior === "interrupt") {
+                    await audioStore.playInterrupt(trackPayload);
+                    return;
+                } else if (audioStore.trackClickBehavior === "append") {
+                    await audioStore.addToQueue(trackPayload);
+                    toastStore.show("Added to queue", "info", 1500);
+                    return;
+                }
             }
+            const queueTracks = tracks.map((t) => ({
+                id: t.id,
+                title: t.title,
+                artist: t.artist,
+                album: effectiveRemote.title,
+                remote_track_id: t.id,
+                provider_id: t.provider_id || pId,
+                cover_art_url: t.cover_art_url || effectiveRemote.cover_art_url,
+                duration_ms: t.duration_ms,
+            }));
+            await audioStore.setQueue(queueTracks, index);
+            return;
         }
 
-        const queueTracks = tracks.map((t) => ({
-            id: t.id,
-            title: t.title,
-            artist: t.artist,
-            album: album.title,
-            file_path: t.file_path,
-            track_number: t.track_number,
-        }));
+        if (album) {
+            if (audioStore.queue.length > 0) {
+                const trackPayload = {
+                    id: tracks[index].id,
+                    title: tracks[index].title,
+                    artist: tracks[index].artist,
+                    album: album.title,
+                    file_path: tracks[index].file_path,
+                    track_number: tracks[index].track_number,
+                };
 
-        await audioStore.setQueue(queueTracks, index);
+                if (audioStore.trackClickBehavior === "interrupt") {
+                    await audioStore.playInterrupt(trackPayload);
+                    return;
+                } else if (audioStore.trackClickBehavior === "append") {
+                    await audioStore.addToQueue(trackPayload);
+                    toastStore.show("Added to queue", "info", 1500);
+                    return;
+                }
+            }
+
+            const queueTracks = tracks.map((t) => ({
+                id: t.id,
+                title: t.title,
+                artist: t.artist,
+                album: album.title,
+                file_path: t.file_path,
+                track_number: t.track_number,
+            }));
+
+            await audioStore.setQueue(queueTracks, index);
+        }
     }
 </script>
 
 <div class="view-album">
     <div class="album-header">
-        <div
-            class="art-container"
-            style={artUrl ? `background-image: url('${artUrl}');` : ""}
-        >
-            {#if !artUrl}
-                <div class="art-placeholder"></div>
+        <div class="art-container">
+            {#if artUrl}
+                <img src={artUrl} alt={albumTitle} class="art-img" loading="eager" />
+            {:else}
+                <div class="art-placeholder font-headline-lg">
+                    <span>{albumTitle.charAt(0).toUpperCase()}</span>
+                </div>
             {/if}
         </div>
         <div class="album-info">
-            <h3 class="album-title font-headline-lg">{album.title}</h3>
-            <p class="album-artist">{album.artist || "Unknown Artist"}</p>
+            <h3 class="album-title font-headline-lg">{albumTitle}</h3>
+            <p class="album-artist">
+                {#if effectiveRemote && effectiveRemote.artist}
+                    <button 
+                        class="artist-clickable-link" 
+                        onclick={() => exploreStore.openArtist({ id: effectiveRemote.artist, name: effectiveRemote.artist })}
+                    >
+                        {albumArtist}
+                    </button>
+                {:else}
+                    {albumArtist}
+                {/if}
+            </p>
         </div>
     </div>
 
     <div class="track-list" bind:this={scrollContainer}>
+        {#if exploreStore.isLoadingAlbum && tracks.length === 0}
+            <div class="album-tracks-loading">
+                <div class="track-skeleton-row"></div>
+                <div class="track-skeleton-row"></div>
+                <div class="track-skeleton-row"></div>
+                <div class="track-skeleton-row"></div>
+                <div class="track-skeleton-row"></div>
+            </div>
+        {/if}
         <div
             style="position: relative; width: 100%; height: {$virtStore.getTotalSize()}px;"
         >
@@ -323,18 +401,49 @@
         height: 7rem; /* h-28 */
         flex-shrink: 0;
         border-radius: 1rem;
-        background-color: #27272a; /* bg-zinc-800 fallback */
-        background-size: cover;
-        background-position: center;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); /* shadow-lg */
+        background-color: #27272a;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+    }
+
+    .art-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
     }
 
     .art-placeholder {
         width: 100%;
         height: 100%;
         background-color: var(--echo-raised);
-        border-radius: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255, 255, 255, 0.4);
+        font-weight: 700;
+        font-size: 2rem;
+    }
+
+    .album-tracks-loading {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        padding: 0.5rem 0;
+    }
+
+    .track-skeleton-row {
+        height: 42px;
+        width: 100%;
+        border-radius: 8px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.03) 100%);
+        background-size: 200% 100%;
+        animation: track-skeleton-anim 1.5s infinite;
+    }
+
+    @keyframes track-skeleton-anim {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
     }
 
     .album-info {
@@ -415,6 +524,10 @@
         color: var(--echo-text-1);
         transition: color 0.2s ease;
         font-family: var(--echo-font-body);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 220px;
     }
 
     .track-row:hover .track-name {
@@ -631,5 +744,21 @@
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
         color: white;
+    }
+
+    .artist-clickable-link {
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.7);
+        font-family: inherit;
+        font-size: inherit;
+        cursor: pointer;
+        padding: 0;
+        text-align: left;
+        transition: color 0.15s ease;
+    }
+    .artist-clickable-link:hover {
+        color: #B58E62;
+        text-decoration: underline;
     }
 </style>
