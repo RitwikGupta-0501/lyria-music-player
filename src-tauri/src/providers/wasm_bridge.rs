@@ -71,6 +71,48 @@ host_fn!(pub host_http_request (user_data: Arc<Client>; json_input: String) -> S
     Ok(out)
 });
 
+// Dedicated host function for telemetry reporting (structurally gated by manifest capability)
+host_fn!(pub host_telemetry_request (user_data: Arc<Client>; json_input: String) -> String {
+    let req: HttpRequest = serde_json::from_str(&json_input).map_err(|e| extism::Error::msg(e.to_string()))?;
+    let client = user_data.get()?.lock().unwrap().clone();
+    
+    let rt = tokio::runtime::Handle::current();
+    
+    let res = rt.block_on(async {
+        let mut builder = match req.method.as_str() {
+            "GET" => client.get(&req.url),
+            "POST" => client.post(&req.url),
+            _ => client.get(&req.url),
+        };
+        
+        if let Some(headers) = req.headers {
+            for (k, v) in headers {
+                builder = builder.header(k, v);
+            }
+        }
+        if let Some(body) = req.body {
+            builder = builder.body(body);
+        }
+        
+        let response = builder.send().await.map_err(|e| extism::Error::msg(e.to_string()))?;
+        let status = response.status().as_u16();
+        let mut resp_headers = std::collections::HashMap::new();
+        for (k, v) in response.headers() {
+            resp_headers.insert(k.to_string(), v.to_str().unwrap_or("").to_string());
+        }
+        let body = response.text().await.unwrap_or_default();
+        
+        Ok::<HttpResponse, extism::Error>(HttpResponse { status, headers: resp_headers, body })
+    })?;
+    
+    let out = serde_json::to_string(&res).map_err(|e| extism::Error::msg(e.to_string()))?;
+    Ok(out)
+});
+
+host_fn!(pub host_telemetry_blocked (_json_input: String) -> String {
+    let err: Result<String, extism::Error> = Err(extism::Error::msg("PermissionDenied: extension lacks 'telemetry_reporting' capability")); err
+});
+
 host_fn!(pub host_storage_get (user_data: Arc<Sender<DbRequest>>; json_input: String) -> String {
     let req: StorageRequest = serde_json::from_str(&json_input).map_err(|e| extism::Error::msg(e.to_string()))?;
     let db_tx = user_data.get()?.lock().unwrap().clone();
@@ -134,6 +176,3 @@ host_fn!(pub host_execute_webview_js (user_data: Arc<tauri::AppHandle>; script: 
     
     Ok(res)
 });
-
-
-

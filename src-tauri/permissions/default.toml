@@ -81,6 +81,8 @@ commands.allow = [
     "get_liked_songs",
     "record_track_play",
     "get_home_feed",
+    "get_home_local_shelves",
+    "get_home_remote_shelves",
     "get_explore_feed",
     "resolve_stream_url",
     "sandbox_log",

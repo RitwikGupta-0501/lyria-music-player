@@ -187,8 +187,8 @@
                         {#if hasTrack}
                             {@const currentTrackObj = audioStore.currentQueueTrack}
                             {@const trackTitleStr = currentTrackObj?.title || (audioStore.currentTrack !== "None" ? audioStore.currentTrack : "")}
-                            {@const trackArtistStr = currentTrackObj?.artist || (audioStore.currentArtist !== "Unknown Artist" ? audioStore.currentArtist : "unknown")}
-                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr, canonical_key: currentTrackObj?.canonical_key }, audioStore.currentArtist)}
+                            {@const trackArtistStr = currentTrackObj?.artist || "unknown"}
+                            {@const trackKey = `${trackTitleStr}::${trackArtistStr}`.toLowerCase().trim()}
                             {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === trackKey)}
                             <button 
                                 class="like-btn" 
@@ -199,8 +199,7 @@
                                             title: trackTitleStr,
                                             artist: trackArtistStr,
                                             canonical_key: trackKey,
-                                            album: currentTrackObj?.album || audioStore.currentAlbum,
-                                            cover_art_url: currentTrackObj?.cover_art_url || playerArtUrl || undefined,
+                                            cover_art_url: (currentTrackObj?.source as any)?.cover_art_url || playerArtUrl || undefined,
                                             duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : undefined,
                                         });
                                     }

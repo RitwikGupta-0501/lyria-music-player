@@ -1,14 +1,60 @@
 //! Canonical song normalization and deduplication engine for Echo.
 //! Normalizes titles and artists across local files and remote streaming providers
-//! to form a deterministic fingerprint (canonical_key).
+//! to form a deterministic fingerprint (canonical_key), and provides multi-factor
+//! continuous Gaussian confidence scoring for track deduplication.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use unicode_normalization::UnicodeNormalization;
+use crate::queue::TrackSourceInfo;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CandidateTrack {
+    pub canonical_key: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub isrc: Option<String>,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FederatedTrack {
+    pub canonical_key: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub isrc: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub play_count: u64,
+    pub seed_provenance: Option<String>,
+    pub sources: Vec<TrackSourceInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DedupMatchResult {
+    pub is_match: bool,
+    pub confidence: f32,
+    pub reason: &'static str,
+}
+
+/// Strips diacritics and accents from a string after NFD decomposition, then normalizes via NFKC.
+fn strip_diacritics(s: &str) -> String {
+    s.nfd()
+        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+        .nfkc()
+        .collect()
+}
 
 pub fn clean_title(title: &str) -> String {
-    let mut s = title.to_string();
+    // 1. Unicode NFKC normalization + diacritic stripping
+    let mut s = strip_diacritics(title).nfkc().collect::<String>();
 
-    // 1. Lowercase for case-insensitive normalization
+    // 2. Lowercase for case-insensitive normalization
     s = s.to_lowercase();
 
-    // 2. Remove common YouTube/streaming noise patterns in parentheses or brackets
+    // 3. Remove common YouTube/streaming noise patterns in parentheses or brackets
     let noise_patterns = [
         "(official video)",
         "[official video]",
@@ -45,13 +91,13 @@ pub fn clean_title(title: &str) -> String {
         s = s.replace(pat, "");
     }
 
-    // 3. Remove "(feat. ...)" or "[feat. ...]" or "(ft. ...)"
+    // 4. Remove "(feat. ...)" or "[feat. ...]" or "(ft. ...)"
     s = remove_parenthesized_feat(&s);
 
-    // 4. Remove remastered annotations e.g. "(remastered 2021)" or "- remastered"
+    // 5. Remove remastered annotations e.g. "(remastered 2021)" or "- remastered"
     s = remove_remastered_tags(&s);
 
-    // 5. Clean up special characters, punctuation, and extra whitespace
+    // 6. Clean up special characters, punctuation, and extra whitespace
     s = s.replace(&['(', ')', '[', ']', '{', '}', '"', '\''][..], " ");
     s = s.split_whitespace().collect::<Vec<&str>>().join(" ");
 
@@ -59,12 +105,13 @@ pub fn clean_title(title: &str) -> String {
 }
 
 pub fn clean_artist(artist: &str) -> String {
-    let mut s = artist.to_string();
+    // 1. Unicode NFKC normalization + diacritic stripping
+    let mut s = strip_diacritics(artist).nfkc().collect::<String>();
 
-    // 1. Lowercase
+    // 2. Lowercase
     s = s.to_lowercase();
 
-    // 2. Remove YouTube auto-generated channel suffix e.g. "Rick Astley - Topic" -> "Rick Astley"
+    // 3. Remove YouTube auto-generated channel suffix e.g. "Rick Astley - Topic" -> "Rick Astley"
     if s.ends_with(" - topic") {
         s = s.trim_end_matches(" - topic").to_string();
     }
@@ -75,7 +122,7 @@ pub fn clean_artist(artist: &str) -> String {
         s = s.trim_end_matches("vevo").to_string();
     }
 
-    // 3. Remove "feat. ..." or "ft. ..."
+    // 4. Remove "feat. ..." or "ft. ..."
     if let Some(idx) = s.find(" feat.") {
         s = s[..idx].to_string();
     } else if let Some(idx) = s.find(" ft.") {
@@ -86,7 +133,7 @@ pub fn clean_artist(artist: &str) -> String {
         s = s[..idx].to_string();
     }
 
-    // 4. Clean punctuation and whitespace
+    // 5. Clean punctuation and whitespace
     s = s.replace(&['"', '\'', ',', '&'][..], " ");
     s = s.split_whitespace().collect::<Vec<&str>>().join(" ");
 
@@ -97,6 +144,69 @@ pub fn make_canonical_key(title: &str, artist: &str) -> String {
     let a = clean_artist(artist);
     let t = clean_title(title);
     format!("{}::{}", a, t)
+}
+
+/// Generates an order-invariant lexicographical tuple key for user overrides.
+pub fn canonical_override_key(key_a: &str, key_b: &str) -> (String, String) {
+    if key_a <= key_b {
+        (key_a.to_string(), key_b.to_string())
+    } else {
+        (key_b.to_string(), key_a.to_string())
+    }
+}
+
+/// Multi-factor confidence scoring engine for deduplicating tracks across heterogeneous providers.
+pub fn compute_dedup_confidence(
+    track_a: &CandidateTrack,
+    track_b: &CandidateTrack,
+    overrides: &HashMap<(String, String), bool>,
+) -> DedupMatchResult {
+    // 0. Check Order-Invariant User Overrides
+    let pair = canonical_override_key(&track_a.canonical_key, &track_b.canonical_key);
+    if let Some(&forced) = overrides.get(&pair) {
+        return DedupMatchResult {
+            is_match: forced,
+            confidence: if forced { 1.0 } else { 0.0 },
+            reason: "user_override",
+        };
+    }
+
+    // 1. ISRC Exact Match Short-Circuit
+    if let (Some(isrc_a), Some(isrc_b)) = (&track_a.isrc, &track_b.isrc) {
+        if !isrc_a.is_empty() && !isrc_b.is_empty() && isrc_a.eq_ignore_ascii_case(isrc_b) {
+            return DedupMatchResult {
+                is_match: true,
+                confidence: 1.0,
+                reason: "isrc_match",
+            };
+        }
+    }
+
+    // 2. Continuous Gaussian Multi-Attribute Scoring
+    let title_a = clean_title(&track_a.title);
+    let title_b = clean_title(&track_b.title);
+    let title_sim = strsim::sorensen_dice(&title_a, &title_b) as f32;
+
+    let artist_a = clean_artist(&track_a.artist);
+    let artist_b = clean_artist(&track_b.artist);
+    let artist_sim = strsim::sorensen_dice(&artist_a, &artist_b) as f32;
+
+    let duration_penalty = match (track_a.duration_ms, track_b.duration_ms) {
+        (Some(d_a), Some(d_b)) => {
+            let diff_sec = (d_a as f32 - d_b as f32).abs() / 1000.0;
+            // Gaussian decay: e^(-0.5 * (diff / 10)^2)
+            (-0.5 * (diff_sec / 10.0).powi(2)).exp()
+        }
+        _ => 0.85, // Neutral score for missing duration
+    };
+
+    let confidence = (title_sim * 0.50) + (artist_sim * 0.30) + (duration_penalty * 0.20);
+
+    DedupMatchResult {
+        is_match: confidence >= 0.85,
+        confidence,
+        reason: "fuzzy_heuristic",
+    }
 }
 
 fn remove_parenthesized_feat(s: &str) -> String {
@@ -138,13 +248,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_clean_title() {
+    fn test_clean_title_and_accents() {
         assert_eq!(clean_title("Never Gonna Give You Up (Official Music Video)"), "never gonna give you up");
         assert_eq!(clean_title("Never Gonna Give You Up [Official Audio]"), "never gonna give you up");
         assert_eq!(clean_title("Never Gonna Give You Up (Lyrics)"), "never gonna give you up");
         assert_eq!(clean_title("Never Gonna Give You Up (feat. Other Artist) [4K]"), "never gonna give you up");
         assert_eq!(clean_title("Bohemian Rhapsody - Remastered 2011"), "bohemian rhapsody");
-        assert_eq!(clean_title("Plain Song Title"), "plain song title");
+        assert_eq!(clean_title("Café del Mar"), "cafe del mar");
+        assert_eq!(clean_title("Hélène"), "helene");
     }
 
     #[test]
@@ -153,16 +264,113 @@ mod tests {
         assert_eq!(clean_artist("RickAstleyVEVO"), "rickastley");
         assert_eq!(clean_artist("Rick Astley feat. Somebody"), "rick astley");
         assert_eq!(clean_artist("Queen"), "queen");
+        assert_eq!(clean_artist("Beyoncé"), "beyonce");
     }
 
     #[test]
     fn test_canonical_key_deduplication() {
         let key1 = make_canonical_key("Never Gonna Give You Up (Official Music Video)", "Rick Astley - Topic");
         let key2 = make_canonical_key("Never Gonna Give You Up [Official Audio]", "Rick Astley");
-        let key3 = make_canonical_key("Never Gonna Give You Up", "Rick Astley");
+        let key3 = make_canonical_key("Café del Mar", "José Padilla");
+        let key4 = make_canonical_key("Cafe Del Mar", "Jose Padilla");
 
         assert_eq!(key1, "rick astley::never gonna give you up");
         assert_eq!(key2, key1);
-        assert_eq!(key3, key1);
+        assert_eq!(key3, "jose padilla::cafe del mar");
+        assert_eq!(key4, key3);
+    }
+
+    #[test]
+    fn test_isrc_exact_match() {
+        let track_a = CandidateTrack {
+            canonical_key: "queen::bohemian rhapsody".into(),
+            title: "Bohemian Rhapsody (2011 Mix)".into(),
+            artist: "Queen".into(),
+            album: None,
+            isrc: Some("GBUM71029604".into()),
+            duration_ms: Some(354000),
+        };
+        let track_b = CandidateTrack {
+            canonical_key: "queen::bohemian rhapsody live at wembley".into(),
+            title: "Bohemian Rhapsody (Live at Wembley)".into(),
+            artist: "Queen".into(),
+            album: None,
+            isrc: Some("GBUM71029604".into()),
+            duration_ms: Some(360000),
+        };
+        let overrides = HashMap::new();
+        let res = compute_dedup_confidence(&track_a, &track_b, &overrides);
+        assert!(res.is_match);
+        assert_eq!(res.confidence, 1.0);
+        assert_eq!(res.reason, "isrc_match");
+    }
+
+    #[test]
+    fn test_continuous_gaussian_duration_penalty() {
+        let track_a = CandidateTrack {
+            canonical_key: "queen::bohemian rhapsody".into(),
+            title: "Bohemian Rhapsody".into(),
+            artist: "Queen".into(),
+            album: None,
+            isrc: None,
+            duration_ms: Some(354000),
+        };
+        // 5s difference
+        let track_b = CandidateTrack {
+            canonical_key: "queen::bohemian rhapsody".into(),
+            title: "Bohemian Rhapsody".into(),
+            artist: "Queen".into(),
+            album: None,
+            isrc: None,
+            duration_ms: Some(359000),
+        };
+        let overrides = HashMap::new();
+        let res1 = compute_dedup_confidence(&track_a, &track_b, &overrides);
+        assert!(res1.is_match);
+        assert!(res1.confidence >= 0.95);
+
+        // 60s difference (e.g. extended mix)
+        let track_c = CandidateTrack {
+            canonical_key: "queen::bohemian rhapsody".into(),
+            title: "Bohemian Rhapsody".into(),
+            artist: "Queen".into(),
+            album: None,
+            isrc: None,
+            duration_ms: Some(414000),
+        };
+        let res2 = compute_dedup_confidence(&track_a, &track_c, &overrides);
+        assert!(!res2.is_match);
+        assert!(res2.confidence < 0.85);
+    }
+
+    #[test]
+    fn test_order_invariant_user_override() {
+        let track_a = CandidateTrack {
+            canonical_key: "track_a".into(),
+            title: "Track A".into(),
+            artist: "Artist A".into(),
+            album: None,
+            isrc: None,
+            duration_ms: Some(180000),
+        };
+        let track_b = CandidateTrack {
+            canonical_key: "track_b".into(),
+            title: "Totally Different".into(),
+            artist: "Different Artist".into(),
+            album: None,
+            isrc: None,
+            duration_ms: Some(250000),
+        };
+        
+        let mut overrides = HashMap::new();
+        // Insert with key_b first
+        let pair = canonical_override_key("track_b", "track_a");
+        overrides.insert(pair, true);
+
+        // Evaluate passing track_a, track_b
+        let res = compute_dedup_confidence(&track_a, &track_b, &overrides);
+        assert!(res.is_match);
+        assert_eq!(res.confidence, 1.0);
+        assert_eq!(res.reason, "user_override");
     }
 }

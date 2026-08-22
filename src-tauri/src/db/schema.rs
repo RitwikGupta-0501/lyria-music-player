@@ -236,5 +236,41 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         [],
     )?;
 
+    
+    // Recommendation Cache (Granular Per-Seed Keying)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS recommendation_cache (
+            seed_canonical_key TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            shelf_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ttl_seconds INTEGER NOT NULL DEFAULT 21600,
+            PRIMARY KEY(seed_canonical_key, provider_id, shelf_type)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rec_cache_lookup 
+         ON recommendation_cache(seed_canonical_key, provider_id, shelf_type, fetched_at)",
+        [],
+    )?;
+
+    // User-Defined Deduplication Overrides
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS dedup_overrides (
+            canonical_key_a TEXT NOT NULL,
+            canonical_key_b TEXT NOT NULL,
+            should_merge INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(canonical_key_a, canonical_key_b)
+        )",
+        [],
+    )?;
+
+    // Extension Metrics Migrations
+    let _ = conn.execute("ALTER TABLE extension_metrics ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE extension_metrics ADD COLUMN backoff_until TIMESTAMP", []);
+
     Ok(conn)
 }

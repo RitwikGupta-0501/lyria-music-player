@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { convertFileSrc } from "@tauri-apps/api/core";
     import {
         libraryStore,
         type Album,

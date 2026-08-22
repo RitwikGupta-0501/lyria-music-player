@@ -661,8 +661,8 @@ pub fn get_canonical_discover_seeds(conn: &Connection, limit: usize) -> SqlResul
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
          LEFT JOIN tracks t ON st.local_track_id = t.id
-         WHERE st.liked = 1 OR st.play_count >= 2
-         ORDER BY RANDOM()
+         WHERE st.liked = 1 OR st.play_count >= 1
+         ORDER BY (st.liked * 3 + st.play_count) DESC, RANDOM()
          LIMIT ?1"
     )?;
 
@@ -671,9 +671,60 @@ pub fn get_canonical_discover_seeds(conn: &Connection, limit: usize) -> SqlResul
     for r in rows {
         results.push(r?);
     }
+
+    // Cold-start fallback: if telemetry yields fewer than limit seeds, sample distinct local tracks
+    if results.len() < limit {
+        let needed = limit - results.len();
+        if let Ok(mut fb_stmt) = conn.prepare(
+            "SELECT t.id, t.title, t.artist, a.title as album, a.cover_art_path, t.file_path
+             FROM tracks t
+             LEFT JOIN albums a ON t.album_id = a.id
+             WHERE t.title != '' AND t.artist != ''
+             GROUP BY t.artist
+             ORDER BY RANDOM()
+             LIMIT ?1"
+        ) {
+            let fb_rows = fb_stmt.query_map([needed as i64], |row| {
+                let track_id: i64 = row.get(0)?;
+                let title: String = row.get(1)?;
+                let artist: String = row.get(2)?;
+                let album: Option<String> = row.get(3)?;
+                let cover_art_path: Option<String> = row.get(4)?;
+                let file_path: Option<String> = row.get(5)?;
+                let canonical_key = make_canonical_key(&title, &artist);
+
+                Ok(CanonicalSong {
+                    id: 0,
+                    canonical_key,
+                    title,
+                    artist,
+                    album,
+                    cover_art_url: cover_art_path,
+                    play_count: 0,
+                    last_played_at: None,
+                    liked: false,
+                    local_track_id: Some(track_id),
+                    local_file_path: file_path,
+                    last_provider_id: "local".to_string(),
+                    last_source_id: track_id.to_string(),
+                    duration_ms: None,
+                })
+            });
+
+            if let Ok(mapped) = fb_rows {
+                for r in mapped.flatten() {
+                    if !results.iter().any(|existing| existing.canonical_key == r.canonical_key) {
+                        results.push(r);
+                    }
+                }
+            }
+        }
+    }
+
     Ok(results)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn toggle_canonical_like(
     conn: &Connection,
     canonical_key: &str,

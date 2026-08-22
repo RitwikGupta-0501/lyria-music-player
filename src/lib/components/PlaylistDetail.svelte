@@ -49,7 +49,7 @@
 
     async function loadData() {
         if (effectiveRemote) {
-            tracks = (effectiveRemote.tracks || []).map((t, idx) => ({
+            tracks = (effectiveRemote.tracks || []).map((t: any, idx: number) => ({
                 id: t.id || idx,
                 title: t.title,
                 artist: t.artist,

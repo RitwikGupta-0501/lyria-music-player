@@ -380,7 +380,7 @@ impl QueueState {
         let pos = self.current_position as i32 - 1;
         if pos < 0 {
             match self.repeat_mode {
-                RepeatMode::Off => Ok(Some(self.current_position)),
+                RepeatMode::Off => Ok(None),
                 RepeatMode::All => Ok(Some(self.tracks.len().saturating_sub(1))),
                 RepeatMode::One => Ok(Some(self.current_position)),
             }
