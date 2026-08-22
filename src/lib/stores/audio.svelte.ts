@@ -1,3 +1,4 @@
+import { toastStore } from "./toast.svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { settingsStore } from "./settings.svelte";
@@ -91,6 +92,30 @@ export class AudioStore {
             : null
     );
 
+    private lastLoggedInstanceId: string | null = null;
+
+    private logPlayback(t: QueueTrack | null | undefined) {
+        if (!t) return;
+        if (this.lastLoggedInstanceId === t.instanceId) return;
+        this.lastLoggedInstanceId = t.instanceId;
+
+        const isRemote = t.source.type === "Remote";
+        const providerId = isRemote ? (t.source.provider_id || "youtube-wasm") : "local";
+        const sourceId = isRemote ? (t.source.remote_track_id || t.instanceId) : String(t.source.track_id || t.instanceId);
+        const coverArtUrl = isRemote ? (t.source.cover_art_url || null) : null;
+        const durationMs = isRemote ? (t.source.duration_ms || null) : (this.duration ? Math.round(this.duration * 1000) : null);
+
+        invoke("record_track_play", {
+            title: t.title,
+            artist: t.artist || "Unknown Artist",
+            album: null,
+            coverArtUrl,
+            providerId,
+            sourceId,
+            durationMs,
+        }).catch((err) => console.warn("Failed to record track play:", err));
+    }
+
     // ══════════════════════════════════════════
     // LIFECYCLE
     // ══════════════════════════════════════════
@@ -108,6 +133,10 @@ export class AudioStore {
             this.duration = payload.duration;
             this.currentTrack = payload.track || "None";
             this.currentTime = payload.position;
+
+            if (payload.state === "Playing" && this.currentQueueTrack) {
+                this.logPlayback(this.currentQueueTrack);
+            }
 
             if (payload.state === "Stopped") {
                 if (this.queueCompletionBehavior === "collapse_idle") {
@@ -371,6 +400,7 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
+                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
@@ -455,6 +485,7 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
+                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
@@ -478,6 +509,7 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
+                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
@@ -503,6 +535,7 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
+                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);

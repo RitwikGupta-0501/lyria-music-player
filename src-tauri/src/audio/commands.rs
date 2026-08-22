@@ -29,8 +29,7 @@ pub async fn load_audio(
         }
         crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, duration_ms, .. } => {
             let (final_url, headers, resolved_duration) = {
-                let manager = state.provider_manager.lock().await;
-                let resolved = manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
+                let resolved = state.provider_manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
                     tracing::error!("Failed to resolve track '{}' via '{}': {}", remote_track_id, provider_id, e);
                     e.to_string()
                 })?;
@@ -88,8 +87,7 @@ pub async fn queue_next_audio(
         }
         crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, duration_ms, .. } => {
             let (final_url, headers, resolved_duration) = {
-                let manager = state.provider_manager.lock().await;
-                let resolved = manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
+                let resolved = state.provider_manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
                     tracing::error!("Failed to resolve track '{}' via '{}': {}", remote_track_id, provider_id, e);
                     e.to_string()
                 })?;

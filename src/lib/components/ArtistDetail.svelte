@@ -28,26 +28,40 @@
     let showAllSimilar = $state(false);
 
     function isCurrentTrack(track: any): boolean {
-        return audioStore.currentTrack?.id === track.id || audioStore.currentTrack?.remote_track_id === track.id;
+        return audioStore.currentQueueTrack?.title === track.title;
     }
 
     function playTopTracks() {
         if (!artist || artist.top_tracks.length === 0) return;
-        const queueTracks = artist.top_tracks.map(t => audioStore.formatQueueTrack({
-            ...t,
-            provider_id: artist.provider_id || "youtube-wasm",
+        const pId = artist.provider_id || "youtube-wasm";
+        const queueTracks = artist.top_tracks.map(t => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist || artist?.name || "Unknown Artist",
+            album: undefined,
+            remote_track_id: t.id,
+            provider_id: t.provider_id || pId,
+            cover_art_url: t.cover_art_url || artist?.avatar_url,
+            duration_ms: t.duration_ms,
         }));
-        audioStore.setQueue(queueTracks, 0);
+        audioStore.setQueue(queueTracks as any, 0);
     }
 
     function shuffleTopTracks() {
         if (!artist || artist.top_tracks.length === 0) return;
+        const pId = artist.provider_id || "youtube-wasm";
         const shuffled = [...artist.top_tracks].sort(() => Math.random() - 0.5);
-        const queueTracks = shuffled.map(t => audioStore.formatQueueTrack({
-            ...t,
-            provider_id: artist.provider_id || "youtube-wasm",
+        const queueTracks = shuffled.map(t => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist || artist?.name || "Unknown Artist",
+            album: undefined,
+            remote_track_id: t.id,
+            provider_id: t.provider_id || pId,
+            cover_art_url: t.cover_art_url || artist?.avatar_url,
+            duration_ms: t.duration_ms,
         }));
-        audioStore.setQueue(queueTracks, 0);
+        audioStore.setQueue(queueTracks as any, 0);
     }
 
     function formatDuration(ms?: number | null): string {
@@ -361,8 +375,8 @@
                             class="album-card"
                             role="button"
                             tabindex="0"
-                            onclick={() => exploreStore.openPlaylist(playlist)}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openPlaylist(playlist); }}
+                            onclick={() => exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined })}
+                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined }); }}
                         >
                             <div class="album-art-wrapper">
                                 {#if playlist.cover_art_url}
@@ -376,7 +390,7 @@
                                     class="album-play-btn" 
                                     onclick={(e) => { 
                                         e.stopPropagation(); 
-                                        exploreStore.openPlaylist(playlist); 
+                                        exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined }); 
                                     }}
                                 >
                                     <Play size={16} weight="fill" />

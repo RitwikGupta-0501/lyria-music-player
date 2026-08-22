@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use serde::{Serialize, Deserialize};
 use std::sync::mpsc::{self, Sender};
 use tauri::{AppHandle, Manager, State, RunEvent};
@@ -48,7 +49,9 @@ pub struct Playlist {
 pub struct AppState {
     pub audio_tx: std::sync::Mutex<Sender<AudioCommand>>,
     pub db_tx: std::sync::mpsc::Sender<DbRequest>,
-    pub provider_manager: tokio::sync::Mutex<ProviderManager>,
+    pub provider_manager: Arc<ProviderManager>,
+    pub recommendation_compiler: Arc<providers::recommendations::RecommendationCompiler>,
+    pub in_flight_recommendation_cancel: Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>>,
     pub audio_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     pub db_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     pub queue: std::sync::Mutex<QueueState>,
@@ -200,8 +203,7 @@ async fn get_providers(state: State<'_, AppState>) -> Result<Vec<ProviderInfo>, 
     state.db_tx.send(crate::db::DbRequest::GetProviders { resp: tx }).map_err(|e| e.to_string())?;
     let providers = rx.await.map_err(|e| e.to_string())??;
     
-    let mut manager = state.provider_manager.lock().await;
-    manager.sync_registry(providers.clone());
+    state.provider_manager.sync_registry(providers.clone());
     
     Ok(providers)
 }
@@ -218,9 +220,8 @@ pub async fn warmup_all_eligible_providers(state: &AppState) {
         _ => return,
     };
     
-    let mut manager = state.provider_manager.lock().await;
-    manager.sync_registry(providers);
-    let warmup_ids = manager.get_warmup_eligible_providers();
+    state.provider_manager.sync_registry(providers);
+    let warmup_ids = state.provider_manager.get_warmup_eligible_providers();
     
     if warmup_ids.is_empty() {
         return;
@@ -228,7 +229,7 @@ pub async fn warmup_all_eligible_providers(state: &AppState) {
     
     tracing::info!("Starting background prewarm for {} provider(s): {:?}", warmup_ids.len(), warmup_ids);
     for id in warmup_ids {
-        if let Err(e) = manager.warmup_provider(&id).await {
+        if let Err(e) = state.provider_manager.warmup_provider(&id).await {
             tracing::warn!("Failed to warmup provider '{}': {}", id, e);
         }
     }
@@ -261,10 +262,7 @@ async fn delete_provider(
         }
     }
 
-    {
-        let mut manager = state.provider_manager.lock().await;
-        manager.remove_provider(&provider_id);
-    }
+    state.provider_manager.remove_provider(&provider_id);
 
     let _ = sync_providers(app, state).await;
     Ok(())
@@ -310,8 +308,7 @@ async fn browse_provider_album(
     provider_id: String,
     album_id: String,
 ) -> Result<crate::providers::AlbumDetailResult, String> {
-    let manager = state.provider_manager.lock().await;
-    manager.browse_album(&provider_id, &album_id).await.map_err(|e| e.to_string())
+    state.provider_manager.browse_album(&provider_id, &album_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -320,8 +317,7 @@ async fn browse_provider_artist(
     provider_id: String,
     artist_id: String,
 ) -> Result<crate::providers::ArtistDetailResult, String> {
-    let manager = state.provider_manager.lock().await;
-    manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())
+    state.provider_manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -331,9 +327,8 @@ async fn search_provider_categorized(
     query: String,
     filter: Option<String>,
 ) -> Result<crate::providers::CategorizedSearchResult, String> {
-    let manager = state.provider_manager.lock().await;
     let input = crate::providers::SearchQueryInput { query, filter };
-    let results = manager
+    let results = state.provider_manager
         .search_categorized(&provider_id, &input)
         .await
         .map_err(|e| e.to_string())?;
@@ -343,8 +338,7 @@ async fn search_provider_categorized(
 
 #[tauri::command]
 async fn search_provider(state: State<'_, AppState>, provider_id: String, query: String) -> Result<Vec<TrackResult>, String> {
-    let manager = state.provider_manager.lock().await;
-    let results = manager
+    let results = state.provider_manager
         .search(&provider_id, &query)
         .await
         .map_err(|e| e.to_string())?;
@@ -374,8 +368,7 @@ async fn resolve_stream_url(
     state: State<'_, AppState>,
     url: String,
 ) -> Result<Option<ResolvedUrlPayload>, String> {
-    let manager = state.provider_manager.lock().await;
-    match manager.resolve_url(&url).await {
+    match state.provider_manager.resolve_url(&url).await {
         Ok(Some((provider_id, provider_name, track))) => {
             Ok(Some(ResolvedUrlPayload {
                 provider_id,
@@ -386,6 +379,31 @@ async fn resolve_stream_url(
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+
+#[tauri::command]
+async fn get_home_local_shelves(
+    state: State<'_, AppState>,
+) -> Result<providers::recommendations::HomeLocalShelves, String> {
+    state.recommendation_compiler.get_local_shelves()
+}
+
+#[tauri::command]
+async fn get_home_remote_shelves(
+    state: State<'_, AppState>,
+) -> Result<providers::recommendations::FederatedShelfResult, String> {
+    let new_token = tokio_util::sync::CancellationToken::new();
+    {
+        let mut lock = state.in_flight_recommendation_cancel.lock().unwrap();
+        if let Some(old_token) = lock.take() {
+            old_token.cancel();
+        }
+        *lock = Some(new_token.clone());
+    }
+
+    let seeds = state.recommendation_compiler.get_daily_discover_seeds()?;
+    Ok(state.recommendation_compiler.get_federated_daily_discover(seeds, new_token).await)
 }
 
 #[tauri::command]
@@ -432,12 +450,30 @@ async fn record_track_play(
         artist,
         album,
         cover_art_url,
-        provider_id,
-        source_id,
+        provider_id: provider_id.clone(),
+        source_id: source_id.clone(),
         duration_ms,
         resp: tx,
     }).map_err(|e| e.to_string())?;
-    rx.await.map_err(|e| e.to_string())?
+    rx.await.map_err(|e| e.to_string())??;
+
+    if provider_id != "local" && !source_id.is_empty() {
+        let p_mgr = state.provider_manager.clone();
+        let p_id = provider_id.clone();
+        let s_id = source_id.clone();
+        let dur = duration_ms.unwrap_or(0);
+        tokio::spawn(async move {
+            let event = crate::providers::PlaybackTelemetryEventV1 {
+                native_track_id: s_id,
+                duration_ms: dur,
+                total_track_duration_ms: dur,
+                completed: true,
+            };
+            let _ = p_mgr.notify_playback_completed(&p_id, &event).await;
+        });
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -454,6 +490,7 @@ async fn get_liked_songs(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn toggle_track_like(
     state: State<'_, AppState>,
     canonical_key: String,
@@ -493,14 +530,12 @@ async fn get_extension_metrics(
 
 #[tauri::command]
 async fn get_explore_feed(state: State<'_, AppState>) -> Result<Vec<crate::providers::AggregatedModule>, String> {
-    let manager = state.provider_manager.lock().await;
-    Ok(manager.get_all_explore_modules().await)
+    Ok(state.provider_manager.get_all_explore_modules().await)
 }
 
 #[tauri::command]
 async fn get_provider_modules(state: State<'_, AppState>, provider_id: String) -> Result<Vec<providers::ProviderModule>, String> {
-    let manager = state.provider_manager.lock().await;
-    let results = manager
+    let results = state.provider_manager
         .get_modules(&provider_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -510,8 +545,7 @@ async fn get_provider_modules(state: State<'_, AppState>, provider_id: String) -
 
 #[tauri::command]
 async fn fetch_provider_module(state: State<'_, AppState>, provider_id: String, module_id: String) -> Result<providers::ModuleData, String> {
-    let manager = state.provider_manager.lock().await;
-    let results = manager
+    let results = state.provider_manager
         .fetch_module(&provider_id, &module_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -670,8 +704,7 @@ async fn resolve_track(
     provider_id: String,
     track_id: String,
 ) -> Result<crate::providers::ResolvedTrack, String> {
-    let manager = state.provider_manager.lock().await;
-    manager.resolve(&provider_id, &track_id).await.map_err(|e| e.to_string())
+    state.provider_manager.resolve(&provider_id, &track_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1106,13 +1139,17 @@ pub fn run() {
                 }
             }
 
-            let provider_manager = ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone());
+            let provider_manager = Arc::new(ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone()));
+            let recommendation_compiler = Arc::new(providers::recommendations::RecommendationCompiler::new(provider_manager.clone(), db_path.clone()));
+            let in_flight_recommendation_cancel = Arc::new(std::sync::Mutex::new(None));
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
 
             app.manage(AppState {
                 audio_tx: std::sync::Mutex::new(audio_tx),
                 db_tx,
-                provider_manager: tokio::sync::Mutex::new(provider_manager),
+                provider_manager,
+                recommendation_compiler,
+                in_flight_recommendation_cancel,
                 audio_thread: std::sync::Mutex::new(Some(audio_thread_handle)),
                 db_thread: std::sync::Mutex::new(Some(db_thread_handle)),
                 queue: std::sync::Mutex::new(recovered_queue),
@@ -1161,6 +1198,8 @@ pub fn run() {
             get_explore_feed,
             resolve_stream_url,
             get_home_feed,
+            get_home_local_shelves,
+            get_home_remote_shelves,
             record_track_play,
             toggle_track_like,
             get_liked_songs,

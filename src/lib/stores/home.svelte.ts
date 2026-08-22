@@ -2,46 +2,60 @@ import { invoke } from "@tauri-apps/api/core";
 import { audioStore } from "./audio.svelte";
 import { toastStore } from "./toast.svelte";
 
-export interface CanonicalSong {
-    id: number;
+export interface TrackSourceInfo {
+    type: "Local" | "Remote";
+    provider_id?: string;
+    remote_track_id?: string;
+    stream_url?: string | null;
+    quality_hint?: string | null;
+    cover_art_url?: string | null;
+    duration_ms?: number | null;
+    track_id?: number;
+    file_path?: string;
+    album_id?: number | null;
+}
+
+export interface FederatedTrack {
     canonical_key: string;
     title: string;
     artist: string;
     album: string | null;
+    isrc: string | null;
     cover_art_url: string | null;
-    play_count: number;
-    last_played_at: string | null;
-    liked: boolean;
-    local_track_id: number | null;
-    local_file_path: string | null;
-    last_provider_id: string;
-    last_source_id: string;
     duration_ms: number | null;
+    play_count: number;
+    sources: TrackSourceInfo[];
+    liked?: boolean;
+    seed_provenance?: string | null;
 }
 
-export interface HomeFeedPayload {
-    quick_picks: CanonicalSong[];
-    keep_listening: CanonicalSong[];
-    forgotten_favorites: CanonicalSong[];
-    discover_seeds: CanonicalSong[];
+export interface HomeLocalShelves {
+    quick_picks: FederatedTrack[];
+    keep_listening: FederatedTrack[];
+    forgotten_favorites: FederatedTrack[];
 }
 
-export interface DailyDiscoverShelf {
-    seed: CanonicalSong;
-    contextTag: string;
-    tracks: any[];
-    loading: boolean;
+export interface FederatedShelfResult {
+    tracks: FederatedTrack[];
+    failed_providers: string[];
+    is_partial: boolean;
 }
 
 class HomeStore {
-    quickPicks = $state<CanonicalSong[]>([]);
-    keepListening = $state<CanonicalSong[]>([]);
-    forgottenFavorites = $state<CanonicalSong[]>([]);
-    discoverShelves = $state<DailyDiscoverShelf[]>([]);
+    quickPicks = $state<FederatedTrack[]>([]);
+    keepListening = $state<FederatedTrack[]>([]);
+    forgottenFavorites = $state<FederatedTrack[]>([]);
+    dailyDiscover = $state<FederatedTrack[]>([]);
+    failedProviders = $state<string[]>([]);
     
+    isLoadingLocal = $state(false);
+    isLoadingRemote = $state(false);
+    errorLocal = $state<string | null>(null);
+    errorRemote = $state<string | null>(null);
     phase1Loaded = $state(false);
     phase2Loaded = $state(false);
-    isRefreshing = $state(false);
+
+    private currentFetchId = 0;
 
     async init() {
         if (!this.phase1Loaded) {
@@ -50,142 +64,146 @@ class HomeStore {
     }
 
     async loadHome(force = false) {
-        if (this.isRefreshing) return;
-        this.isRefreshing = true;
+        const fetchId = ++this.currentFetchId;
 
+        // ── Phase 1: Fast Local Telemetry Read (<10ms) ────────
+        this.isLoadingLocal = true;
+        this.errorLocal = null;
         try {
-            // ── Phase 1: Fast Local & Cached Telemetry (Instant Render) ────────
-            const feed: HomeFeedPayload = await invoke("get_home_feed");
-            this.quickPicks = feed.quick_picks;
-            this.keepListening = feed.keep_listening;
-            this.forgottenFavorites = feed.forgotten_favorites;
+            const local: HomeLocalShelves = await invoke("get_home_local_shelves");
+            if (fetchId !== this.currentFetchId) return; // Discard stale response
+            this.quickPicks = local.quick_picks;
+            this.keepListening = local.keep_listening;
+            this.forgottenFavorites = local.forgotten_favorites;
             this.phase1Loaded = true;
-
-            // ── Phase 2: Background Discovery (Seeds -> Online Recommendations) ─
-            if (feed.discover_seeds && feed.discover_seeds.length > 0) {
-                this.loadDailyDiscover(feed.discover_seeds);
+        } catch (e: any) {
+            if (fetchId === this.currentFetchId) {
+                this.errorLocal = e?.toString() || "Failed to load local shelves";
+                console.error("Failed to load local home shelves:", e);
             }
-            this.phase2Loaded = true;
-        } catch (e) {
-            console.error("Failed to load home feed:", e);
         } finally {
-            this.isRefreshing = false;
-        }
-    }
-
-    private async loadDailyDiscover(seeds: CanonicalSong[]) {
-        const shelves: DailyDiscoverShelf[] = seeds.map(s => ({
-            seed: s,
-            contextTag: `Because you listen to ${s.title}`,
-            tracks: [],
-            loading: true,
-        }));
-        this.discoverShelves = shelves;
-
-        function sanitizeSeedQuery(artist?: string | null, title?: string | null): string {
-            const a = (artist || "").trim();
-            let t = (title || "").trim();
-            t = t.replace(/\s*[\(\[](official\s*(music\s*)?video|audio|remastered|lyric\s*video|official\s*audio|hd|4k)[\)\]]/gi, "").trim();
-            if (a && t.toLowerCase().startsWith(a.toLowerCase())) {
-                return t;
+            if (fetchId === this.currentFetchId) {
+                this.isLoadingLocal = false;
             }
-            return a ? `${a} ${t}` : t;
         }
 
-        // Fetch related tracks for each seed in parallel
-        for (let i = 0; i < seeds.length; i++) {
-            const seed = seeds[i];
-            const providerId = (seed.last_provider_id && seed.last_provider_id !== "local") ? seed.last_provider_id : "youtube-wasm";
-            const query = sanitizeSeedQuery(seed.artist, seed.title);
-            
-            try {
-                const results: any[] = await invoke("search_provider", {
-                    providerId,
-                    query,
-                });
-                if (results && results.length > 0) {
-                    this.discoverShelves[i].tracks = results.slice(0, 10).map(r => ({
-                        ...r,
-                        provider_id: providerId,
-                    }));
-                }
-            } catch (e) {
-                console.error(`Failed to fetch related for ${seed.title}:`, e);
-            } finally {
-                this.discoverShelves[i].loading = false;
+        // ── Phase 2: Remote Federated Discovery ────────
+        this.isLoadingRemote = true;
+        this.errorRemote = null;
+        try {
+            const remote: FederatedShelfResult = await invoke("get_home_remote_shelves");
+            if (fetchId !== this.currentFetchId) return; // Discard stale response
+            this.dailyDiscover = remote.tracks;
+            this.failedProviders = remote.failed_providers;
+            this.phase2Loaded = true;
+        } catch (e: any) {
+            if (fetchId === this.currentFetchId) {
+                this.errorRemote = e?.toString() || "Failed to fetch remote recommendations";
+                console.error("Failed to load remote recommendations:", e);
+            }
+        } finally {
+            if (fetchId === this.currentFetchId) {
+                this.isLoadingRemote = false;
             }
         }
     }
 
-    async toggleLike(song: CanonicalSong) {
+    async toggleLike(track: FederatedTrack) {
         try {
             const newLiked = await invoke<boolean>("toggle_track_like", {
-                canonicalKey: song.canonical_key,
+                canonicalKey: track.canonical_key,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                coverArtUrl: track.cover_art_url,
+                durationMs: track.duration_ms,
             });
-            song.liked = newLiked;
+            track.liked = newLiked;
         } catch (e) {
             console.error("Failed to toggle like:", e);
         }
     }
 
-    async playCanonicalSong(song: CanonicalSong) {
-        // 1. If local lossless copy exists on disk, play immediately
-        if (song.local_file_path) {
+    async playFederatedTrack(track: FederatedTrack) {
+        // Find preferred local source first, then remote
+        const localSource = track.sources.find(s => s.type === "Local" || s.file_path);
+        if (localSource && localSource.file_path) {
             audioStore.setQueue([{
-                id: `local-${song.local_track_id}`,
-                title: song.title,
-                artist: song.artist,
-                album: song.album || '',
-                file_path: song.local_file_path,
-                provider_id: 'local',
-                cover_art_url: song.cover_art_url,
-                duration_ms: song.duration_ms,
+                id: `local-${localSource.track_id || track.canonical_key}`,
+                title: track.title,
+                artist: track.artist,
+                album: track.album || "",
+                file_path: localSource.file_path,
+                provider_id: "local",
+                cover_art_url: track.cover_art_url,
+                duration_ms: track.duration_ms,
             }], 0);
-            this.recordPlay(song);
+            this.recordPlay(track, "local", localSource.file_path);
             return;
         }
 
-        // 2. If remote stream, resolve fresh authenticated URL on-demand
+        const remoteSource = track.sources.find(s => s.type === "Remote" || s.provider_id);
+        const providerId = remoteSource?.provider_id || "youtube-wasm";
+        const sourceId = remoteSource?.remote_track_id || track.canonical_key;
+
+        // If remote stream URL is already known
+        if (remoteSource?.stream_url) {
+            audioStore.setQueue([{
+                id: `remote-${providerId}-${sourceId}`,
+                title: track.title,
+                artist: track.artist,
+                album: track.album || "",
+                file_path: remoteSource.stream_url,
+                stream_url: remoteSource.stream_url,
+                provider_id: providerId,
+                cover_art_url: track.cover_art_url,
+                duration_ms: track.duration_ms,
+            }], 0);
+            this.recordPlay(track, providerId, sourceId);
+            return;
+        }
+
+        // Otherwise resolve stream URL on demand
         try {
-            toastStore.show(`Resolving stream for ${song.title}...`, 'info', 1500);
+            toastStore.show(`Resolving stream for ${track.title}...`, "info", 1500);
             const resolved: any = await invoke("search_provider", {
-                providerId: song.last_provider_id || 'youtube-wasm',
-                query: `${song.artist} ${song.title}`,
+                providerId,
+                query: `${track.artist} ${track.title}`,
             });
 
             const target = (resolved && resolved[0]) ? resolved[0] : null;
             if (target && target.stream_url) {
                 audioStore.setQueue([{
-                    id: `remote-${song.last_provider_id}-${song.last_source_id}`,
-                    title: song.title,
-                    artist: song.artist,
-                    album: song.album || '',
+                    id: `remote-${providerId}-${target.id || sourceId}`,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album || "",
                     file_path: target.stream_url,
                     stream_url: target.stream_url,
-                    provider_id: song.last_provider_id,
-                    cover_art_url: song.cover_art_url || target.cover_art_url,
-                    duration_ms: song.duration_ms || target.duration_ms,
+                    provider_id: providerId,
+                    cover_art_url: track.cover_art_url || target.cover_art_url,
+                    duration_ms: track.duration_ms || target.duration_ms,
                 }], 0);
-                this.recordPlay(song);
+                this.recordPlay(track, providerId, target.id || sourceId);
             } else {
-                toastStore.show(`Could not resolve stream for ${song.title}`, 'error');
+                toastStore.show(`Could not resolve stream for ${track.title}`, "error");
             }
         } catch (e) {
-            console.error("Failed to resolve canonical track:", e);
-            toastStore.show(`Failed to play ${song.title}`, 'error');
+            console.error("Failed to resolve stream:", e);
+            toastStore.show(`Failed to play ${track.title}`, "error");
         }
     }
 
-    async recordPlay(song: CanonicalSong) {
+    async recordPlay(track: any, providerId: string = "local", sourceId: string = "") {
         try {
             await invoke("record_track_play", {
-                title: song.title,
-                artist: song.artist,
-                album: song.album,
-                coverArtUrl: song.cover_art_url,
-                providerId: song.last_provider_id,
-                sourceId: song.last_source_id,
-                durationMs: song.duration_ms,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                coverArtUrl: track.cover_art_url,
+                providerId,
+                sourceId,
+                durationMs: track.duration_ms,
             });
         } catch (e) {
             console.error("Failed to record play event:", e);

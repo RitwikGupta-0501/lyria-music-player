@@ -15,8 +15,8 @@
 
     let { activeView = $bindable("playlists"), onSelectPlaylist } = $props<{ activeView?: string, onSelectPlaylist: (p: Playlist) => void }>();
 
-    let mosaics = $state<Record<number, string[]>>({});
-    let trackCounts = $state<Record<number, number>>({});
+    let mosaics = $state<Record<string | number, string[]>>({});
+    let trackCounts = $state<Record<string | number, number>>({});
     let promptOpen = $state(false);
 
     let containerWidth = $state(0);

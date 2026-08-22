@@ -10,12 +10,44 @@ use crate::db::DbRequest;
 pub mod errors;
 pub mod secrets;
 pub mod wasm_bridge;
+pub mod recommendations;
+#[cfg(test)]
+pub mod tests;
 
 use errors::SandboxError;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const SEARCH_TIMEOUT_SECS: u64 = 15;
 const MODULE_FETCH_TIMEOUT_SECS: u64 = 15;
+
+pub const PROVIDER_ABI_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CanonicalSeedV1 {
+    pub abi_version: u32,
+    pub canonical_key: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub isrc: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub native_id: Option<String>,
+    pub provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RadioStreamResultV1 {
+    pub tracks: Vec<TrackResult>,
+    pub continuation_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaybackTelemetryEventV1 {
+    pub native_track_id: String,
+    pub duration_ms: u64,
+    pub total_track_duration_ms: u64,
+    pub completed: bool,
+}
 
 // ── Public types ─────────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -192,6 +224,8 @@ pub struct TrackResult {
     pub stream_url: Option<String>,
     pub quality_hint: Option<String>,
     pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub isrc: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -211,7 +245,7 @@ pub struct ActiveProvider {
 }
 
 pub struct ProviderManager {
-    providers: std::collections::HashMap<String, ActiveProvider>,
+    providers: std::sync::RwLock<std::collections::HashMap<String, ActiveProvider>>,
     app_handle: tauri::AppHandle,
     reqwest_client: reqwest::Client,
     db_tx: Sender<DbRequest>,
@@ -223,7 +257,7 @@ pub struct ProviderManager {
 impl ProviderManager {
     pub fn new(app_handle: tauri::AppHandle, reqwest_client: reqwest::Client, db_tx: Sender<DbRequest>) -> Self {
         Self {
-            providers: std::collections::HashMap::new(),
+            providers: std::sync::RwLock::new(std::collections::HashMap::new()),
             app_handle,
             reqwest_client,
             db_tx,
@@ -233,7 +267,7 @@ impl ProviderManager {
         }
     }
 
-    pub fn sync_registry(&mut self, providers_info: Vec<crate::ProviderInfo>) {
+    pub fn sync_registry(&self, providers_info: Vec<crate::ProviderInfo>) {
         let mut new_registry = std::collections::HashMap::new();
         for info in providers_info {
             if info.status != "enabled" { continue; }
@@ -250,10 +284,11 @@ impl ProviderManager {
                 capabilities: info.capabilities.unwrap_or_default(),
             });
         }
-        self.providers = new_registry;
+        *self.providers.write().unwrap() = new_registry;
         // Clear cache so updated plugins reload
         self.plugin_cache.lock().unwrap().clear();
-        tracing::info!("Provider registry synced with {} enabled providers", self.providers.len());
+        let count = self.providers.read().unwrap().len();
+        tracing::info!("Provider registry synced with {} enabled providers", count);
     }
 
     fn get_or_create_plugin(&self, provider_id: &str, timeout_secs: u64) -> Result<Arc<std::sync::Mutex<Plugin>>, SandboxError> {
@@ -262,7 +297,8 @@ impl ProviderManager {
             return Ok(plugin.clone());
         }
 
-        let provider = self.providers.get(provider_id).ok_or_else(|| SandboxError::ScriptError {
+        let providers_guard = self.providers.read().unwrap();
+        let provider = providers_guard.get(provider_id).ok_or_else(|| SandboxError::ScriptError {
             script: provider_id.to_string(),
             message: "provider not found or disabled in registry".to_string(),
         })?;
@@ -283,7 +319,9 @@ impl ProviderManager {
         let reqwest_client = Arc::new(self.reqwest_client.clone());
         let db_tx = Arc::new(self.db_tx.clone());
 
-        let plugin = extism::PluginBuilder::new(manifest)
+        let has_telemetry = provider.capabilities.iter().any(|c| c.eq_ignore_ascii_case("telemetry_reporting"));
+
+        let mut builder = extism::PluginBuilder::new(manifest)
             .with_wasi(true)
             .with_function(
                 "host_log",
@@ -296,7 +334,7 @@ impl ProviderManager {
                 "host_http_request",
                 [extism::ValType::I64],
                 [extism::ValType::I64],
-                extism::UserData::new(reqwest_client),
+                extism::UserData::new(reqwest_client.clone()),
                 wasm_bridge::host_http_request,
             )
             .with_function(
@@ -319,8 +357,27 @@ impl ProviderManager {
                 [extism::ValType::I64],
                 extism::UserData::new(Arc::new(self.app_handle.clone())),
                 wasm_bridge::host_execute_webview_js,
-            )
-            .build()
+            );
+
+        if has_telemetry {
+            builder = builder.with_function(
+                "host_telemetry_request",
+                [extism::ValType::I64],
+                [extism::ValType::I64],
+                extism::UserData::new(reqwest_client),
+                wasm_bridge::host_telemetry_request,
+            );
+        } else {
+            builder = builder.with_function(
+                "host_telemetry_request",
+                [extism::ValType::I64],
+                [extism::ValType::I64],
+                extism::UserData::new(()),
+                wasm_bridge::host_telemetry_blocked,
+            );
+        }
+
+        let plugin = builder.build()
             .map_err(|e| SandboxError::ScriptError {
                 script: provider.name.clone(),
                 message: e.to_string(),
@@ -333,7 +390,7 @@ impl ProviderManager {
 
     pub async fn warmup_provider(&self, provider_id: &str) -> Result<(), SandboxError> {
         let plugin = self.get_or_create_plugin(provider_id, 30)?;
-        let provider_name = self.providers.get(provider_id).map(|p| p.name.clone()).unwrap_or_else(|| provider_id.to_string());
+        let provider_name = self.providers.read().unwrap().get(provider_id).map(|p| p.name.clone()).unwrap_or_else(|| provider_id.to_string());
         
         spawn_blocking(move || {
             let mut plugin_guard = plugin.lock().unwrap();
@@ -360,14 +417,16 @@ impl ProviderManager {
 
     pub fn get_warmup_eligible_providers(&self) -> Vec<String> {
         self.providers
+            .read()
+            .unwrap()
             .iter()
             .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("warmup")))
             .map(|(id, _)| id.clone())
             .collect()
     }
 
-    pub fn remove_provider(&mut self, provider_id: &str) {
-        self.providers.remove(provider_id);
+    pub fn remove_provider(&self, provider_id: &str) {
+        self.providers.write().unwrap().remove(provider_id);
         self.invalidate_plugin_cache(provider_id);
     }
 
@@ -524,6 +583,8 @@ impl ProviderManager {
 
     pub async fn get_all_explore_modules(&self) -> Vec<AggregatedModule> {
         let explore_providers: Vec<(String, String)> = self.providers
+            .read()
+            .unwrap()
             .values()
             .filter(|p| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("explore")))
             .map(|p| (p.id.clone(), p.name.clone()))
@@ -653,7 +714,7 @@ impl ProviderManager {
     }
 
     pub async fn resolve_url(&self, url: &str) -> Result<Option<(String, String, TrackResult)>, SandboxError> {
-        let active_providers: Vec<(String, String)> = self.providers.iter()
+        let active_providers: Vec<(String, String)> = self.providers.read().unwrap().iter()
             .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("url_resolver") || c.eq_ignore_ascii_case("search")))
             .map(|(id, p)| (id.clone(), p.name.clone()))
             .collect();
@@ -682,6 +743,128 @@ impl ProviderManager {
         Ok(None)
     }
 
+
+    pub fn has_capability(&self, provider_id: &str, cap: &str) -> bool {
+        self.providers.read().unwrap().get(provider_id).is_some_and(|p| {
+            p.capabilities.iter().any(|c| c.eq_ignore_ascii_case(cap))
+        })
+    }
+
+    pub fn get_providers_with_capability(&self, cap: &str) -> Vec<(String, String)> {
+        self.providers.read().unwrap().iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case(cap)))
+            .map(|(id, p)| (id.clone(), p.name.clone()))
+            .collect()
+    }
+
+    pub async fn get_related(&self, provider_id: &str, seed: &CanonicalSeedV1) -> Result<Vec<TrackResult>, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let seed_clone = seed.clone();
+        
+        let _permit = self.explore_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
+            script: provider_id.clone(),
+            message: "Explore semaphore closed".into(),
+        })?;
+
+        let plugin_arc = self.get_or_create_plugin(&provider_id, 4)?;
+        
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&seed_clone).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("get_related", &json_input).map(|res| res.to_vec())
+        }).await {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => {
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
+
+        let results: Vec<TrackResult> = serde_json::from_slice(&res_bytes).map_err(|e| {
+            self.invalidate_plugin_cache(&provider_id);
+            SandboxError::ScriptError {
+                script: provider_id,
+                message: format!("Invalid get_related JSON: {}", e),
+            }
+        })?;
+
+        Ok(results)
+    }
+
+    pub async fn get_radio(&self, provider_id: &str, seed: &CanonicalSeedV1) -> Result<RadioStreamResultV1, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let seed_clone = seed.clone();
+        
+        let _permit = self.explore_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
+            script: provider_id.clone(),
+            message: "Explore semaphore closed".into(),
+        })?;
+
+        let plugin_arc = self.get_or_create_plugin(&provider_id, 4)?;
+        
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&seed_clone).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("get_radio", &json_input).map(|res| res.to_vec())
+        }).await {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => {
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
+
+        let results: RadioStreamResultV1 = serde_json::from_slice(&res_bytes).map_err(|e| {
+            self.invalidate_plugin_cache(&provider_id);
+            SandboxError::ScriptError {
+                script: provider_id,
+                message: format!("Invalid get_radio JSON: {}", e),
+            }
+        })?;
+
+        Ok(results)
+    }
+
+    pub async fn notify_playback_completed(&self, provider_id: &str, event: &PlaybackTelemetryEventV1) -> Result<(), SandboxError> {
+        if !self.has_capability(provider_id, "telemetry_reporting") {
+            return Ok(());
+        }
+        let provider_id = provider_id.to_string();
+        let event_clone = event.clone();
+
+        let plugin_arc = match self.get_or_create_plugin(&provider_id, 4) {
+            Ok(p) => p,
+            Err(_) => return Ok(()),
+        };
+
+        let _ = spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&event_clone).unwrap_or_default();
+            let _ = plugin.call::<&[u8], &[u8]>("on_playback_event", &json_input);
+        }).await;
+
+        Ok(())
+    }
 }
 pub fn check_url_allowed(url: &str) -> Result<(), String> {
     if url.starts_with("file://") {
@@ -695,7 +878,7 @@ pub fn check_url_allowed(url: &str) -> Result<(), String> {
 
 
 #[cfg(test)]
-mod tests {
+mod provider_unit_tests {
     use super::*;
 
     #[test]
@@ -709,6 +892,7 @@ mod tests {
             stream_url: None,
             quality_hint: Some("#1".to_string()),
             duration_ms: Some(180000),
+            isrc: None,
         });
 
         let json_track = serde_json::to_string(&track_item).unwrap();

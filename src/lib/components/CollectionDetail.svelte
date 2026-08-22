@@ -128,7 +128,7 @@
 
     async function removeTrack(e: Event, trackId: number) {
         e.stopPropagation();
-        if (isLocalPlaylist) {
+        if (isPlaylist) {
             await libraryStore.removeFromPlaylist(Number(collection.id), trackId);
             await loadData();
         }

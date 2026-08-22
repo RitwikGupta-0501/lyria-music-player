@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { homeStore, type CanonicalSong } from "$lib/stores/home.svelte";
+    import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { Play, Pause, Heart, ArrowClockwise, Sparkle, ClockCounterClockwise, ArrowRight, Compass, FolderOpen } from "phosphor-svelte";
     import { libraryStore } from "$lib/stores/library.svelte";
@@ -18,7 +18,7 @@
         return "Good evening";
     }
 
-    function isCurrentTrack(song: CanonicalSong): boolean {
+    function isCurrentTrack(song: FederatedTrack): boolean {
         const cur = audioStore.currentQueueTrack;
         if (!cur) return false;
         return cur.title.toLowerCase() === song.title.toLowerCase()
@@ -67,7 +67,7 @@
         <div class="header-actions">
             <button 
                 class="refresh-btn" 
-                class:spinning={homeStore.isRefreshing}
+                class:spinning={homeStore.isLoadingRemote}
                 onclick={() => homeStore.loadHome(true)}
                 title="Refresh recommendations"
             >
@@ -112,8 +112,8 @@
                         class:playing={isCurrentTrack(song)}
                         role="button"
                         tabindex="0"
-                        onclick={() => homeStore.playCanonicalSong(song)}
-                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playCanonicalSong(song); }}
+                        onclick={() => homeStore.playFederatedTrack(song)}
+                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
                     >
                         <div class="pill-art">
                             {#if song.cover_art_url}
@@ -165,8 +165,8 @@
                         class="carousel-card"
                         role="button"
                         tabindex="0"
-                        onclick={() => homeStore.playCanonicalSong(song)}
-                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playCanonicalSong(song); }}
+                        onclick={() => homeStore.playFederatedTrack(song)}
+                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
                     >
                         <div class="card-art-wrapper">
                             {#if song.cover_art_url}
@@ -190,17 +190,22 @@
         </section>
     {/if}
 
-    <!-- 3. Daily Discover Shelves (Contextual Discovery) -->
-    {#each homeStore.discoverShelves as shelf}
+    <!-- 3. Daily Discover (Federated Discovery) -->
+    {#if homeStore.isLoadingRemote || homeStore.dailyDiscover.length > 0}
         <section class="home-section">
             <div class="section-title-row">
                 <h2>
                     <Sparkle size={20} weight="fill" class="sparkle-icon" />
-                    <span>{shelf.contextTag}</span>
+                    <span>Daily Discover</span>
                 </h2>
+                {#if homeStore.failedProviders.length > 0}
+                    <span class="section-tag warning" title="Some providers degraded: {homeStore.failedProviders.join(', ')}">Partial Feed</span>
+                {:else}
+                    <span class="section-tag">Curated for You</span>
+                {/if}
             </div>
 
-            {#if shelf.loading}
+            {#if homeStore.isLoadingRemote && homeStore.dailyDiscover.length === 0}
                 <div class="carousel-track">
                     {#each Array(6) as _}
                         <div class="carousel-card skeleton">
@@ -210,19 +215,19 @@
                         </div>
                     {/each}
                 </div>
-            {:else if shelf.tracks.length > 0}
+            {:else if homeStore.dailyDiscover.length > 0}
                 <div class="carousel-track">
-                    {#each shelf.tracks as item}
+                    {#each homeStore.dailyDiscover as item}
                         <div 
                             class="carousel-card"
                             role="button"
                             tabindex="0"
-                            onclick={() => playRemoteItem(item, item.provider_id || shelf.seed.last_provider_id)}
-                            onkeydown={(e) => { if (e.key === 'Enter') playRemoteItem(item, item.provider_id || shelf.seed.last_provider_id); }}
+                            onclick={() => homeStore.playFederatedTrack(item)}
+                            onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(item); }}
                         >
                             <div class="card-art-wrapper">
                                 {#if item.cover_art_url}
-                                    <img src={item.cover_art_url} alt={item.title} />
+                                    <img src={item.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(item.cover_art_url)}` : item.cover_art_url} alt={item.title} />
                                 {:else}
                                     <div class="placeholder-art"></div>
                                 {/if}
@@ -235,13 +240,16 @@
                             <div class="card-info">
                                 <span class="card-title">{item.title}</span>
                                 <span class="card-artist">{item.artist}</span>
+                                {#if item.seed_provenance}
+                                    <span class="card-provenance">{item.seed_provenance}</span>
+                                {/if}
                             </div>
                         </div>
                     {/each}
                 </div>
             {/if}
         </section>
-    {/each}
+    {/if}
 
     <!-- 4. Forgotten Favorites -->
     {#if homeStore.forgottenFavorites.length > 0}
@@ -256,8 +264,8 @@
                         class="carousel-card"
                         role="button"
                         tabindex="0"
-                        onclick={() => homeStore.playCanonicalSong(song)}
-                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playCanonicalSong(song); }}
+                        onclick={() => homeStore.playFederatedTrack(song)}
+                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
                     >
                         <div class="card-art-wrapper">
                             {#if song.cover_art_url}
@@ -656,6 +664,20 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .card-provenance {
+        display: inline-block;
+        font-size: 0.68rem;
+        font-weight: 500;
+        color: var(--accent-primary, #d4a373);
+        background: rgba(212, 163, 115, 0.12);
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
     }
 
     /* Skeleton Shimmer */
