@@ -43,18 +43,51 @@ impl FederatedShelfResult {
 pub struct HomeLocalShelves {
     pub quick_picks: Vec<FederatedTrack>,
     pub keep_listening: Vec<FederatedTrack>,
+    pub jump_back_in: Vec<queries::IncompleteSessionItem>,
+    pub heavy_rotation: queries::HeavyRotationShelf,
     pub forgotten_favorites: Vec<FederatedTrack>,
+    pub cold_start_seeds: Vec<queries::ColdStartSeedItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RadioMixCard {
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub category: String, // "artist" | "temporal_mood"
+    pub covers: Vec<String>,
+    pub gradient_start: String,
+    pub gradient_end: String,
+    pub seed: CanonicalSeedV1,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdjacentHorizonPayload {
+    pub dominant_genre_or_artist: String,
+    pub suggested_genre: String,
+    pub tagline: String,
+    pub description: String,
+    pub accent_color: String,
+    pub seed: CanonicalSeedV1,
+    pub preview_tracks: Vec<FederatedTrack>,
 }
 
 pub struct RecommendationCompiler {
-    provider_manager: Arc<ProviderManager>,
+    provider_manager: Option<Arc<ProviderManager>>,
     db_path: PathBuf,
 }
 
 impl RecommendationCompiler {
     pub fn new(provider_manager: Arc<ProviderManager>, db_path: PathBuf) -> Self {
         Self {
-            provider_manager,
+            provider_manager: Some(provider_manager),
+            db_path,
+        }
+    }
+
+    pub fn new_for_testing(db_path: PathBuf) -> Self {
+        Self {
+            provider_manager: None,
             db_path,
         }
     }
@@ -121,13 +154,200 @@ impl RecommendationCompiler {
 
         let quick_picks_raw = queries::get_canonical_quick_picks(&conn, 20).unwrap_or_default();
         let keep_listening_raw = queries::get_canonical_keep_listening(&conn, 20).unwrap_or_default();
+        let jump_back_in = queries::get_incomplete_playback_sessions(&conn, 8).unwrap_or_default();
+        let heavy_rotation = queries::get_heavy_rotation_7d(&conn, 6).unwrap_or_default();
         let forgotten_favorites_raw = queries::get_canonical_forgotten_favorites(&conn, 20).unwrap_or_default();
+        let cold_start_seeds = queries::get_cold_start_local_artists(&conn, 6).unwrap_or_default();
 
         Ok(HomeLocalShelves {
             quick_picks: self.canonical_songs_to_federated(quick_picks_raw),
             keep_listening: self.canonical_songs_to_federated(keep_listening_raw),
+            jump_back_in,
+            heavy_rotation,
             forgotten_favorites: self.canonical_songs_to_federated(forgotten_favorites_raw),
+            cold_start_seeds,
         })
+    }
+
+    pub fn compile_algorithmic_radios(&self) -> Result<Vec<RadioMixCard>, String> {
+        let conn = self.open_read_conn()?;
+        let mut cards = Vec::new();
+
+        // 1. Artist Mixes from Heavy Rotation / Top Telemetry
+        let hr = queries::get_heavy_rotation_7d(&conn, 3).unwrap_or_default();
+        let artist_palettes = [
+            ("#2A1E5C", "#0C091A"),
+            ("#1E3C72", "#2A5298"),
+            ("#4A148C", "#12005E"),
+        ];
+
+        for (idx, a) in hr.artists.into_iter().enumerate() {
+            let palette = artist_palettes[idx % artist_palettes.len()];
+            let covers = if let Some(url) = a.avatar_url {
+                vec![url]
+            } else {
+                Vec::new()
+            };
+
+            let seed_key = make_canonical_key("", &a.artist);
+            cards.push(RadioMixCard {
+                id: format!("radio-artist-{}", a.artist.to_lowercase().replace(' ', "-")),
+                title: format!("{} Mix", a.artist),
+                subtitle: format!("Inspired by your plays of {}", a.artist),
+                category: "artist".to_string(),
+                covers,
+                gradient_start: palette.0.to_string(),
+                gradient_end: palette.1.to_string(),
+                seed: CanonicalSeedV1 {
+                    abi_version: PROVIDER_ABI_VERSION,
+                    canonical_key: seed_key,
+                    title: String::new(),
+                    artist: a.artist,
+                    album: None,
+                    isrc: None,
+                    duration_ms: None,
+                    native_id: None,
+                    provider_id: None,
+                },
+            });
+        }
+
+        // 2. Temporal / Mood Mixes (based on current system hour)
+        let hour = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => ((d.as_secs() / 3600) % 24) as u32,
+            Err(_) => 12,
+        };
+
+        let (m1_title, m1_sub, m1_query, m1_start, m1_end, m2_title, m2_sub, m2_query, m2_start, m2_end) = match hour {
+            5..=11 => (
+                "Morning Coffee Acoustic",
+                "Warm, organic tones and peaceful melodies to start your morning",
+                "Acoustic Folk",
+                "#3E2723", "#1B0000",
+                "Sunrise Focus & Clarity",
+                "Crisp tempos and ambient concentration",
+                "Focus Ambient",
+                "#D84315", "#3E2723",
+            ),
+            12..=17 => (
+                "Deep Work Flow State",
+                "Unbroken rhythmic pulse for high-focus momentum",
+                "Electronic Focus",
+                "#004D40", "#00251A",
+                "Afternoon Dynamic Drive",
+                "Upbeat selections to power through the day",
+                "Indie Pop Groove",
+                "#311B92", "#12005E",
+            ),
+            18..=22 => (
+                "Golden Hour Melancholy",
+                "Warm analog textures and reflective chords for twilight",
+                "Neo Soul Downtempo",
+                "#BF360C", "#3E2723",
+                "Evening Unwind",
+                "Smooth downtempo grooves and mellow acoustics",
+                "Chillout Lounge",
+                "#4A148C", "#12005E",
+            ),
+            _ => (
+                "Late Night Focus",
+                "Minimal electronics and nocturnal ambient drift",
+                "IDM Ambient",
+                "#1A237E", "#000051",
+                "Midnight Highway Synth",
+                "Warm neon arpeggios and retro electronic waves",
+                "Synthwave Retrowave",
+                "#880E4F", "#311B92",
+            ),
+        };
+
+        cards.push(RadioMixCard {
+            id: "radio-mood-primary".to_string(),
+            title: m1_title.to_string(),
+            subtitle: m1_sub.to_string(),
+            category: "temporal_mood".to_string(),
+            covers: Vec::new(),
+            gradient_start: m1_start.to_string(),
+            gradient_end: m1_end.to_string(),
+            seed: CanonicalSeedV1 {
+                abi_version: PROVIDER_ABI_VERSION,
+                canonical_key: make_canonical_key(m1_query, "Echo Mix"),
+                title: m1_query.to_string(),
+                artist: "Echo Dynamic Mood".to_string(),
+                album: None,
+                isrc: None,
+                duration_ms: None,
+                native_id: None,
+                provider_id: None,
+            },
+        });
+
+        cards.push(RadioMixCard {
+            id: "radio-mood-secondary".to_string(),
+            title: m2_title.to_string(),
+            subtitle: m2_sub.to_string(),
+            category: "temporal_mood".to_string(),
+            covers: Vec::new(),
+            gradient_start: m2_start.to_string(),
+            gradient_end: m2_end.to_string(),
+            seed: CanonicalSeedV1 {
+                abi_version: PROVIDER_ABI_VERSION,
+                canonical_key: make_canonical_key(m2_query, "Echo Mix"),
+                title: m2_query.to_string(),
+                artist: "Echo Dynamic Mood".to_string(),
+                album: None,
+                isrc: None,
+                duration_ms: None,
+                native_id: None,
+                provider_id: None,
+            },
+        });
+
+        Ok(cards)
+    }
+
+    pub fn compute_adjacent_horizon(&self) -> Result<Option<AdjacentHorizonPayload>, String> {
+        let conn = self.open_read_conn()?;
+        let top_artists = queries::get_heavy_rotation_7d(&conn, 1).unwrap_or_default();
+        let dominant_artist = top_artists.artists.first().map(|a| a.artist.clone()).unwrap_or_else(|| "Your Library".to_string());
+
+        // Contrast bridge mapping based on hash / rotation
+        let contrasts = [
+            ("Modern Japanese Jazz", "Take a detour from standard structures into intricate polyrhythmic brass and Tokyo city jazz fusion.", "#FFB703"),
+            ("Analog Synthwave & Retrowave", "Step into lush analog sawtooth waves, gated drums, and neon retro-futurism.", "#FB8500"),
+            ("Neo-Classical & Ambient Strings", "Clear your auditory palette with minimalist acoustic piano and cinematic string quartets.", "#219EBC"),
+            ("Afro-Cuban Jazz & Global Funk", "Bridge rhythmic grooves into organic percussion, brass polyrhythms, and vintage soul.", "#E76F51"),
+        ];
+
+        let idx = (dominant_artist.len()) % contrasts.len();
+        let (suggested_genre, description, accent) = contrasts[idx];
+
+        let seed_key = make_canonical_key(suggested_genre, "Adjacent Horizon");
+        let seed = CanonicalSeedV1 {
+            abi_version: PROVIDER_ABI_VERSION,
+            canonical_key: seed_key,
+            title: suggested_genre.to_string(),
+            artist: "Adjacent Horizon".to_string(),
+            album: None,
+            isrc: None,
+            duration_ms: None,
+            native_id: None,
+            provider_id: None,
+        };
+
+        // Quick sample preview tracks from local database or fallback
+        let preview_raw = queries::get_canonical_discover_seeds(&conn, 4).unwrap_or_default();
+        let preview_tracks = self.canonical_songs_to_federated(preview_raw);
+
+        Ok(Some(AdjacentHorizonPayload {
+            dominant_genre_or_artist: dominant_artist.clone(),
+            suggested_genre: suggested_genre.to_string(),
+            tagline: format!("You've been listening to {}. Explore {}.", dominant_artist, suggested_genre),
+            description: description.to_string(),
+            accent_color: accent.to_string(),
+            seed,
+            preview_tracks,
+        }))
     }
 
     pub fn get_daily_discover_seeds(&self) -> Result<Vec<CanonicalSeedV1>, String> {
@@ -246,7 +466,7 @@ impl RecommendationCompiler {
         let mut cached_tracks: Vec<(String, TrackResult, Option<String>)> = Vec::new();
         let mut missing_queries: Vec<(String, CanonicalSeedV1)> = Vec::new();
 
-        let active_providers = self.provider_manager.get_providers_with_capability("related");
+        let active_providers = self.provider_manager.as_ref().map(|pm| pm.get_providers_with_capability("related")).unwrap_or_default();
 
         // 1. Check Granular Per-Seed Cache
         for seed in &seeds {
@@ -272,7 +492,10 @@ impl RecommendationCompiler {
             if self.is_provider_in_backoff(&p_id) {
                 continue;
             }
-            let p_mgr = self.provider_manager.clone();
+            let p_mgr = match self.provider_manager.clone() {
+                Some(pm) => pm,
+                None => continue,
+            };
             let c_token = cancel_token.clone();
             let p_id_clone = p_id.clone();
             let seed_clone = seed.clone();
@@ -434,5 +657,45 @@ impl RecommendationCompiler {
                 sources: vec![source],
             }
         }).collect()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_recommendation_compiler_shelves_and_radios() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_echo.db");
+        {
+            let conn = crate::db::schema::init_db(&db_path).unwrap();
+            conn.execute("INSERT INTO albums (id, title, artist, cover_art_path) VALUES (1, 'Kid A', 'Radiohead', '/art/kida.jpg')", []).unwrap();
+            conn.execute("INSERT INTO tracks (id, title, artist, album_id, track_number, file_path) VALUES (1, 'Everything in Its Right Place', 'Radiohead', 1, 1, '/music/kida1.flac')", []).unwrap();
+            queries::record_playback_event(&conn, "Everything in Its Right Place", "Radiohead", Some("Kid A"), Some("/art/kida.jpg"), "local", "1", Some(251000)).unwrap();
+        }
+
+        let compiler = RecommendationCompiler::new_for_testing(db_path);
+
+        // 1. Test get_local_shelves returns all expanded fields
+        let shelves = compiler.get_local_shelves().unwrap();
+        assert_eq!(shelves.quick_picks.len(), 1);
+        assert_eq!(shelves.quick_picks[0].title, "Everything in Its Right Place");
+        assert_eq!(shelves.heavy_rotation.artists.len(), 1);
+        assert_eq!(shelves.heavy_rotation.artists[0].artist, "Radiohead");
+
+        // 2. Test compile_algorithmic_radios
+        let radios = compiler.compile_algorithmic_radios().unwrap();
+        assert!(radios.len() >= 3); // At least 1 artist mix + 2 temporal mood mixes
+        let artist_mix = radios.iter().find(|r| r.category == "artist").unwrap();
+        assert_eq!(artist_mix.title, "Radiohead Mix");
+
+        // 3. Test compute_adjacent_horizon
+        let horizon = compiler.compute_adjacent_horizon().unwrap();
+        assert!(horizon.is_some());
+        let h = horizon.unwrap();
+        assert_eq!(h.dominant_genre_or_artist, "Radiohead");
+        assert!(!h.suggested_genre.is_empty());
     }
 }

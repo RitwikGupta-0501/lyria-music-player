@@ -406,6 +406,30 @@ async fn get_home_remote_shelves(
     Ok(state.recommendation_compiler.get_federated_daily_discover(seeds, new_token).await)
 }
 
+
+#[tauri::command]
+async fn get_home_radios(
+    state: State<'_, AppState>,
+) -> Result<Vec<providers::recommendations::RadioMixCard>, String> {
+    state.recommendation_compiler.compile_algorithmic_radios()
+}
+
+#[tauri::command]
+async fn get_home_adjacent_horizon(
+    state: State<'_, AppState>,
+) -> Result<Option<providers::recommendations::AdjacentHorizonPayload>, String> {
+    state.recommendation_compiler.compute_adjacent_horizon()
+}
+
+#[tauri::command]
+async fn get_radio_stream(
+    state: State<'_, AppState>,
+    provider_id: String,
+    seed: providers::CanonicalSeedV1,
+) -> Result<providers::RadioStreamResultV1, String> {
+    state.provider_manager.get_radio(&provider_id, &seed).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn get_home_feed(state: State<'_, AppState>) -> Result<HomeFeedPayload, String> {
     let (tx_qp, rx_qp) = tokio::sync::oneshot::channel();
@@ -1200,6 +1224,9 @@ pub fn run() {
             get_home_feed,
             get_home_local_shelves,
             get_home_remote_shelves,
+            get_home_radios,
+            get_home_adjacent_horizon,
+            get_radio_stream,
             record_track_play,
             toggle_track_like,
             get_liked_songs,
