@@ -67,6 +67,18 @@ pub enum DbRequest {
     GetExtensionMetrics {
         resp: oneshot::Sender<Result<Vec<queries::ExtensionMetric>, String>>,
     },
+    GetHeavyRotation7d {
+        limit: usize,
+        resp: oneshot::Sender<Result<queries::HeavyRotationShelf, String>>,
+    },
+    GetIncompletePlaybackSessions {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::IncompleteSessionItem>, String>>,
+    },
+    GetColdStartLocalArtists {
+        limit: usize,
+        resp: oneshot::Sender<Result<Vec<queries::ColdStartSeedItem>, String>>,
+    },
     GetLocalTracks { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     GetAlbums { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<Album>, String>> },
     GetRecentAlbums { limit: u32, resp: oneshot::Sender<Result<Vec<Album>, String>> },
@@ -161,6 +173,18 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::GetExtensionMetrics { resp } => {
                     let res = queries::get_extension_metrics(&conn).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetHeavyRotation7d { limit, resp } => {
+                    let res = queries::get_heavy_rotation_7d(&conn, limit).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetIncompletePlaybackSessions { limit, resp } => {
+                    let res = queries::get_incomplete_playback_sessions(&conn, limit).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetColdStartLocalArtists { limit, resp } => {
+                    let res = queries::get_cold_start_local_artists(&conn, limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
                 DbRequest::GetLocalTracks { limit, offset, resp } => {

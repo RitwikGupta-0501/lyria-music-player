@@ -489,6 +489,53 @@ pub struct CanonicalSong {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HeavyRotationArtistItem {
+    pub artist: String,
+    pub total_plays: i64,
+    pub total_duration_ms: i64,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HeavyRotationAlbumItem {
+    pub album_title: String,
+    pub artist: String,
+    pub cover_art_url: Option<String>,
+    pub total_plays: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct HeavyRotationShelf {
+    pub artists: Vec<HeavyRotationArtistItem>,
+    pub albums: Vec<HeavyRotationAlbumItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IncompleteSessionItem {
+    pub session_id: String,
+    pub session_type: String, // "album" | "playlist" | "queue"
+    pub title: String,
+    pub subtitle: String,
+    pub cover_art_url: Option<String>,
+    pub current_track_index: usize,
+    pub total_tracks: usize,
+    pub progress_percent: f32,
+    pub last_source_id: Option<String>,
+    pub provider_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ColdStartSeedItem {
+    pub artist: String,
+    pub track_title: String,
+    pub album_title: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub file_path: Option<String>,
+    pub track_id: i64,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExtensionMetric {
     pub provider_id: String,
     pub total_plays: i64,
@@ -589,7 +636,7 @@ pub fn get_canonical_quick_picks(conn: &Connection, limit: usize) -> SqlResult<V
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
          LEFT JOIN tracks t ON st.local_track_id = t.id
-         ORDER BY st.play_count DESC, st.last_played_at DESC
+         ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0) - (COALESCE(julianday('now') - julianday(st.last_played_at), 0.0) * 0.2)) DESC, st.last_played_at DESC
          LIMIT ?1"
     )?;
 
@@ -626,7 +673,7 @@ pub fn get_canonical_forgotten_favorites(conn: &Connection, limit: usize) -> Sql
          LEFT JOIN tracks t ON st.local_track_id = t.id
          WHERE (st.play_count >= 2 OR st.liked = 1)
            AND (st.last_played_at IS NULL OR st.last_played_at <= datetime('now', '-30 days'))
-         ORDER BY st.play_count DESC
+         ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0)) DESC
          LIMIT ?1"
     )?;
 
@@ -832,6 +879,262 @@ fn map_canonical_row(row: &rusqlite::Row) -> rusqlite::Result<CanonicalSong> {
 }
 
 
+
+pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<HeavyRotationShelf> {
+    // 1. Top Artists in last 7 days (with fallback to all-time telemetry)
+    let mut artists_stmt = conn.prepare(
+        "SELECT st.artist, COUNT(pe.id) as play_cnt, COALESCE(SUM(pe.duration_ms), 0) as dur_ms, MAX(st.cover_art_url) as art_url
+         FROM playback_events pe
+         JOIN song_telemetry st ON pe.canonical_key = st.canonical_key
+         WHERE pe.played_at >= datetime('now', '-7 days') AND st.artist != ''
+         GROUP BY st.artist
+         ORDER BY play_cnt DESC, dur_ms DESC
+         LIMIT ?1"
+    )?;
+
+    let artist_rows = artists_stmt.query_map([limit as i64], |row| {
+        Ok(HeavyRotationArtistItem {
+            artist: row.get(0)?,
+            total_plays: row.get(1)?,
+            total_duration_ms: row.get(2)?,
+            avatar_url: row.get(3)?,
+        })
+    })?;
+
+    let mut artists = Vec::new();
+    for a in artist_rows.flatten() {
+        artists.push(a);
+    }
+
+    if artists.len() < limit {
+        let needed = limit - artists.len();
+        if let Ok(mut fb_stmt) = conn.prepare(
+            "SELECT artist, SUM(play_count) as total_pc, COALESCE(SUM(duration_ms * play_count), 0) as total_dur, MAX(cover_art_url)
+             FROM song_telemetry
+             WHERE artist != ''
+             GROUP BY artist
+             ORDER BY total_pc DESC
+             LIMIT ?1"
+        ) {
+            if let Ok(fb_rows) = fb_stmt.query_map([needed as i64], |row| {
+                Ok(HeavyRotationArtistItem {
+                    artist: row.get(0)?,
+                    total_plays: row.get(1)?,
+                    total_duration_ms: row.get(2)?,
+                    avatar_url: row.get(3)?,
+                })
+            }) {
+                for r in fb_rows.flatten() {
+                    if !artists.iter().any(|existing| existing.artist.eq_ignore_ascii_case(&r.artist)) {
+                        artists.push(r);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Top Albums in last 7 days (with fallback to all-time telemetry)
+    let mut albums_stmt = conn.prepare(
+        "SELECT st.album, st.artist, MAX(st.cover_art_url) as art_url, COUNT(pe.id) as play_cnt
+         FROM playback_events pe
+         JOIN song_telemetry st ON pe.canonical_key = st.canonical_key
+         WHERE pe.played_at >= datetime('now', '-7 days') AND st.album IS NOT NULL AND st.album != ''
+         GROUP BY st.album, st.artist
+         ORDER BY play_cnt DESC
+         LIMIT ?1"
+    )?;
+
+    let album_rows = albums_stmt.query_map([limit as i64], |row| {
+        Ok(HeavyRotationAlbumItem {
+            album_title: row.get(0)?,
+            artist: row.get(1)?,
+            cover_art_url: row.get(2)?,
+            total_plays: row.get(3)?,
+        })
+    })?;
+
+    let mut albums = Vec::new();
+    for alb in album_rows.flatten() {
+        albums.push(alb);
+    }
+
+    if albums.len() < limit {
+        let needed = limit - albums.len();
+        if let Ok(mut fb_alb_stmt) = conn.prepare(
+            "SELECT album, artist, MAX(cover_art_url), SUM(play_count) as total_pc
+             FROM song_telemetry
+             WHERE album IS NOT NULL AND album != ''
+             GROUP BY album, artist
+             ORDER BY total_pc DESC
+             LIMIT ?1"
+        ) {
+            if let Ok(fb_rows) = fb_alb_stmt.query_map([needed as i64], |row| {
+                Ok(HeavyRotationAlbumItem {
+                    album_title: row.get(0)?,
+                    artist: row.get(1)?,
+                    cover_art_url: row.get(2)?,
+                    total_plays: row.get(3)?,
+                })
+            }) {
+                for r in fb_rows.flatten() {
+                    if !albums.iter().any(|existing| existing.album_title.eq_ignore_ascii_case(&r.album_title) && existing.artist.eq_ignore_ascii_case(&r.artist)) {
+                        albums.push(r);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(HeavyRotationShelf {
+        artists,
+        albums,
+    })
+}
+
+pub fn get_incomplete_playback_sessions(conn: &Connection, limit: usize) -> SqlResult<Vec<IncompleteSessionItem>> {
+    let mut sessions = Vec::new();
+
+    // A. Check most recent queue_state where total_tracks > 1 and current_position < total_tracks - 1
+    if let Ok(mut q_stmt) = conn.prepare(
+        "SELECT qs.id, qs.current_position, COUNT(qt.id) as total_tracks
+         FROM queue_state qs
+         JOIN queued_tracks qt ON qs.id = qt.queue_state_id
+         GROUP BY qs.id
+         HAVING total_tracks > 1
+         ORDER BY qs.id DESC
+         LIMIT ?1"
+    ) {
+        if let Ok(q_rows) = q_stmt.query_map([limit as i64], |row| {
+            let q_id: i64 = row.get(0)?;
+            let curr_pos: i32 = row.get(1)?;
+            let total: i32 = row.get(2)?;
+            Ok((q_id, curr_pos, total))
+        }) {
+            for q_res in q_rows.flatten() {
+                let (q_id, curr_pos, total) = q_res;
+                if total <= 1 {
+                    continue;
+                }
+                let curr_idx = (curr_pos as usize).min(total as usize - 1);
+                let progress = ((curr_idx + 1) as f32 / total as f32).min(1.0);
+
+                if let Ok(mut track_stmt) = conn.prepare(
+                    "SELECT cached_title, cached_artist, cover_art_url, provider_id, remote_track_id, track_id
+                     FROM queued_tracks
+                     WHERE queue_state_id = ?1 AND position = ?2
+                     LIMIT 1"
+                ) {
+                    if let Ok(track_info) = track_stmt.query_row(
+                        rusqlite::params![q_id, curr_pos],
+                        |row| {
+                            let title: Option<String> = row.get(0)?;
+                            let artist: Option<String> = row.get(1)?;
+                            let art: Option<String> = row.get(2)?;
+                            let provider: Option<String> = row.get(3)?;
+                            let remote_id: Option<String> = row.get(4)?;
+                            let local_id: i64 = row.get(5)?;
+                            Ok((title, artist, art, provider, remote_id, local_id))
+                        }
+                    ) {
+                        let (title, artist, art, provider, remote_id, local_id) = track_info;
+                        let item_title = title.unwrap_or_else(|| "Queue Session".to_string());
+                        let item_subtitle = artist.unwrap_or_else(|| format!("Track {} of {}", curr_idx + 1, total));
+                        let provider_id = provider.unwrap_or_else(|| if local_id > 0 { "local".to_string() } else { "queue".to_string() });
+                        let last_source = remote_id.or_else(|| if local_id > 0 { Some(local_id.to_string()) } else { None });
+
+                        sessions.push(IncompleteSessionItem {
+                            session_id: format!("queue-{}", q_id),
+                            session_type: "queue".to_string(),
+                            title: item_title,
+                            subtitle: item_subtitle,
+                            cover_art_url: art,
+                            current_track_index: curr_idx,
+                            total_tracks: total as usize,
+                            progress_percent: progress,
+                            last_source_id: last_source,
+                            provider_id,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // B. Check partially played albums from local tracks
+    if sessions.len() < limit {
+        let needed = limit - sessions.len();
+        if let Ok(mut alb_stmt) = conn.prepare(
+            "SELECT a.id, a.title, a.artist, a.cover_art_path, COUNT(DISTINCT t.id) as total_tracks, COUNT(DISTINCT pe.canonical_key) as played_tracks
+             FROM albums a
+             JOIN tracks t ON a.id = t.album_id
+             LEFT JOIN song_telemetry st ON t.id = st.local_track_id
+             LEFT JOIN playback_events pe ON st.canonical_key = pe.canonical_key
+             GROUP BY a.id
+             HAVING total_tracks > 1 AND played_tracks > 0 AND played_tracks < total_tracks
+             ORDER BY MAX(pe.played_at) DESC
+             LIMIT ?1"
+        ) {
+            if let Ok(alb_rows) = alb_stmt.query_map([needed as i64], |row| {
+                let id: i64 = row.get(0)?;
+                let title: String = row.get(1)?;
+                let artist: Option<String> = row.get(2)?;
+                let art: Option<String> = row.get(3)?;
+                let total: i64 = row.get(4)?;
+                let played: i64 = row.get(5)?;
+                Ok((id, title, artist, art, total, played))
+            }) {
+                for alb_res in alb_rows.flatten() {
+                    let (id, title, artist, art, total, played) = alb_res;
+                    let progress = (played as f32 / total as f32).min(1.0);
+                    sessions.push(IncompleteSessionItem {
+                        session_id: format!("album-{}", id),
+                        session_type: "album".to_string(),
+                        title,
+                        subtitle: artist.unwrap_or_else(|| "Local Album".to_string()),
+                        cover_art_url: art,
+                        current_track_index: played as usize,
+                        total_tracks: total as usize,
+                        progress_percent: progress,
+                        last_source_id: Some(id.to_string()),
+                        provider_id: "local".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(sessions)
+}
+
+pub fn get_cold_start_local_artists(conn: &Connection, limit: usize) -> SqlResult<Vec<ColdStartSeedItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.title, t.artist, a.title as album_title, a.cover_art_path, t.file_path
+         FROM tracks t
+         LEFT JOIN albums a ON t.album_id = a.id
+         WHERE t.artist IS NOT NULL AND t.artist != ''
+         GROUP BY t.artist
+         ORDER BY RANDOM()
+         LIMIT ?1"
+    )?;
+
+    let rows = stmt.query_map([limit as i64], |row| {
+        Ok(ColdStartSeedItem {
+            track_id: row.get(0)?,
+            track_title: row.get(1)?,
+            artist: row.get(2)?,
+            album_title: row.get(3)?,
+            cover_art_url: row.get(4)?,
+            file_path: row.get(5)?,
+        })
+    })?;
+
+    let mut seeds = Vec::new();
+    for r in rows.flatten() {
+        seeds.push(r);
+    }
+    Ok(seeds)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,6 +1184,53 @@ mod tests {
         // 5. Test Like Toggle
         let is_liked = toggle_canonical_like(&conn, "rick astley::never gonna give you up", None, None, None, None, None, None, None, None).unwrap();
         assert!(is_liked);
+    }
+
+    
+    #[test]
+    fn test_phase1_heavy_rotation_and_cold_start() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db_in_memory(&conn).unwrap();
+
+        // 1. Insert local tracks for cold start testing
+        conn.execute("INSERT INTO albums (id, title, artist, cover_art_path) VALUES (1, 'In Rainbows', 'Radiohead', '/art/in_rainbows.jpg')", []).unwrap();
+        conn.execute("INSERT INTO tracks (id, title, artist, album_id, track_number, file_path) VALUES (1, '15 Step', 'Radiohead', 1, 1, '/music/15step.flac')", []).unwrap();
+        conn.execute("INSERT INTO tracks (id, title, artist, album_id, track_number, file_path) VALUES (2, 'Bodysnatchers', 'Radiohead', 1, 2, '/music/bodysnatchers.flac')", []).unwrap();
+
+        let cold_seeds = get_cold_start_local_artists(&conn, 5).unwrap();
+        assert_eq!(cold_seeds.len(), 1);
+        assert_eq!(cold_seeds[0].artist, "Radiohead");
+
+        // 2. Record plays across 2 artists
+        record_playback_event(&conn, "15 Step", "Radiohead", Some("In Rainbows"), Some("/art/in_rainbows.jpg"), "local", "1", Some(237000)).unwrap();
+        record_playback_event(&conn, "Bodysnatchers", "Radiohead", Some("In Rainbows"), Some("/art/in_rainbows.jpg"), "local", "2", Some(242000)).unwrap();
+        record_playback_event(&conn, "Around the World", "Daft Punk", Some("Homework"), Some("/art/homework.jpg"), "youtube-wasm", "yt-1", Some(429000)).unwrap();
+
+        // 3. Test 7-Day Heavy Rotation
+        let hr = get_heavy_rotation_7d(&conn, 5).unwrap();
+        assert_eq!(hr.artists.len(), 2);
+        assert_eq!(hr.artists[0].artist, "Radiohead");
+        assert_eq!(hr.artists[0].total_plays, 2);
+        assert_eq!(hr.albums.len(), 2);
+        assert_eq!(hr.albums[0].album_title, "In Rainbows");
+
+        // 4. Test Quick Picks scoring with Likes
+        toggle_canonical_like(&conn, "daft punk::around the world", None, None, None, None, None, None, None, None).unwrap();
+        let qp = get_canonical_quick_picks(&conn, 5).unwrap();
+        // Daft Punk has 1 play + 1 like -> Score = 1*2 + 1*5 = 7.0
+        // Radiohead tracks have 1 play each, not liked -> Score = 1*2 = 2.0
+        assert_eq!(qp[0].canonical_key, "daft punk::around the world");
+
+        // 5. Test Forgotten Favorites qualification
+        // Neither song is >= 30 days old yet
+        let ff = get_canonical_forgotten_favorites(&conn, 5).unwrap();
+        assert_eq!(ff.len(), 0);
+
+        // Manually age one track to 35 days ago
+        conn.execute("UPDATE song_telemetry SET last_played_at = datetime('now', '-35 days') WHERE canonical_key = 'daft punk::around the world'", []).unwrap();
+        let ff_aged = get_canonical_forgotten_favorites(&conn, 5).unwrap();
+        assert_eq!(ff_aged.len(), 1);
+        assert_eq!(ff_aged[0].canonical_key, "daft punk::around the world");
     }
 
     fn init_db_in_memory(conn: &Connection) -> rusqlite::Result<()> {
