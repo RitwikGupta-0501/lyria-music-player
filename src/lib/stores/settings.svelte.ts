@@ -14,6 +14,9 @@ export class SettingsStore {
         (this.settings["queue_completion_behavior"] as "retain_stopped" | "pause_end" | "collapse_idle") || "retain_stopped"
     );
     logCollectionEnabled = $derived(this.settings["log_collection_enabled"] !== "false");
+    discoveryArtistDiversityCeiling = $derived(
+        parseInt(this.settings["discovery_artist_diversity_ceiling"] || "3", 10)
+    );
 
     async init() {
         try {
@@ -61,6 +64,10 @@ export class SettingsStore {
         } catch (e) {
             console.error("Failed to update logger active state:", e);
         }
+    }
+
+    async setDiscoveryArtistDiversityCeiling(ceiling: number) {
+        await this.setSetting("discovery_artist_diversity_ceiling", ceiling.toString());
     }
 }
 

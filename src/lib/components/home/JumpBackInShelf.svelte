@@ -71,8 +71,9 @@
     }
 
     .section-title-row h2 {
+        font-family: var(--echo-font-heading, "Playfair Display", serif);
         font-size: 1.35rem;
-        font-weight: 700;
+        font-weight: 600;
         margin: 0;
         letter-spacing: -0.02em;
     }
@@ -82,15 +83,16 @@
     }
 
     .section-tag {
-        font-size: 0.72rem;
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.65rem;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--text-muted, rgba(255, 255, 255, 0.5));
-        background: var(--surface-1, rgba(255, 255, 255, 0.05));
+        letter-spacing: 0.08em;
+        color: #B58E62;
+        background: rgba(181, 142, 98, 0.08);
+        border: 1px solid rgba(181, 142, 98, 0.18);
         padding: 0.2rem 0.55rem;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
     }
 
     .session-carousel-track {

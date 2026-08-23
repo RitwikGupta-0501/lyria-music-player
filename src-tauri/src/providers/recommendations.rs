@@ -10,7 +10,7 @@ use crate::db::canonical::{
     compute_dedup_confidence, make_canonical_key, CandidateTrack, FederatedTrack,
 };
 use crate::db::queries::{self, CanonicalSong};
-use crate::providers::{CanonicalSeedV1, ProviderManager, TrackResult, PROVIDER_ABI_VERSION};
+use crate::providers::{CanonicalSeedV1, ProviderManager, TrackResult, RadioStreamResultV1, PROVIDER_ABI_VERSION};
 use crate::queue::TrackSourceInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,68 +212,81 @@ impl RecommendationCompiler {
             });
         }
 
-        // 2. Temporal / Mood Mixes (based on current system hour)
+        // 2. Circadian / Temporal Mood Mixes (Time of Day Engine anchored in User Telemetry)
         let hour = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
             Ok(d) => ((d.as_secs() / 3600) % 24) as u32,
             Err(_) => 12,
         };
 
-        let (m1_title, m1_sub, m1_query, m1_start, m1_end, m2_title, m2_sub, m2_query, m2_start, m2_end) = match hour {
+        let top_artists = queries::get_heavy_rotation_7d(&conn, 4).unwrap_or_default();
+        let a1 = top_artists.artists.get(0).map(|a| a.artist.as_str()).unwrap_or("OneRepublic");
+        let a2 = top_artists.artists.get(1).map(|a| a.artist.as_str()).unwrap_or(a1);
+        let a3 = top_artists.artists.get(2).map(|a| a.artist.as_str()).unwrap_or(a2);
+
+        let (m1_title, m1_sub, m1_artist, m1_query, m1_start, m1_end, m2_title, m2_sub, m2_artist, m2_query, m2_start, m2_end) = match hour {
             5..=11 => (
-                "Morning Coffee Acoustic",
-                "Warm, organic tones and peaceful melodies to start your morning",
-                "Acoustic Folk",
-                "#3E2723", "#1B0000",
-                "Sunrise Focus & Clarity",
-                "Crisp tempos and ambient concentration",
-                "Focus Ambient",
-                "#D84315", "#3E2723",
+                format!("{} & Morning Momentum", a1),
+                "Uplifting acoustic rhythms and energetic melodies for dawn".to_string(),
+                a1,
+                format!("{} upbeat songs", a1),
+                "#E65100", "#3E2723",
+                format!("{} & Focus Flow", a2),
+                "Crisp, rhythmic clarity to start your morning workflow".to_string(),
+                a2,
+                format!("{} flow songs", a2),
+                "#1B5E20", "#002700",
             ),
-            12..=17 => (
-                "Deep Work Flow State",
-                "Unbroken rhythmic pulse for high-focus momentum",
-                "Electronic Focus",
-                "#004D40", "#00251A",
-                "Afternoon Dynamic Drive",
-                "Upbeat selections to power through the day",
-                "Indie Pop Groove",
+            12..=16 => (
+                format!("{} & Afternoon Drive", a1),
+                "Driving mid-tempo flow and dynamic melodies for peak hours".to_string(),
+                a1,
+                format!("{} dynamic songs", a1),
+                "#004D40", "#001E18",
+                format!("{} & Deep Work Pulse", a2),
+                "Steady rhythmic textures to power through the afternoon".to_string(),
+                a2,
+                format!("{} focus songs", a2),
                 "#311B92", "#12005E",
             ),
-            18..=22 => (
-                "Golden Hour Melancholy",
-                "Warm analog textures and reflective chords for twilight",
-                "Neo Soul Downtempo",
+            17..=21 => (
+                format!("{} & Twilight Harmonies", a2),
+                "Warm acoustic resonance and reflective vocal chords for twilight".to_string(),
+                a2,
+                format!("{} acoustic chill songs", a2),
                 "#BF360C", "#3E2723",
-                "Evening Unwind",
-                "Smooth downtempo grooves and mellow acoustics",
-                "Chillout Lounge",
+                format!("{} & Golden Hour Unwind", a3),
+                "Smooth grooves and mellow sonic textures for sunset".to_string(),
+                a3,
+                format!("{} chill songs", a3),
                 "#4A148C", "#12005E",
             ),
             _ => (
-                "Late Night Focus",
-                "Minimal electronics and nocturnal ambient drift",
-                "IDM Ambient",
+                format!("{} & Late Night Drift", a3),
+                "Nocturnal basslines and atmospheric ambient rhythm for late hours".to_string(),
+                a3,
+                format!("{} night chill songs", a3),
                 "#1A237E", "#000051",
-                "Midnight Highway Synth",
-                "Warm neon arpeggios and retro electronic waves",
-                "Synthwave Retrowave",
+                format!("{} & Midnight Acoustics", a2),
+                "Minimal, introspective acoustic warmth for the quiet night".to_string(),
+                a2,
+                format!("{} acoustic night songs", a2),
                 "#880E4F", "#311B92",
             ),
         };
 
         cards.push(RadioMixCard {
             id: "radio-mood-primary".to_string(),
-            title: m1_title.to_string(),
-            subtitle: m1_sub.to_string(),
+            title: m1_title,
+            subtitle: m1_sub,
             category: "temporal_mood".to_string(),
             covers: Vec::new(),
             gradient_start: m1_start.to_string(),
             gradient_end: m1_end.to_string(),
             seed: CanonicalSeedV1 {
                 abi_version: PROVIDER_ABI_VERSION,
-                canonical_key: make_canonical_key(m1_query, "Echo Mix"),
-                title: m1_query.to_string(),
-                artist: "Echo Dynamic Mood".to_string(),
+                canonical_key: make_canonical_key(m1_artist, &m1_query),
+                title: m1_query,
+                artist: m1_artist.to_string(),
                 album: None,
                 isrc: None,
                 duration_ms: None,
@@ -284,17 +297,17 @@ impl RecommendationCompiler {
 
         cards.push(RadioMixCard {
             id: "radio-mood-secondary".to_string(),
-            title: m2_title.to_string(),
-            subtitle: m2_sub.to_string(),
+            title: m2_title,
+            subtitle: m2_sub,
             category: "temporal_mood".to_string(),
             covers: Vec::new(),
             gradient_start: m2_start.to_string(),
             gradient_end: m2_end.to_string(),
             seed: CanonicalSeedV1 {
                 abi_version: PROVIDER_ABI_VERSION,
-                canonical_key: make_canonical_key(m2_query, "Echo Mix"),
-                title: m2_query.to_string(),
-                artist: "Echo Dynamic Mood".to_string(),
+                canonical_key: make_canonical_key(m2_artist, &m2_query),
+                title: m2_query,
+                artist: m2_artist.to_string(),
                 album: None,
                 isrc: None,
                 duration_ms: None,
@@ -304,6 +317,57 @@ impl RecommendationCompiler {
         });
 
         Ok(cards)
+    }
+
+    pub async fn compile_federated_radio(&self, seed: &CanonicalSeedV1) -> Result<RadioStreamResultV1, String> {
+        let p_mgr = match &self.provider_manager {
+            Some(pm) => pm.clone(),
+            None => return Err("ProviderManager not initialized".to_string()),
+        };
+
+        let candidate_providers = p_mgr.get_providers_with_capability("radio");
+        let fallback_providers = if candidate_providers.is_empty() {
+            p_mgr.get_providers_with_capability("related")
+        } else {
+            candidate_providers
+        };
+
+        if fallback_providers.is_empty() {
+            return Err("No active radio or recommendation providers found".to_string());
+        }
+
+        let mut tasks = Vec::new();
+        for (p_id, _) in fallback_providers {
+            let p_mgr_clone = p_mgr.clone();
+            let seed_clone = seed.clone();
+            let p_id_clone = p_id.clone();
+            tasks.push(tokio::spawn(async move {
+                let res = tokio::time::timeout(
+                    std::time::Duration::from_millis(4000),
+                    p_mgr_clone.get_radio(&p_id_clone, &seed_clone)
+                ).await;
+                (p_id_clone, res)
+            }));
+        }
+
+        let mut all_tracks = Vec::new();
+        let mut seen_canonical = std::collections::HashSet::new();
+
+        for task in tasks {
+            if let Ok((_pid, Ok(Ok(radio_res)))) = task.await {
+                for track in radio_res.tracks {
+                    let c_key = format!("{}::{}", track.artist.trim().to_lowercase(), track.title.trim().to_lowercase());
+                    if seen_canonical.insert(c_key) {
+                        all_tracks.push(track);
+                    }
+                }
+            }
+        }
+
+        Ok(RadioStreamResultV1 {
+            tracks: all_tracks,
+            continuation_token: None,
+        })
     }
 
     pub fn compute_adjacent_horizon(&self) -> Result<Option<AdjacentHorizonPayload>, String> {
@@ -352,24 +416,34 @@ impl RecommendationCompiler {
 
     pub fn get_daily_discover_seeds(&self) -> Result<Vec<CanonicalSeedV1>, String> {
         let conn = self.open_read_conn()?;
-        let raw_seeds = queries::get_canonical_discover_seeds(&conn, 5).unwrap_or_default();
+        let raw_seeds = queries::get_canonical_discover_seeds(&conn, 15).unwrap_or_default();
 
-        let seeds = raw_seeds.into_iter().map(|s| {
-            let key = make_canonical_key(&s.title, &s.artist);
-            CanonicalSeedV1 {
-                abi_version: PROVIDER_ABI_VERSION,
-                canonical_key: key,
-                title: s.title,
-                artist: s.artist,
-                album: s.album,
-                isrc: None,
-                duration_ms: s.duration_ms,
-                native_id: if s.last_provider_id != "local" { Some(s.last_source_id) } else { None },
-                provider_id: Some(s.last_provider_id),
+        // Distinct artist diversity for seeds: maximum 1 seed per artist
+        let mut seen_artists = std::collections::HashSet::new();
+        let mut diverse_seeds = Vec::new();
+
+        for s in raw_seeds {
+            let artist_norm = s.artist.trim().to_lowercase();
+            if seen_artists.insert(artist_norm) {
+                let key = make_canonical_key(&s.title, &s.artist);
+                diverse_seeds.push(CanonicalSeedV1 {
+                    abi_version: PROVIDER_ABI_VERSION,
+                    canonical_key: key,
+                    title: s.title,
+                    artist: s.artist,
+                    album: s.album,
+                    isrc: None,
+                    duration_ms: s.duration_ms,
+                    native_id: if s.last_provider_id != "local" { Some(s.last_source_id) } else { None },
+                    provider_id: Some(s.last_provider_id),
+                });
             }
-        }).collect();
+            if diverse_seeds.len() >= 5 {
+                break;
+            }
+        }
 
-        Ok(seeds)
+        Ok(diverse_seeds)
     }
 
     pub fn get_valid_cache(&self, seed_canonical_key: &str, provider_id: &str, shelf_type: &str) -> Option<Vec<TrackResult>> {
@@ -406,6 +480,12 @@ impl RecommendationCompiler {
                     rusqlite::params![seed_canonical_key, provider_id, shelf_type, json, ttl_seconds as i64],
                 );
             }
+        }
+    }
+
+    pub fn clear_all_cache(&self) {
+        if let Ok(conn) = self.open_write_conn() {
+            let _ = conn.execute("DELETE FROM recommendation_cache;", []);
         }
     }
 
@@ -559,7 +639,15 @@ impl RecommendationCompiler {
         let overrides = self.load_overrides();
         let mut federated: Vec<FederatedTrack> = Vec::new();
 
+        let mut artist_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
         for (provider_id, track, provenance) in tracks {
+            let artist_norm = track.artist.trim().to_lowercase();
+            let count = artist_counts.entry(artist_norm.clone()).or_insert(0);
+            if *count >= 2 {
+                continue; // Enforce artist diversity capping in Daily Discover
+            }
+
             let key = make_canonical_key(&track.title, &track.artist);
             let candidate = CandidateTrack {
                 canonical_key: key.clone(),
@@ -607,6 +695,7 @@ impl RecommendationCompiler {
                     federated[idx].seed_provenance = provenance;
                 }
             } else {
+                *count += 1;
                 federated.push(FederatedTrack {
                     canonical_key: key,
                     title: track.title,

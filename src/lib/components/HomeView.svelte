@@ -12,6 +12,7 @@
     import ForgottenFavoritesShelf from "./home/ForgottenFavoritesShelf.svelte";
 
     let { activeView = $bindable("home") } = $props<{ activeView?: string }>();
+    let selectedMood = $state("All");
 
     onMount(() => {
         homeStore.init();
@@ -26,21 +27,36 @@
 </script>
 
 <div class="home-view">
-    <!-- Header -->
+    <!-- Header & Quick-Filter Mood Bar -->
     <header class="home-header">
-        <div class="header-left">
-            <h1>{getGreeting()}</h1>
-            <p class="subtitle">Your personalized music stream & discovery cockpit</p>
+        <div class="header-top">
+            <div class="header-left">
+                <h1>{getGreeting()}</h1>
+                <p class="subtitle">Your personalized music stream & discovery cockpit</p>
+            </div>
+            <div class="header-actions">
+                <button 
+                    class="refresh-btn" 
+                    class:spinning={homeStore.isLoadingRemote}
+                    onclick={() => homeStore.loadHome(true)}
+                    title="Refresh recommendations"
+                >
+                    <ArrowClockwise size={18} weight="bold" />
+                </button>
+            </div>
         </div>
-        <div class="header-actions">
-            <button 
-                class="refresh-btn" 
-                class:spinning={homeStore.isLoadingRemote}
-                onclick={() => homeStore.loadHome(true)}
-                title="Refresh recommendations"
-            >
-                <ArrowClockwise size={20} weight="bold" />
-            </button>
+
+        <!-- Tactile Quick-Filter Mood Bar -->
+        <div class="mood-filter-bar">
+            {#each ["All", "Deep Focus", "Relax & Chill", "Energy & Drive", "Commute", "Late Night Drift"] as mood}
+                <button 
+                    class="mood-pill" 
+                    class:active={selectedMood === mood}
+                    onclick={() => selectedMood = mood}
+                >
+                    <span>{mood}</span>
+                </button>
+            {/each}
         </div>
     </header>
 
@@ -152,7 +168,7 @@
 
 <style>
     .home-view {
-        padding: 2.5rem;
+        padding: 2.5rem 2.5rem 10rem 2.5rem;
         height: 100%;
         overflow-y: auto;
         display: flex;
@@ -162,15 +178,64 @@
 
     .home-header {
         display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .header-top {
+        display: flex;
         align-items: center;
         justify-content: space-between;
     }
 
-    .home-header h1 {
-        font-size: 2.25rem;
+    .mood-filter-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+        scrollbar-width: none;
+    }
+
+    .mood-filter-bar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .mood-pill {
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.65);
+        background: #141416;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 0.4rem 0.9rem;
+        border-radius: 20px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.2s ease;
+    }
+
+    .mood-pill:hover {
+        color: #fff;
+        border-color: rgba(181, 142, 98, 0.4);
+        background: #18181C;
+    }
+
+    .mood-pill.active {
+        color: #0E0E10;
+        background: #B58E62;
+        border-color: #B58E62;
         font-weight: 700;
-        letter-spacing: -0.03em;
+    }
+
+    .home-header h1 {
+        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-size: 2.5rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
         margin: 0 0 0.25rem 0;
+        color: #fff;
     }
 
     .subtitle {
@@ -212,7 +277,7 @@
         background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
-        padding: 2.5rem;
+        padding: 2.5rem 2.5rem 10rem 2.5rem;
         display: flex;
         flex-direction: column;
         align-items: flex-start;

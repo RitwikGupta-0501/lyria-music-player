@@ -1,6 +1,6 @@
 <script lang="ts">
     import { homeStore } from "$lib/stores/home.svelte";
-    import { Flame, Play, User, Disc } from "phosphor-svelte";
+    import { Flame, User, Disc } from "phosphor-svelte";
 
     let activeTab = $state<"artists" | "albums">("artists");
 </script>
@@ -19,7 +19,7 @@
                     class:active={activeTab === "artists"}
                     onclick={() => activeTab = "artists"}
                 >
-                    <User size={14} weight="bold" />
+                    <User size={13} weight="bold" />
                     <span>Top Artists</span>
                 </button>
                 <button 
@@ -27,7 +27,7 @@
                     class:active={activeTab === "albums"}
                     onclick={() => activeTab = "albums"}
                 >
-                    <Disc size={14} weight="bold" />
+                    <Disc size={13} weight="bold" />
                     <span>Top Albums</span>
                 </button>
             </div>
@@ -39,15 +39,21 @@
                     <div class="artist-circle-card">
                         <div class="artist-avatar-wrapper">
                             {#if artist.avatar_url}
-                                <img src={artist.avatar_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(artist.avatar_url)}` : artist.avatar_url} alt={artist.artist} loading="lazy" />
+                                <img src={artist.avatar_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(artist.avatar_url)}` : artist.avatar_url} alt={artist.artist} loading="lazy" />
                             {:else}
                                 <div class="avatar-placeholder">
-                                    <span>{artist.artist.charAt(0).toUpperCase()}</span>
+                                    <span class="avatar-letter">{artist.artist.charAt(0).toUpperCase()}</span>
                                 </div>
                             {/if}
                         </div>
-                        <span class="artist-name">{artist.artist}</span>
-                        <span class="artist-stat">{artist.total_plays} plays</span>
+                        <span class="artist-name" title={artist.artist}>{artist.artist}</span>
+                        <span class="artist-stat">
+                            {#if artist.total_plays > 0}
+                                {artist.total_plays} {artist.total_plays === 1 ? "play" : "plays"}
+                            {:else}
+                                Discovered Seed
+                            {/if}
+                        </span>
                     </div>
                 {/each}
             </div>
@@ -57,14 +63,20 @@
                     <div class="album-card">
                         <div class="album-art-wrapper">
                             {#if album.cover_art_url}
-                                <img src={album.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(album.cover_art_url)}` : album.cover_art_url} alt={album.album_title} loading="lazy" />
+                                <img src={album.cover_art_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(album.cover_art_url)}` : album.cover_art_url} alt={album.album_title} loading="lazy" />
                             {:else}
                                 <div class="placeholder-art"></div>
                             {/if}
                         </div>
-                        <span class="album-title">{album.album_title}</span>
-                        <span class="album-artist">{album.artist}</span>
-                        <span class="album-stat">{album.total_plays} plays</span>
+                        <span class="album-title" title={album.album_title}>{album.album_title}</span>
+                        <span class="album-artist" title={album.artist}>{album.artist}</span>
+                        <span class="album-stat">
+                            {#if album.total_plays > 0}
+                                {album.total_plays} {album.total_plays === 1 ? "play" : "plays"}
+                            {:else}
+                                Discovered Seed
+                            {/if}
+                        </span>
                     </div>
                 {/each}
             </div>
@@ -92,23 +104,25 @@
     }
 
     .section-title-row h2 {
+        font-family: var(--echo-font-heading, "Playfair Display", serif);
         font-size: 1.35rem;
-        font-weight: 700;
+        font-weight: 600;
         margin: 0;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.01em;
+        color: #fff;
     }
 
     :global(.flame-icon) {
-        color: #ef476f;
+        color: #B58E62;
     }
 
     .tabs-group {
         display: flex;
-        background: var(--surface-1, rgba(255, 255, 255, 0.05));
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 8px;
-        padding: 2px;
-        gap: 2px;
+        background: #141416;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        padding: 3px;
+        gap: 3px;
     }
 
     .tab-btn {
@@ -117,11 +131,11 @@
         gap: 0.4rem;
         background: transparent;
         border: none;
-        color: var(--text-muted, rgba(255, 255, 255, 0.6));
-        font-size: 0.78rem;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.75rem;
         font-weight: 600;
-        padding: 0.35rem 0.75rem;
-        border-radius: 6px;
+        padding: 0.3rem 0.7rem;
+        border-radius: 4px;
         cursor: pointer;
         transition: all 0.15s ease;
     }
@@ -131,8 +145,9 @@
     }
 
     .tab-btn.active {
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
+        background: rgba(181, 142, 98, 0.15);
+        color: #D4A86E;
+        border: 1px solid rgba(181, 142, 98, 0.25);
     }
 
     .artists-carousel-track, .albums-carousel-track {
@@ -155,13 +170,13 @@
         flex-direction: column;
         align-items: center;
         text-align: center;
-        gap: 0.4rem;
+        gap: 0.45rem;
         cursor: pointer;
         transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .artist-circle-card:hover {
-        transform: translateY(-4px);
+        transform: translateY(-3px);
     }
 
     .artist-avatar-wrapper {
@@ -169,8 +184,13 @@
         height: 100px;
         border-radius: 50%;
         overflow: hidden;
-        background: var(--surface-1, rgba(255, 255, 255, 0.06));
-        border: 2px solid rgba(255, 255, 255, 0.08);
+        background: #141416;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition: border-color 0.2s ease;
+    }
+
+    .artist-circle-card:hover .artist-avatar-wrapper {
+        border-color: rgba(181, 142, 98, 0.35);
     }
 
     .artist-avatar-wrapper img {
@@ -185,14 +205,22 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.8rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, rgba(239, 71, 111, 0.3), rgba(17, 138, 178, 0.3));
+        background: #18181B;
+        border: 1px solid rgba(181, 142, 98, 0.2);
+        border-radius: 50%;
+    }
+
+    .avatar-letter {
+        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-size: 2rem;
+        font-weight: 600;
+        color: #D4A86E;
     }
 
     .artist-name {
-        font-size: 0.86rem;
+        font-size: 0.85rem;
         font-weight: 600;
+        color: #fff;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -200,8 +228,9 @@
     }
 
     .artist-stat {
-        font-size: 0.72rem;
-        color: var(--text-muted, rgba(255, 255, 255, 0.5));
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.68rem;
+        color: rgba(255, 255, 255, 0.45);
     }
 
     .album-card {
@@ -214,7 +243,7 @@
     }
 
     .album-card:hover {
-        transform: translateY(-4px);
+        transform: translateY(-3px);
     }
 
     .album-art-wrapper {
@@ -222,8 +251,13 @@
         height: 140px;
         border-radius: 10px;
         overflow: hidden;
-        background: var(--surface-1, rgba(255, 255, 255, 0.04));
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: #141416;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition: border-color 0.2s ease;
+    }
+
+    .album-card:hover .album-art-wrapper {
+        border-color: rgba(181, 142, 98, 0.35);
     }
 
     .album-art-wrapper img {
@@ -235,12 +269,13 @@
     .placeholder-art {
         width: 100%;
         height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+        background: #18181B;
     }
 
     .album-title {
-        font-size: 0.88rem;
+        font-size: 0.86rem;
         font-weight: 600;
+        color: #fff;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -248,14 +283,15 @@
 
     .album-artist {
         font-size: 0.76rem;
-        color: var(--text-muted, rgba(255, 255, 255, 0.6));
+        color: rgba(255, 255, 255, 0.55);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
     .album-stat {
-        font-size: 0.7rem;
-        color: var(--text-muted, rgba(255, 255, 255, 0.5));
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.68rem;
+        color: rgba(255, 255, 255, 0.45);
     }
 </style>

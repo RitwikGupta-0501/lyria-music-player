@@ -556,6 +556,7 @@
         max-width: 650px;
         margin: 0.4rem 0 0.8rem 0;
         display: -webkit-box;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;

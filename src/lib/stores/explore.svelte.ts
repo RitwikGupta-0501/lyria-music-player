@@ -341,6 +341,51 @@ export class ExploreStore {
         }
     }
 
+    async openRadioMix(card: { id: string; title: string; subtitle?: string; covers?: string[]; seed: any }) {
+        const pId = card.seed?.provider_id || "youtube-wasm";
+        this.activeDrawerCollection = {
+            kind: "playlist",
+            source: "remote",
+            id: card.id,
+            title: card.title,
+            subtitle: card.subtitle || "Algorithmic Mix",
+            cover_art_url: (card.covers && card.covers[0]) || null,
+            provider_id: pId,
+            tracks: [],
+        };
+        this.isLoadingCollection = true;
+        this.isLoadingPlaylist = true;
+
+        try {
+            const radioResult: any = await invoke("get_radio_stream", {
+                providerId: pId,
+                seed: card.seed,
+            });
+
+            if (radioResult && radioResult.tracks && this.activeDrawerCollection?.id === card.id) {
+                const tracks = radioResult.tracks.map((t: any) => ({
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album || "",
+                    cover_art_url: t.cover_art_url || (card.covers && card.covers[0]) || null,
+                    duration_ms: t.duration_ms,
+                    stream_url: t.stream_url,
+                    provider_id: pId,
+                }));
+                this.activeDrawerCollection = {
+                    ...this.activeDrawerCollection,
+                    tracks,
+                };
+            }
+        } catch (e) {
+            console.error("Failed to load radio mix tracks:", e);
+        } finally {
+            this.isLoadingCollection = false;
+            this.isLoadingPlaylist = false;
+        }
+    }
+
     async openPlaylist(playlist: { id: string; title?: string; author?: string; cover_art_url?: string | null; provider_id?: string }) {
         const pId = playlist.provider_id || "youtube-wasm";
         // Instantly populate drawer stub so drawer opens immediately with title and cover art!

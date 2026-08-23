@@ -437,6 +437,12 @@ impl ProviderManager {
         }
     }
 
+    pub fn clear_all_plugin_cache(&self) {
+        let mut cache = self.plugin_cache.lock().unwrap();
+        cache.clear();
+        tracing::info!("Evicted all active plugin instances from cache");
+    }
+
         pub async fn search_categorized(&self, provider_id: &str, input: &SearchQueryInput) -> Result<CategorizedSearchResult, SandboxError> {
         let provider_id = provider_id.to_string();
         let input_clone = input.clone();

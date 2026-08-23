@@ -640,11 +640,92 @@ pub fn get_canonical_quick_picks(conn: &Connection, limit: usize) -> SqlResult<V
          LIMIT ?1"
     )?;
 
-    let rows = stmt.query_map([limit as i64], map_canonical_row)?;
-    let mut results = Vec::new();
+    let rows = stmt.query_map([(limit * 4) as i64], map_canonical_row)?;
+    let mut raw = Vec::new();
     for r in rows {
-        results.push(r?);
+        raw.push(r?);
     }
+
+    // Artist diversity capping: maximum 2 tracks per artist in Quick Picks
+    let mut results = Vec::new();
+    let mut deferred = Vec::new();
+    let mut artist_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for song in raw {
+        let artist_norm = song.artist.trim().to_lowercase();
+        let count = artist_counts.entry(artist_norm).or_insert(0);
+        if *count < 2 {
+            *count += 1;
+            results.push(song);
+        } else {
+            deferred.push(song);
+        }
+        if results.len() >= limit {
+            break;
+        }
+    }
+
+    // Backfill from deferred telemetry if below limit
+    for song in deferred {
+        if results.len() >= limit {
+            break;
+        }
+        results.push(song);
+    }
+
+    // Deterministic fallback: If telemetry tracks < limit, fill remaining slots from local library tracks
+    if results.len() < limit {
+        let needed = limit - results.len();
+        if let Ok(mut lib_stmt) = conn.prepare(
+            "SELECT t.id, t.title, t.artist, a.title as album_title, a.cover_art_path, t.file_path, t.duration_ms
+             FROM tracks t
+             LEFT JOIN albums a ON t.album_id = a.id
+             WHERE t.title IS NOT NULL AND t.title != ''
+             ORDER BY RANDOM()
+             LIMIT ?1"
+        ) {
+            if let Ok(lib_rows) = lib_stmt.query_map([(needed * 4) as i64], |row| {
+                let id: i64 = row.get(0)?;
+                let title: String = row.get(1)?;
+                let artist_opt: Option<String> = row.get(2)?;
+                let album: Option<String> = row.get(3)?;
+                let art: Option<String> = row.get(4)?;
+                let path: Option<String> = row.get(5)?;
+                let duration: Option<i64> = row.get(6)?;
+                Ok((id, title, artist_opt, album, art, path, duration))
+            }) {
+                for lib_res in lib_rows.flatten() {
+                    let (id, title, artist_opt, album, art, path, duration) = lib_res;
+                    let artist = artist_opt.unwrap_or_else(|| "Unknown Artist".to_string());
+                    let key = format!("{}::{}", artist.trim().to_lowercase(), title.trim().to_lowercase());
+
+                    if !results.iter().any(|r| r.canonical_key == key) {
+                        results.push(CanonicalSong {
+                            id: 0,
+                            canonical_key: key,
+                            title,
+                            artist,
+                            album,
+                            cover_art_url: art,
+                            play_count: 0,
+                            last_played_at: None,
+                            liked: false,
+                            local_track_id: Some(id),
+                            local_file_path: path,
+                            last_provider_id: "local".to_string(),
+                            last_source_id: id.to_string(),
+                            duration_ms: duration.map(|d| d as u64),
+                        });
+                    }
+
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     Ok(results)
 }
 

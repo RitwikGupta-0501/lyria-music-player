@@ -13,14 +13,22 @@
     function isPlaying(song: FederatedTrack): boolean {
         return isCurrentTrack(song) && audioStore.playbackState === "Playing";
     }
+
+    function formatDuration(ms?: number | null): string {
+        if (!ms) return "";
+        const s = Math.floor(ms / 1000);
+        const mins = Math.floor(s / 60);
+        const secs = s % 60;
+        return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+    }
 </script>
 
 <section class="quick-picks-section">
     <div class="section-title-row">
         <div class="title-group">
             <h2>Quick Picks</h2>
-            <span class="section-tag">High Rotation</span>
         </div>
+        <span class="section-tag">High Rotation</span>
     </div>
 
     <div class="quick-picks-grid">
@@ -31,12 +39,12 @@
                 role="button"
                 tabindex="0"
                 onclick={() => homeStore.playFederatedTrack(song)}
-                onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
+                onkeydown={(e) => { if (e.key === "Enter") homeStore.playFederatedTrack(song); }}
             >
                 <div class="pill-art">
                     {#if song.cover_art_url}
                         <img 
-                            src={song.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} 
+                            src={song.cover_art_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} 
                             alt={song.title} 
                             loading="lazy"
                         />
@@ -52,24 +60,29 @@
                                 <span class="bar bar-3"></span>
                             </div>
                         {:else}
-                            <Play size={18} weight="fill" />
+                            <Play size={16} weight="fill" />
                         {/if}
                     </div>
                 </div>
 
                 <div class="pill-info">
-                    <span class="pill-title">{song.title}</span>
-                    <span class="pill-artist">{song.artist}</span>
+                    <span class="pill-title" title={song.title}>{song.title}</span>
+                    <span class="pill-artist" title={song.artist}>{song.artist}</span>
                 </div>
 
-                <button 
-                    class="pill-like-btn" 
-                    class:liked={song.liked}
-                    onclick={(e) => { e.stopPropagation(); homeStore.toggleLike(song); }}
-                    title={song.liked ? "Liked" : "Like track"}
-                >
-                    <Heart size={18} weight={song.liked ? "fill" : "regular"} />
-                </button>
+                <div class="pill-trailing">
+                    {#if song.duration_ms}
+                        <span class="pill-duration">{formatDuration(song.duration_ms)}</span>
+                    {/if}
+                    <button 
+                        class="pill-like-btn" 
+                        class:liked={song.liked}
+                        onclick={(e) => { e.stopPropagation(); homeStore.toggleLike(song); }}
+                        title={song.liked ? "Liked" : "Like track"}
+                    >
+                        <Heart size={15} weight={song.liked ? "fill" : "regular"} />
+                    </button>
+                </div>
             </div>
         {/each}
     </div>
@@ -95,61 +108,81 @@
     }
 
     .section-title-row h2 {
+        font-family: var(--echo-font-heading, "Playfair Display", serif);
         font-size: 1.35rem;
-        font-weight: 700;
+        font-weight: 600;
         margin: 0;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.01em;
+        color: #fff;
     }
 
     .section-tag {
-        font-size: 0.72rem;
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.65rem;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--text-muted, rgba(255, 255, 255, 0.5));
-        background: var(--surface-1, rgba(255, 255, 255, 0.05));
+        letter-spacing: 0.08em;
+        color: #B58E62;
+        background: rgba(181, 142, 98, 0.08);
+        border: 1px solid rgba(181, 142, 98, 0.18);
         padding: 0.2rem 0.55rem;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
     }
 
     .quick-picks-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 0.85rem;
+    }
+
+    @media (max-width: 1200px) {
+        .quick-picks-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .quick-picks-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
     .quick-pick-pill {
         display: flex;
         align-items: center;
         gap: 0.85rem;
-        background: var(--surface-1, rgba(255, 255, 255, 0.035));
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 10px;
-        padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+        background: #141416;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 0.45rem 0.75rem 0.45rem 0.45rem;
         cursor: pointer;
-        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease;
+        position: relative;
+        overflow: hidden;
+        min-height: 60px;
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     .quick-pick-pill:hover {
         transform: translateY(-2px);
-        background: var(--surface-2, rgba(255, 255, 255, 0.08));
-        border-color: rgba(255, 255, 255, 0.15);
+        background: #18181C;
+        border-color: rgba(181, 142, 98, 0.35);
+        box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.5);
     }
 
     .quick-pick-pill.active-track {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.25);
+        background: rgba(181, 142, 98, 0.12);
+        border-color: rgba(181, 142, 98, 0.4);
     }
 
     .pill-art {
-        width: 50px;
-        height: 50px;
-        border-radius: 7px;
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
         overflow: hidden;
         position: relative;
         flex-shrink: 0;
-        background: rgba(255, 255, 255, 0.05);
+        background: #18181B;
+        border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .pill-art img {
@@ -161,7 +194,7 @@
     .placeholder-art {
         width: 100%;
         height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+        background: #202024;
     }
 
     .pill-play-overlay {
@@ -191,7 +224,7 @@
 
     .equalizer-indicator .bar {
         width: 3px;
-        background: var(--accent-primary, #ffd166);
+        background: #B58E62;
         border-radius: 1px;
         animation: eqBounce 0.8s ease-in-out infinite alternate;
     }
@@ -214,27 +247,41 @@
     }
 
     .pill-title {
-        font-size: 0.92rem;
-        font-weight: 600;
+        font-size: 0.88rem;
+        font-weight: 500;
+        color: #EDEDED;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
     .pill-artist {
-        font-size: 0.8rem;
-        color: var(--text-muted, rgba(255, 255, 255, 0.6));
+        font-size: 0.76rem;
+        color: rgba(255, 255, 255, 0.48);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
+    .pill-trailing {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .pill-duration {
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
     .pill-like-btn {
         background: transparent;
         border: none;
-        color: var(--text-muted, rgba(255, 255, 255, 0.35));
+        color: rgba(255, 255, 255, 0.3);
         cursor: pointer;
-        padding: 0.4rem;
+        padding: 0.35rem;
         border-radius: 50%;
         display: flex;
         align-items: center;
@@ -243,11 +290,11 @@
     }
 
     .pill-like-btn:hover {
-        color: #ff6b6b;
+        color: #B58E62;
         transform: scale(1.15);
     }
 
     .pill-like-btn.liked {
-        color: #ff6b6b;
+        color: #B58E62;
     }
 </style>

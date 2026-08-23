@@ -61,6 +61,10 @@ opus = "0.3.1"
 unicode-normalization = "0.1"
 tokio-util = { version = "0.7", features = ["time"] }
 
+[features]
+default = []
+sync-workspace-extensions = []
+
 [profile.dev]
 incremental = true
 split-debuginfo = "unpacked"

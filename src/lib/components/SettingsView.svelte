@@ -26,6 +26,16 @@
         { value: "collapse_idle", label: "Clear Player When Finished" },
     ];
 
+    let isDiversityCeilingOpen = $state(false);
+
+    const diversityCeilingOptions = [
+        { value: 1, label: "1 Track (Maximum Diversity / Singletons)" },
+        { value: 2, label: "2 Tracks (High Diversity)" },
+        { value: 3, label: "3 Tracks (Balanced Catalog - Default)" },
+        { value: 4, label: "4 Tracks (Deep Catalog)" },
+        { value: 5, label: "5 Tracks (Relaxed Diversity)" },
+    ];
+
     onMount(async () => {
         await settingsStore.init();
     });
@@ -44,12 +54,20 @@
         isQueueCompletionOpen = false;
     }
 
+    async function selectDiversityCeiling(val: number) {
+        await settingsStore.setDiscoveryArtistDiversityCeiling(val);
+        isDiversityCeilingOpen = false;
+    }
+
     function handleOutsideClick(e: MouseEvent) {
         if (isDropdownOpen) {
             isDropdownOpen = false;
         }
         if (isQueueCompletionOpen) {
             isQueueCompletionOpen = false;
+        }
+        if (isDiversityCeilingOpen) {
+            isDiversityCeilingOpen = false;
         }
     }
 
@@ -88,6 +106,16 @@
 
     async function toggleLogCollection() {
         await settingsStore.setLogCollectionEnabled(!settingsStore.logCollectionEnabled);
+    }
+
+        async function clearRecommendationCache() {
+        try {
+            await invoke("clear_recommendations_cache");
+            toastStore.success("Recommendation cache cleared & plugins reloaded.");
+        } catch (e: any) {
+            console.error("Failed to clear recommendation cache:", e);
+            toastStore.error(e?.toString() || "Failed to clear cache.");
+        }
     }
 
     async function factoryReset() {
@@ -298,6 +326,66 @@
                             {/if}
                         </div>
                     </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <p class="setting-label">Daily Discover Artist Ceiling</p>
+                            <p class="setting-desc">
+                                Maximum number of songs a single artist can have in the Daily Discover shelf.
+                            </p>
+                        </div>
+
+                        <div class="custom-select-container">
+                            <button
+                                class="select-trigger"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    isDiversityCeilingOpen = !isDiversityCeilingOpen;
+                                    isDropdownOpen = false;
+                                    isQueueCompletionOpen = false;
+                                }}
+                                disabled={!settingsStore.loaded}
+                            >
+                                <span
+                                    >{diversityCeilingOptions.find(
+                                        (o) => o.value === settingsStore.discoveryArtistDiversityCeiling,
+                                    )?.label || "3 Tracks (Balanced Catalog)"}</span
+                                >
+                                <CaretDown
+                                    size={14}
+                                    weight="bold"
+                                    class={isDiversityCeilingOpen ? "rotated" : ""}
+                                />
+                            </button>
+
+                            {#if isDiversityCeilingOpen}
+                                <div class="custom-select-menu glass">
+                                    {#each diversityCeilingOptions as opt}
+                                        <button
+                                            class="select-option"
+                                            class:selected={settingsStore.discoveryArtistDiversityCeiling ===
+                                                opt.value}
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                selectDiversityCeiling(opt.value);
+                                            }}
+                                        >
+                                            <span class="opt-label"
+                                                >{opt.label}</span
+                                            >
+                                            {#if settingsStore.discoveryArtistDiversityCeiling === opt.value}
+                                                <Check
+                                                    size={14}
+                                                    weight="bold"
+                                                    class="check-icon"
+                                                />
+                                            {/if}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+                    </div>
                 </section>
             {:else if activeTab === "appearance"}
                 <section class="settings-section">
@@ -329,9 +417,21 @@
                 <section class="settings-section">
                     <h3 class="section-title">Data Management</h3>
 
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <p class="setting-label">Clear Recommendation Cache</p>
+                            <p class="setting-desc">
+                                Purge all cached Daily Discover recommendations and reload sandboxed extension plugins into memory.
+                            </p>
+                        </div>
+                        <button class="action-btn primary" onclick={clearRecommendationCache}>
+                            <span>Clear Cache</span>
+                        </button>
+                    </div>
+
                     <div
                         class="setting-row"
-                        style="flex-direction: column; align-items: flex-start; gap: 1.5rem;"
+                        style="flex-direction: column; align-items: flex-start; gap: 1.5rem; margin-top: 1.5rem;"
                     >
                         <div class="setting-info">
                             <p class="setting-desc" style="font-size: 0.95rem;">
