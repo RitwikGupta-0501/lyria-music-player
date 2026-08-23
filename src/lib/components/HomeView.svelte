@@ -1,9 +1,15 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
-    import { audioStore } from "$lib/stores/audio.svelte";
-    import { Play, Pause, Heart, ArrowClockwise, Sparkle, ClockCounterClockwise, ArrowRight, Compass, FolderOpen } from "phosphor-svelte";
-    import { libraryStore } from "$lib/stores/library.svelte";
+    import { homeStore } from "$lib/stores/home.svelte";
+    import { ArrowClockwise, Sparkle, Compass, FolderOpen, Play } from "phosphor-svelte";
+
+    import QuickPicksGrid from "./home/QuickPicksGrid.svelte";
+    import DailyDiscoverCarousel from "./home/DailyDiscoverCarousel.svelte";
+    import RadioMixCarousel from "./home/RadioMixCarousel.svelte";
+    import AdjacentHorizonsCard from "./home/AdjacentHorizonsCard.svelte";
+    import JumpBackInShelf from "./home/JumpBackInShelf.svelte";
+    import HeavyRotationShelf from "./home/HeavyRotationShelf.svelte";
+    import ForgottenFavoritesShelf from "./home/ForgottenFavoritesShelf.svelte";
 
     let { activeView = $bindable("home") } = $props<{ activeView?: string }>();
 
@@ -17,44 +23,6 @@
         if (hour < 18) return "Good afternoon";
         return "Good evening";
     }
-
-    function isCurrentTrack(song: FederatedTrack): boolean {
-        const cur = audioStore.currentQueueTrack;
-        if (!cur) return false;
-        return cur.title.toLowerCase() === song.title.toLowerCase()
-            && (cur.artist || "").toLowerCase() === song.artist.toLowerCase();
-    }
-
-    function playRemoteItem(item: any, providerId: string) {
-        const track = {
-            id: `remote-${providerId}-${item.id || item.video_id || item.title}`,
-            title: item.title,
-            artist: item.artist,
-            album: item.album || '',
-            file_path: item.stream_url || '',
-            provider_id: providerId,
-            stream_url: item.stream_url,
-            cover_art_url: item.cover_art_url,
-            duration_ms: item.duration_ms,
-        };
-        audioStore.setQueue([track], 0);
-        homeStore.recordPlay({
-            id: 0,
-            canonical_key: '',
-            title: item.title,
-            artist: item.artist,
-            album: item.album || null,
-            cover_art_url: item.cover_art_url || null,
-            play_count: 1,
-            last_played_at: null,
-            liked: false,
-            local_track_id: null,
-            local_file_path: null,
-            last_provider_id: providerId,
-            last_source_id: item.id || item.video_id || '',
-            duration_ms: item.duration_ms || null,
-        });
-    }
 </script>
 
 <div class="home-view">
@@ -62,7 +30,7 @@
     <header class="home-header">
         <div class="header-left">
             <h1>{getGreeting()}</h1>
-            <p class="subtitle">Your personalized music stream & discovery</p>
+            <p class="subtitle">Your personalized music stream & discovery cockpit</p>
         </div>
         <div class="header-actions">
             <button 
@@ -76,15 +44,16 @@
         </div>
     </header>
 
-    <!-- Fresh / Empty State Banner (When 0 plays recorded) -->
-    {#if homeStore.phase1Loaded && homeStore.quickPicks.length === 0 && homeStore.keepListening.length === 0}
-        <section class="welcome-card">
+    <!-- Cold-Start View: When total telemetry play count is 0 -->
+    {#if homeStore.phase1Loaded && !homeStore.hasTelemetry}
+        <section class="welcome-hero-card">
             <div class="welcome-badge">
                 <Sparkle size={16} weight="fill" />
-                <span>Algorithmic Dashboard</span>
+                <span>Algorithmic Cockpit</span>
             </div>
             <h2>Welcome to Echo</h2>
-            <p>Start playing music from your local library or explore global charts. Echo will adapt and curate your daily recommendations automatically.</p>
+            <p>Start playing music from your local library or explore global releases. Echo learns from your unique listening telemetry and generates dynamic daily mixes automatically.</p>
+            
             <div class="welcome-actions">
                 <button class="primary-btn" onclick={() => activeView = "explore"}>
                     <Compass size={18} weight="bold" />
@@ -96,197 +65,88 @@
                 </button>
             </div>
         </section>
-    {/if}
 
-    <!-- 1. Speed Dial / Quick Picks Grid -->
-    {#if homeStore.quickPicks.length > 0}
-        <section class="home-section quick-picks-section">
-            <div class="section-title-row">
-                <h2>Quick Picks</h2>
-                <span class="section-tag">High Rotation</span>
-            </div>
-            <div class="quick-picks-grid">
-                {#each homeStore.quickPicks.slice(0, 8) as song}
-                    <div 
-                        class="quick-pick-pill"
-                        class:playing={isCurrentTrack(song)}
-                        role="button"
-                        tabindex="0"
-                        onclick={() => homeStore.playFederatedTrack(song)}
-                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
-                    >
-                        <div class="pill-art">
-                            {#if song.cover_art_url}
-                                <img src={song.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} alt={song.title} />
-                            {:else}
-                                <div class="placeholder-art"></div>
-                            {/if}
-                            <div class="pill-play-overlay">
-                                {#if isCurrentTrack(song) && audioStore.playbackState === "Playing"}
-                                    <Pause size={18} weight="fill" />
-                                {:else}
-                                    <Play size={18} weight="fill" />
-                                {/if}
-                            </div>
-                        </div>
-
-                        <div class="pill-info">
-                            <span class="pill-title">{song.title}</span>
-                            <span class="pill-artist">{song.artist}</span>
-                        </div>
-
-                        <button 
-                            class="pill-like-btn" 
-                            class:liked={song.liked}
-                            onclick={(e) => { e.stopPropagation(); homeStore.toggleLike(song); }}
-                            title={song.liked ? "Liked" : "Like track"}
-                        >
-                            <Heart size={18} weight={song.liked ? "fill" : "regular"} />
-                        </button>
+        <!-- Cold-Start Local Library Sampler -->
+        {#if homeStore.coldStartSeeds.length > 0}
+            <section class="cold-start-shelf">
+                <div class="section-title-row">
+                    <div class="title-group">
+                        <FolderOpen size={20} weight="bold" class="cold-icon" />
+                        <h2>Discover from Your Library</h2>
                     </div>
-                {/each}
-            </div>
-        </section>
-    {/if}
-
-    <!-- 2. Keep Listening (Past 14 Days) -->
-    {#if homeStore.keepListening.length > 0}
-        <section class="home-section">
-            <div class="section-title-row">
-                <h2>
-                    <ClockCounterClockwise size={20} weight="bold" />
-                    <span>Keep Listening</span>
-                </h2>
-                <span class="section-tag">Recent 14 Days</span>
-            </div>
-            <div class="carousel-track">
-                {#each homeStore.keepListening as song}
-                    <div 
-                        class="carousel-card"
-                        role="button"
-                        tabindex="0"
-                        onclick={() => homeStore.playFederatedTrack(song)}
-                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
-                    >
-                        <div class="card-art-wrapper">
-                            {#if song.cover_art_url}
-                                <img src={song.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} alt={song.title} />
-                            {:else}
-                                <div class="placeholder-art"></div>
-                            {/if}
-                            <div class="card-overlay">
-                                <div class="play-bubble">
-                                    <Play size={22} weight="fill" />
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-info">
-                            <span class="card-title">{song.title}</span>
-                            <span class="card-artist">{song.artist}</span>
-                        </div>
-                    </div>
-                {/each}
-            </div>
-        </section>
-    {/if}
-
-    <!-- 3. Daily Discover (Federated Discovery) -->
-    {#if homeStore.isLoadingRemote || homeStore.dailyDiscover.length > 0}
-        <section class="home-section">
-            <div class="section-title-row">
-                <h2>
-                    <Sparkle size={20} weight="fill" class="sparkle-icon" />
-                    <span>Daily Discover</span>
-                </h2>
-                {#if homeStore.failedProviders.length > 0}
-                    <span class="section-tag warning" title="Some providers degraded: {homeStore.failedProviders.join(', ')}">Partial Feed</span>
-                {:else}
-                    <span class="section-tag">Curated for You</span>
-                {/if}
-            </div>
-
-            {#if homeStore.isLoadingRemote && homeStore.dailyDiscover.length === 0}
-                <div class="carousel-track">
-                    {#each Array(6) as _}
-                        <div class="carousel-card skeleton">
-                            <div class="card-art-wrapper skeleton-box"></div>
-                            <div class="skeleton-line title"></div>
-                            <div class="skeleton-line artist"></div>
-                        </div>
-                    {/each}
+                    <span class="section-tag">Starter Seeds</span>
                 </div>
-            {:else if homeStore.dailyDiscover.length > 0}
-                <div class="carousel-track">
-                    {#each homeStore.dailyDiscover as item}
+
+                <div class="cold-seeds-grid">
+                    {#each homeStore.coldStartSeeds as seed}
                         <div 
-                            class="carousel-card"
+                            class="cold-seed-card"
                             role="button"
                             tabindex="0"
-                            onclick={() => homeStore.playFederatedTrack(item)}
-                            onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(item); }}
+                            onclick={() => homeStore.playColdStartSeed(seed)}
+                            onkeydown={(e) => { if (e.key === 'Enter') homeStore.playColdStartSeed(seed); }}
                         >
-                            <div class="card-art-wrapper">
-                                {#if item.cover_art_url}
-                                    <img src={item.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(item.cover_art_url)}` : item.cover_art_url} alt={item.title} />
+                            <div class="cold-art-wrapper">
+                                {#if seed.cover_art_url}
+                                    <img src={seed.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(seed.cover_art_url)}` : seed.cover_art_url} alt={seed.track_title} loading="lazy" />
                                 {:else}
                                     <div class="placeholder-art"></div>
                                 {/if}
-                                <div class="card-overlay">
+                                <div class="cold-overlay">
                                     <div class="play-bubble">
-                                        <Play size={22} weight="fill" />
+                                        <Play size={20} weight="fill" />
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-info">
-                                <span class="card-title">{item.title}</span>
-                                <span class="card-artist">{item.artist}</span>
-                                {#if item.seed_provenance}
-                                    <span class="card-provenance">{item.seed_provenance}</span>
+                            <div class="cold-info">
+                                <span class="cold-title">{seed.track_title}</span>
+                                <span class="cold-artist">{seed.artist}</span>
+                                {#if seed.album_title}
+                                    <span class="cold-album">{seed.album_title}</span>
                                 {/if}
                             </div>
                         </div>
                     {/each}
                 </div>
-            {/if}
-        </section>
-    {/if}
+            </section>
+        {/if}
+    {:else}
+        <!-- Active Cockpit: 7 Ego Shelves -->
 
-    <!-- 4. Forgotten Favorites -->
-    {#if homeStore.forgottenFavorites.length > 0}
-        <section class="home-section">
-            <div class="section-title-row">
-                <h2>Forgotten Favorites</h2>
-                <span class="section-tag">Rediscover</span>
-            </div>
-            <div class="carousel-track">
-                {#each homeStore.forgottenFavorites as song}
-                    <div 
-                        class="carousel-card"
-                        role="button"
-                        tabindex="0"
-                        onclick={() => homeStore.playFederatedTrack(song)}
-                        onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
-                    >
-                        <div class="card-art-wrapper">
-                            {#if song.cover_art_url}
-                                <img src={song.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} alt={song.title} />
-                            {:else}
-                                <div class="placeholder-art"></div>
-                            {/if}
-                            <div class="card-overlay">
-                                <div class="play-bubble">
-                                    <Play size={22} weight="fill" />
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-info">
-                            <span class="card-title">{song.title}</span>
-                            <span class="card-artist">{song.artist}</span>
-                        </div>
-                    </div>
-                {/each}
-            </div>
-        </section>
+        <!-- 1. ⚡ Quick Picks Grid -->
+        {#if homeStore.quickPicks.length > 0}
+            <QuickPicksGrid />
+        {/if}
+
+        <!-- 2. 🔄 Jump Back In -->
+        {#if homeStore.jumpBackIn.length > 0}
+            <JumpBackInShelf />
+        {/if}
+
+        <!-- 3. ✨ Daily Discover -->
+        {#if homeStore.isLoadingRemote || homeStore.dailyDiscover.length > 0}
+            <DailyDiscoverCarousel />
+        {/if}
+
+        <!-- 4. 📻 Algorithmic Radios -->
+        {#if homeStore.radioMixes.length > 0}
+            <RadioMixCarousel />
+        {/if}
+
+        <!-- 5. 🎲 Adjacent Horizons -->
+        {#if homeStore.adjacentHorizon}
+            <AdjacentHorizonsCard />
+        {/if}
+
+        <!-- 6. ☕ Heavy Rotation (7-Day Top Artists & Albums) -->
+        {#if homeStore.heavyRotation.artists.length > 0 || homeStore.heavyRotation.albums.length > 0}
+            <HeavyRotationShelf />
+        {/if}
+
+        <!-- 7. 📦 Forgotten Favorites -->
+        {#if homeStore.forgottenFavorites.length > 0}
+            <ForgottenFavoritesShelf />
+        {/if}
     {/if}
 </div>
 
@@ -347,8 +207,8 @@
         to { transform: rotate(360deg); }
     }
 
-    /* Welcome Card */
-    .welcome-card {
+    /* Welcome Hero Card */
+    .welcome-hero-card {
         background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
@@ -371,12 +231,12 @@
         border-radius: 20px;
     }
 
-    .welcome-card h2 {
+    .welcome-hero-card h2 {
         font-size: 1.75rem;
         margin: 0;
     }
 
-    .welcome-card p {
+    .welcome-hero-card p {
         margin: 0;
         max-width: 600px;
         color: var(--text-muted, rgba(255, 255, 255, 0.7));
@@ -423,8 +283,8 @@
         background: rgba(255, 255, 255, 0.14);
     }
 
-    /* Section Title */
-    .home-section {
+    /* Cold Start Local Sampler */
+    .cold-start-shelf {
         display: flex;
         flex-direction: column;
         gap: 1.25rem;
@@ -436,70 +296,64 @@
         justify-content: space-between;
     }
 
-    .section-title-row h2 {
-        font-size: 1.4rem;
-        font-weight: 700;
-        margin: 0;
+    .title-group {
         display: flex;
         align-items: center;
-        gap: 0.6rem;
+        gap: 0.65rem;
+    }
+
+    .section-title-row h2 {
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 0;
+        letter-spacing: -0.02em;
+    }
+
+    :global(.cold-icon) {
+        color: #48cae4;
     }
 
     .section-tag {
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         font-weight: 600;
         text-transform: uppercase;
+        letter-spacing: 0.05em;
         color: var(--text-muted, rgba(255, 255, 255, 0.5));
         background: var(--surface-1, rgba(255, 255, 255, 0.05));
-        padding: 0.2rem 0.6rem;
+        padding: 0.2rem 0.55rem;
         border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    :global(.sparkle-icon) {
-        color: #ffd166;
-    }
-
-    /* Quick Picks Pill Grid */
-    .quick-picks-grid {
+    .cold-seeds-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
         gap: 1rem;
     }
 
-    .quick-pick-pill {
+    .cold-seed-card {
         display: flex;
-        align-items: center;
-        gap: 1rem;
-        background: var(--surface-1, rgba(255, 255, 255, 0.04));
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 10px;
-        padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+        flex-direction: column;
+        gap: 0.55rem;
         cursor: pointer;
-        transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .quick-pick-pill:hover {
-        transform: translateY(-2px);
-        background: var(--surface-2, rgba(255, 255, 255, 0.08));
-        border-color: rgba(255, 255, 255, 0.15);
+    .cold-seed-card:hover {
+        transform: translateY(-4px);
     }
 
-    .quick-pick-pill.playing {
-        background: rgba(255, 255, 255, 0.12);
-        border-color: rgba(255, 255, 255, 0.3);
-    }
-
-    .pill-art {
-        width: 52px;
-        height: 52px;
-        border-radius: 6px;
+    .cold-art-wrapper {
+        width: 100%;
+        aspect-ratio: 1;
+        border-radius: 10px;
         overflow: hidden;
         position: relative;
-        flex-shrink: 0;
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--surface-1, rgba(255, 255, 255, 0.04));
+        border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
-    .pill-art img, .card-art-wrapper img {
+    .cold-art-wrapper img {
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -508,110 +362,10 @@
     .placeholder-art {
         width: 100%;
         height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02));
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
     }
 
-    .pill-play-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: opacity 0.2s ease;
-        color: #fff;
-    }
-
-    .quick-pick-pill:hover .pill-play-overlay,
-    .quick-pick-pill.playing .pill-play-overlay {
-        opacity: 1;
-    }
-
-    .pill-info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.2rem;
-    }
-
-    .pill-title {
-        font-size: 0.95rem;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .pill-artist {
-        font-size: 0.82rem;
-        color: var(--text-muted, rgba(255, 255, 255, 0.6));
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .pill-like-btn {
-        background: transparent;
-        border: none;
-        color: var(--text-muted, rgba(255, 255, 255, 0.4));
-        cursor: pointer;
-        padding: 0.4rem;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: color 0.2s ease, transform 0.2s ease;
-    }
-
-    .pill-like-btn:hover {
-        color: #ff6b6b;
-        transform: scale(1.15);
-    }
-
-    .pill-like-btn.liked {
-        color: #ff6b6b;
-    }
-
-    /* Horizontal Carousels */
-    .carousel-track {
-        display: flex;
-        gap: 1.5rem;
-        overflow-x: auto;
-        scroll-snap-type: x mandatory;
-        padding-bottom: 0.75rem;
-        scrollbar-width: none;
-    }
-
-    .carousel-track::-webkit-scrollbar {
-        display: none;
-    }
-
-    .carousel-card {
-        flex: 0 0 160px;
-        scroll-snap-align: start;
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-        cursor: pointer;
-        transition: transform 0.2s ease;
-    }
-
-    .carousel-card:hover {
-        transform: translateY(-4px);
-    }
-
-    .card-art-wrapper {
-        width: 160px;
-        height: 160px;
-        border-radius: 10px;
-        overflow: hidden;
-        position: relative;
-        background: var(--surface-1, rgba(255, 255, 255, 0.05));
-    }
-
-    .card-overlay {
+    .cold-overlay {
         position: absolute;
         inset: 0;
         background: rgba(0, 0, 0, 0.4);
@@ -622,89 +376,55 @@
         transition: opacity 0.2s ease;
     }
 
-    .carousel-card:hover .card-overlay {
+    .cold-seed-card:hover .cold-overlay {
         opacity: 1;
     }
 
     .play-bubble {
-        width: 44px;
-        height: 44px;
+        width: 40px;
+        height: 40px;
         border-radius: 50%;
         background: #fff;
         color: #000;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
         transform: scale(0.9);
         transition: transform 0.2s ease;
     }
 
-    .carousel-card:hover .play-bubble {
+    .cold-seed-card:hover .play-bubble {
         transform: scale(1);
     }
 
-    .card-info {
+    .cold-info {
         display: flex;
         flex-direction: column;
-        gap: 0.2rem;
+        gap: 0.15rem;
     }
 
-    .card-title {
-        font-size: 0.92rem;
+    .cold-title {
+        font-size: 0.9rem;
         font-weight: 600;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
-    .card-artist {
-        font-size: 0.8rem;
+    .cold-artist {
+        font-size: 0.78rem;
         color: var(--text-muted, rgba(255, 255, 255, 0.6));
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
-    .card-provenance {
-        display: inline-block;
-        font-size: 0.68rem;
-        font-weight: 500;
-        color: var(--accent-primary, #d4a373);
-        background: rgba(212, 163, 115, 0.12);
-        padding: 0.1rem 0.35rem;
-        border-radius: 4px;
+    .cold-album {
+        font-size: 0.7rem;
+        color: var(--text-muted, rgba(255, 255, 255, 0.45));
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 100%;
-    }
-
-    /* Skeleton Shimmer */
-    .skeleton-box {
-        background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
-        background-size: 200% 100%;
-        animation: shimmer 1.5s infinite;
-    }
-
-    .skeleton-line {
-        height: 12px;
-        border-radius: 4px;
-        background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
-        background-size: 200% 100%;
-        animation: shimmer 1.5s infinite;
-    }
-
-    .skeleton-line.title {
-        width: 80%;
-    }
-
-    .skeleton-line.artist {
-        width: 50%;
-    }
-
-    @keyframes shimmer {
-        0% { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
     }
 </style>
