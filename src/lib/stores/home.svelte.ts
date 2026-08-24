@@ -132,6 +132,7 @@ class HomeStore {
     adjacentHorizon = $state<AdjacentHorizonPayload | null>(null);
     failedProviders = $state<string[]>([]);
 
+    currentMood = $state("All");
     isLoadingLocal = $state(false);
     isLoadingRemote = $state(false);
     errorLocal = $state<string | null>(null);
@@ -154,14 +155,21 @@ class HomeStore {
         }
     }
 
+    async selectMood(mood: string) {
+        if (this.currentMood === mood) return;
+        this.currentMood = mood;
+        await this.loadHome(true);
+    }
+
     async loadHome(force = false) {
         const fetchId = ++this.currentFetchId;
+        const moodParam = this.currentMood === "All" ? null : this.currentMood;
 
         // ── Phase 1: Fast Local SQLite Telemetry Read (<10ms) ────────
         this.isLoadingLocal = true;
         this.errorLocal = null;
         try {
-            const local: HomeLocalShelves = await invoke("get_home_local_shelves");
+            const local: HomeLocalShelves = await invoke("get_home_local_shelves", { mood: moodParam });
             if (fetchId !== this.currentFetchId) return;
 
             this.quickPicks = local.quick_picks;
@@ -189,9 +197,9 @@ class HomeStore {
         try {
             // Concurrently fetch Radios, Adjacent Horizons, and Federated Daily Discover
             const [radiosRes, horizonRes, remoteRes] = await Promise.allSettled([
-                invoke<RadioMixCard[]>("get_home_radios"),
+                invoke<RadioMixCard[]>("get_home_radios", { mood: moodParam }),
                 invoke<AdjacentHorizonPayload | null>("get_home_adjacent_horizon"),
-                invoke<FederatedShelfResult>("get_home_remote_shelves"),
+                invoke<FederatedShelfResult>("get_home_remote_shelves", { mood: moodParam }),
             ]);
 
             if (fetchId !== this.currentFetchId) return;

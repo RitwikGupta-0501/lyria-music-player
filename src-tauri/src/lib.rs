@@ -385,13 +385,16 @@ async fn resolve_stream_url(
 #[tauri::command]
 async fn get_home_local_shelves(
     state: State<'_, AppState>,
+    mood: Option<String>,
 ) -> Result<providers::recommendations::HomeLocalShelves, String> {
-    state.recommendation_compiler.get_local_shelves()
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
+    state.recommendation_compiler.get_local_shelves(mood_filter)
 }
 
 #[tauri::command]
 async fn get_home_remote_shelves(
     state: State<'_, AppState>,
+    mood: Option<String>,
 ) -> Result<providers::recommendations::FederatedShelfResult, String> {
     let new_token = tokio_util::sync::CancellationToken::new();
     {
@@ -402,7 +405,8 @@ async fn get_home_remote_shelves(
         *lock = Some(new_token.clone());
     }
 
-    let seeds = state.recommendation_compiler.get_daily_discover_seeds()?;
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
+    let seeds = state.recommendation_compiler.get_daily_discover_seeds(mood_filter)?;
     Ok(state.recommendation_compiler.get_federated_daily_discover(seeds, new_token).await)
 }
 
@@ -410,8 +414,10 @@ async fn get_home_remote_shelves(
 #[tauri::command]
 async fn get_home_radios(
     state: State<'_, AppState>,
+    mood: Option<String>,
 ) -> Result<Vec<providers::recommendations::RadioMixCard>, String> {
-    state.recommendation_compiler.compile_algorithmic_radios()
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
+    state.recommendation_compiler.compile_algorithmic_radios(mood_filter)
 }
 
 #[tauri::command]
@@ -431,21 +437,23 @@ async fn get_radio_stream(
 }
 
 #[tauri::command]
-async fn get_home_feed(state: State<'_, AppState>) -> Result<HomeFeedPayload, String> {
+async fn get_home_feed(state: State<'_, AppState>, mood: Option<String>) -> Result<HomeFeedPayload, String> {
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+
     let (tx_qp, rx_qp) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalQuickPicks { limit: 20, resp: tx_qp }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalQuickPicks { mood: mood_filter.clone(), limit: 20, resp: tx_qp }).map_err(|e| e.to_string())?;
     let qp = rx_qp.await.map_err(|e| e.to_string())??;
 
     let (tx_kl, rx_kl) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalKeepListening { limit: 20, resp: tx_kl }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalKeepListening { mood: mood_filter.clone(), limit: 20, resp: tx_kl }).map_err(|e| e.to_string())?;
     let kl = rx_kl.await.map_err(|e| e.to_string())??;
 
     let (tx_ff, rx_ff) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalForgottenFavorites { limit: 20, resp: tx_ff }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalForgottenFavorites { mood: mood_filter.clone(), limit: 20, resp: tx_ff }).map_err(|e| e.to_string())?;
     let ff = rx_ff.await.map_err(|e| e.to_string())??;
 
     let (tx_ds, rx_ds) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalDiscoverSeeds { limit: 5, resp: tx_ds }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalDiscoverSeeds { mood: mood_filter, limit: 5, resp: tx_ds }).map_err(|e| e.to_string())?;
     let ds = rx_ds.await.map_err(|e| e.to_string())??;
 
     Ok(HomeFeedPayload {

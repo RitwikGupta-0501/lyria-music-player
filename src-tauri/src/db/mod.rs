@@ -33,18 +33,22 @@ pub enum DbRequest {
         resp: oneshot::Sender<Result<(), String>>,
     },
     GetCanonicalQuickPicks {
+        mood: Option<String>,
         limit: usize,
         resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
     },
     GetCanonicalKeepListening {
+        mood: Option<String>,
         limit: usize,
         resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
     },
     GetCanonicalForgottenFavorites {
+        mood: Option<String>,
         limit: usize,
         resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
     },
     GetCanonicalDiscoverSeeds {
+        mood: Option<String>,
         limit: usize,
         resp: oneshot::Sender<Result<Vec<queries::CanonicalSong>, String>>,
     },
@@ -125,20 +129,20 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                     let res = queries::record_resolution_result(&conn, &provider_id, success).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
-                DbRequest::GetCanonicalQuickPicks { limit, resp } => {
-                    let res = queries::get_canonical_quick_picks(&conn, limit).map_err(|e| e.to_string());
+                DbRequest::GetCanonicalQuickPicks { mood, limit, resp } => {
+                    let res = queries::get_canonical_quick_picks(&conn, mood.as_deref(), limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
-                DbRequest::GetCanonicalKeepListening { limit, resp } => {
-                    let res = queries::get_canonical_keep_listening(&conn, limit).map_err(|e| e.to_string());
+                DbRequest::GetCanonicalKeepListening { mood, limit, resp } => {
+                    let res = queries::get_canonical_keep_listening(&conn, mood.as_deref(), limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
-                DbRequest::GetCanonicalForgottenFavorites { limit, resp } => {
-                    let res = queries::get_canonical_forgotten_favorites(&conn, limit).map_err(|e| e.to_string());
+                DbRequest::GetCanonicalForgottenFavorites { mood, limit, resp } => {
+                    let res = queries::get_canonical_forgotten_favorites(&conn, mood.as_deref(), limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
-                DbRequest::GetCanonicalDiscoverSeeds { limit, resp } => {
-                    let res = queries::get_canonical_discover_seeds(&conn, limit).map_err(|e| e.to_string());
+                DbRequest::GetCanonicalDiscoverSeeds { mood, limit, resp } => {
+                    let res = queries::get_canonical_discover_seeds(&conn, mood.as_deref(), limit).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
                 DbRequest::ToggleCanonicalLike {

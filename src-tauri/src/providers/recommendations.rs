@@ -149,14 +149,14 @@ impl RecommendationCompiler {
         Ok(())
     }
 
-    pub fn get_local_shelves(&self) -> Result<HomeLocalShelves, String> {
+    pub fn get_local_shelves(&self, mood: Option<&str>) -> Result<HomeLocalShelves, String> {
         let conn = self.open_read_conn()?;
 
-        let quick_picks_raw = queries::get_canonical_quick_picks(&conn, 20).unwrap_or_default();
-        let keep_listening_raw = queries::get_canonical_keep_listening(&conn, 20).unwrap_or_default();
+        let quick_picks_raw = queries::get_canonical_quick_picks(&conn, mood, 20).unwrap_or_default();
+        let keep_listening_raw = queries::get_canonical_keep_listening(&conn, mood, 20).unwrap_or_default();
         let jump_back_in = queries::get_incomplete_playback_sessions(&conn, 8).unwrap_or_default();
         let heavy_rotation = queries::get_heavy_rotation_7d(&conn, 6).unwrap_or_default();
-        let forgotten_favorites_raw = queries::get_canonical_forgotten_favorites(&conn, 20).unwrap_or_default();
+        let forgotten_favorites_raw = queries::get_canonical_forgotten_favorites(&conn, mood, 20).unwrap_or_default();
         let cold_start_seeds = queries::get_cold_start_local_artists(&conn, 6).unwrap_or_default();
 
         Ok(HomeLocalShelves {
@@ -169,7 +169,7 @@ impl RecommendationCompiler {
         })
     }
 
-    pub fn compile_algorithmic_radios(&self) -> Result<Vec<RadioMixCard>, String> {
+    pub fn compile_algorithmic_radios(&self, mood: Option<&str>) -> Result<Vec<RadioMixCard>, String> {
         let conn = self.open_read_conn()?;
         let mut cards = Vec::new();
 
@@ -212,7 +212,7 @@ impl RecommendationCompiler {
             });
         }
 
-        // 2. Circadian / Temporal Mood Mixes (Time of Day Engine anchored in User Telemetry)
+        // 2. Circadian / Temporal Mood Mixes (Time of Day & Contextual Mood Engine)
         let hour = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
             Ok(d) => ((d.as_secs() / 3600) % 24) as u32,
             Err(_) => 12,
@@ -223,46 +223,46 @@ impl RecommendationCompiler {
         let a2 = top_artists.artists.get(1).map(|a| a.artist.as_str()).unwrap_or(a1);
         let a3 = top_artists.artists.get(2).map(|a| a.artist.as_str()).unwrap_or(a2);
 
-        let (m1_title, m1_sub, m1_artist, m1_query, m1_start, m1_end, m2_title, m2_sub, m2_artist, m2_query, m2_start, m2_end) = match hour {
-            5..=11 => (
-                format!("{} & Morning Momentum", a1),
-                "Uplifting acoustic rhythms and energetic melodies for dawn".to_string(),
-                a1,
-                format!("{} upbeat songs", a1),
-                "#E65100", "#3E2723",
+        let (m1_title, m1_sub, m1_artist, m1_query, m1_start, m1_end, m2_title, m2_sub, m2_artist, m2_query, m2_start, m2_end) = match mood.map(|m| m.trim().to_lowercase()).as_deref() {
+            Some("deep focus") | Some("focus") => (
                 format!("{} & Focus Flow", a2),
-                "Crisp, rhythmic clarity to start your morning workflow".to_string(),
+                "Crisp, minimal rhythms to power deep concentration".to_string(),
                 a2,
-                format!("{} flow songs", a2),
+                format!("{} focus instrumental songs", a2),
                 "#1B5E20", "#002700",
-            ),
-            12..=16 => (
-                format!("{} & Afternoon Drive", a1),
-                "Driving mid-tempo flow and dynamic melodies for peak hours".to_string(),
+                format!("{} & Ambient Pulse", a1),
+                "Steady rhythmic textures to sustain unbroken focus".to_string(),
                 a1,
-                format!("{} dynamic songs", a1),
+                format!("{} ambient chill songs", a1),
                 "#004D40", "#001E18",
-                format!("{} & Deep Work Pulse", a2),
-                "Steady rhythmic textures to power through the afternoon".to_string(),
-                a2,
-                format!("{} focus songs", a2),
-                "#311B92", "#12005E",
             ),
-            17..=21 => (
-                format!("{} & Twilight Harmonies", a2),
-                "Warm acoustic resonance and reflective vocal chords for twilight".to_string(),
+            Some("relax & chill") | Some("relax") | Some("chill") => (
+                format!("{} & Twilight Acoustics", a2),
+                "Warm acoustic chords and gentle indie resonance".to_string(),
                 a2,
                 format!("{} acoustic chill songs", a2),
                 "#BF360C", "#3E2723",
-                format!("{} & Golden Hour Unwind", a3),
-                "Smooth grooves and mellow sonic textures for sunset".to_string(),
+                format!("{} & Mellow Soul", a3),
+                "Smooth downtempo grooves and mellow vocal warmth".to_string(),
                 a3,
-                format!("{} chill songs", a3),
+                format!("{} neo soul chill songs", a3),
                 "#4A148C", "#12005E",
             ),
-            _ => (
+            Some("energy & drive") | Some("energy") | Some("drive") => (
+                format!("{} & High-Energy Drive", a1),
+                "Uplifting anthems, dynamic pop, and high-velocity rhythm".to_string(),
+                a1,
+                format!("{} upbeat energy songs", a1),
+                "#E65100", "#3E2723",
+                format!("{} & Workout Momentum", a3),
+                "Driving tempo and powerful basslines for peak performance".to_string(),
+                a3,
+                format!("{} high tempo songs", a3),
+                "#C2185B", "#311B92",
+            ),
+            Some("late night drift") | Some("late night") | Some("night") => (
                 format!("{} & Late Night Drift", a3),
-                "Nocturnal basslines and atmospheric ambient rhythm for late hours".to_string(),
+                "Nocturnal basslines and atmospheric ambient rhythm".to_string(),
                 a3,
                 format!("{} night chill songs", a3),
                 "#1A237E", "#000051",
@@ -272,6 +272,68 @@ impl RecommendationCompiler {
                 format!("{} acoustic night songs", a2),
                 "#880E4F", "#311B92",
             ),
+            Some("commute") => (
+                format!("{} & Highway Momentum", a1),
+                "Anthemic favorites and melodic pulse for the road".to_string(),
+                a1,
+                format!("{} road trip drive songs", a1),
+                "#004D40", "#001E18",
+                format!("{} & Transit Flow", a2),
+                "Steady rhythms to make the journey seamless".to_string(),
+                a2,
+                format!("{} commute upbeat songs", a2),
+                "#311B92", "#12005E",
+            ),
+            _ => match hour {
+                5..=11 => (
+                    format!("{} & Morning Momentum", a1),
+                    "Uplifting acoustic rhythms and energetic melodies for dawn".to_string(),
+                    a1,
+                    format!("{} upbeat songs", a1),
+                    "#E65100", "#3E2723",
+                    format!("{} & Focus Flow", a2),
+                    "Crisp, rhythmic clarity to start your morning workflow".to_string(),
+                    a2,
+                    format!("{} flow songs", a2),
+                    "#1B5E20", "#002700",
+                ),
+                12..=16 => (
+                    format!("{} & Afternoon Drive", a1),
+                    "Driving mid-tempo flow and dynamic melodies for peak hours".to_string(),
+                    a1,
+                    format!("{} dynamic songs", a1),
+                    "#004D40", "#001E18",
+                    format!("{} & Deep Work Pulse", a2),
+                    "Steady rhythmic textures to power through the afternoon".to_string(),
+                    a2,
+                    format!("{} focus songs", a2),
+                    "#311B92", "#12005E",
+                ),
+                17..=21 => (
+                    format!("{} & Twilight Harmonies", a2),
+                    "Warm acoustic resonance and reflective vocal chords for twilight".to_string(),
+                    a2,
+                    format!("{} acoustic chill songs", a2),
+                    "#BF360C", "#3E2723",
+                    format!("{} & Golden Hour Unwind", a3),
+                    "Smooth grooves and mellow sonic textures for sunset".to_string(),
+                    a3,
+                    format!("{} chill songs", a3),
+                    "#4A148C", "#12005E",
+                ),
+                _ => (
+                    format!("{} & Late Night Drift", a3),
+                    "Nocturnal basslines and atmospheric ambient rhythm for late hours".to_string(),
+                    a3,
+                    format!("{} night chill songs", a3),
+                    "#1A237E", "#000051",
+                    format!("{} & Midnight Acoustics", a2),
+                    "Minimal, introspective acoustic warmth for the quiet night".to_string(),
+                    a2,
+                    format!("{} acoustic night songs", a2),
+                    "#880E4F", "#311B92",
+                ),
+            },
         };
 
         cards.push(RadioMixCard {
@@ -400,7 +462,7 @@ impl RecommendationCompiler {
         };
 
         // Quick sample preview tracks from local database or fallback
-        let preview_raw = queries::get_canonical_discover_seeds(&conn, 4).unwrap_or_default();
+        let preview_raw = queries::get_canonical_discover_seeds(&conn, None, 4).unwrap_or_default();
         let preview_tracks = self.canonical_songs_to_federated(preview_raw);
 
         Ok(Some(AdjacentHorizonPayload {
@@ -414,9 +476,9 @@ impl RecommendationCompiler {
         }))
     }
 
-    pub fn get_daily_discover_seeds(&self) -> Result<Vec<CanonicalSeedV1>, String> {
+    pub fn get_daily_discover_seeds(&self, mood: Option<&str>) -> Result<Vec<CanonicalSeedV1>, String> {
         let conn = self.open_read_conn()?;
-        let raw_seeds = queries::get_canonical_discover_seeds(&conn, 15).unwrap_or_default();
+        let raw_seeds = queries::get_canonical_discover_seeds(&conn, mood, 15).unwrap_or_default();
 
         // Distinct artist diversity for seeds: maximum 1 seed per artist
         let mut seen_artists = std::collections::HashSet::new();

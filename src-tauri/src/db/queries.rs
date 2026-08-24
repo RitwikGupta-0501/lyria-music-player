@@ -1,3 +1,27 @@
+
+pub fn mood_affinity_clause(mood: Option<&str>) -> &'static str {
+    match mood {
+        Some(m) => match m.trim().to_lowercase().as_str() {
+            "deep focus" | "focus" => {
+                " AND (LOWER(st.title) LIKE '%focus%' OR LOWER(st.title) LIKE '%ambient%' OR LOWER(st.title) LIKE '%lofi%' OR LOWER(st.title) LIKE '%piano%' OR LOWER(st.title) LIKE '%instrumental%' OR LOWER(st.title) LIKE '%chill%' OR LOWER(st.artist) LIKE '%tycho%' OR LOWER(st.artist) LIKE '%bonobo%' OR LOWER(st.artist) LIKE '%eno%' OR LOWER(st.artist) LIKE '%hopkins%' OR LOWER(st.artist) LIKE '%richter%' OR (strftime('%H', st.last_played_at) >= '09' AND strftime('%H', st.last_played_at) <= '17'))"
+            }
+            "relax & chill" | "relax" | "chill" => {
+                " AND (LOWER(st.title) LIKE '%acoustic%' OR LOWER(st.title) LIKE '%folk%' OR LOWER(st.title) LIKE '%mellow%' OR LOWER(st.title) LIKE '%chill%' OR LOWER(st.title) LIKE '%soul%' OR LOWER(st.title) LIKE '%unwind%' OR LOWER(st.artist) LIKE '%lumineers%' OR LOWER(st.artist) LIKE '%vance joy%' OR LOWER(st.artist) LIKE '%mumford%' OR LOWER(st.artist) LIKE '%lord huron%' OR LOWER(st.artist) LIKE '%khruangbin%' OR (strftime('%H', st.last_played_at) >= '17' AND strftime('%H', st.last_played_at) <= '22'))"
+            }
+            "energy & drive" | "energy" | "drive" => {
+                " AND (LOWER(st.title) LIKE '%energy%' OR LOWER(st.title) LIKE '%drive%' OR LOWER(st.title) LIKE '%pop%' OR LOWER(st.title) LIKE '%rock%' OR LOWER(st.title) LIKE '%beat%' OR LOWER(st.title) LIKE '%sun%' OR LOWER(st.artist) LIKE '%onerepublic%' OR LOWER(st.artist) LIKE '%coldplay%' OR LOWER(st.artist) LIKE '%dragons%' OR LOWER(st.artist) LIKE '%weeknd%' OR LOWER(st.artist) LIKE '%daft%' OR (strftime('%H', st.last_played_at) >= '06' AND strftime('%H', st.last_played_at) <= '12'))"
+            }
+            "late night drift" | "late night" | "night" => {
+                " AND (LOWER(st.title) LIKE '%night%' OR LOWER(st.title) LIKE '%midnight%' OR LOWER(st.title) LIKE '%drift%' OR LOWER(st.title) LIKE '%dark%' OR LOWER(st.title) LIKE '%wave%' OR LOWER(st.title) LIKE '%star%' OR LOWER(st.artist) LIKE '%kendrick%' OR LOWER(st.artist) LIKE '%metro boomin%' OR LOWER(st.artist) LIKE '%sza%' OR LOWER(st.artist) LIKE '%travis%' OR LOWER(st.artist) LIKE '%ocean%' OR (strftime('%H', st.last_played_at) >= '22' OR strftime('%H', st.last_played_at) <= '05'))"
+            }
+            "commute" => {
+                " AND (st.play_count >= 1 OR st.liked = 1)"
+            }
+            _ => ""
+        },
+        None => ""
+    }
+}
 use rusqlite::Result as SqlResult;
 use serde::{Serialize, Deserialize};
 use rusqlite::Connection;
@@ -631,14 +655,18 @@ pub fn record_resolution_result(conn: &Connection, provider_id: &str, success: b
     Ok(())
 }
 
-pub fn get_canonical_quick_picks(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
-    let mut stmt = conn.prepare(
+pub fn get_canonical_quick_picks(conn: &Connection, mood: Option<&str>, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mood_sql = mood_affinity_clause(mood);
+    let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
          LEFT JOIN tracks t ON st.local_track_id = t.id
+         WHERE 1=1 {}
          ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0) - (COALESCE(julianday('now') - julianday(st.last_played_at), 0.0) * 0.2)) DESC, st.last_played_at DESC
-         LIMIT ?1"
-    )?;
+         LIMIT ?1",
+        mood_sql
+    );
+    let mut stmt = conn.prepare(&query_str)?;
 
     let rows = stmt.query_map([(limit * 4) as i64], map_canonical_row)?;
     let mut raw = Vec::new();
@@ -729,15 +757,18 @@ pub fn get_canonical_quick_picks(conn: &Connection, limit: usize) -> SqlResult<V
     Ok(results)
 }
 
-pub fn get_canonical_keep_listening(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
-    let mut stmt = conn.prepare(
+pub fn get_canonical_keep_listening(conn: &Connection, mood: Option<&str>, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mood_sql = mood_affinity_clause(mood);
+    let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
          LEFT JOIN tracks t ON st.local_track_id = t.id
-         WHERE st.last_played_at >= datetime('now', '-14 days')
+         WHERE st.last_played_at >= datetime('now', '-14 days') {}
          ORDER BY st.last_played_at DESC
-         LIMIT ?1"
-    )?;
+         LIMIT ?1",
+        mood_sql
+    );
+    let mut stmt = conn.prepare(&query_str)?;
 
     let rows = stmt.query_map([limit as i64], map_canonical_row)?;
     let mut results = Vec::new();
@@ -747,16 +778,19 @@ pub fn get_canonical_keep_listening(conn: &Connection, limit: usize) -> SqlResul
     Ok(results)
 }
 
-pub fn get_canonical_forgotten_favorites(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
-    let mut stmt = conn.prepare(
+pub fn get_canonical_forgotten_favorites(conn: &Connection, mood: Option<&str>, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mood_sql = mood_affinity_clause(mood);
+    let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
          LEFT JOIN tracks t ON st.local_track_id = t.id
          WHERE (st.play_count >= 2 OR st.liked = 1)
-           AND (st.last_played_at IS NULL OR st.last_played_at <= datetime('now', '-30 days'))
+           AND (st.last_played_at IS NULL OR st.last_played_at <= datetime('now', '-30 days')) {}
          ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0)) DESC
-         LIMIT ?1"
-    )?;
+         LIMIT ?1",
+        mood_sql
+    );
+    let mut stmt = conn.prepare(&query_str)?;
 
     let rows = stmt.query_map([limit as i64], map_canonical_row)?;
     let mut results = Vec::new();
@@ -784,15 +818,18 @@ pub fn get_canonical_liked_songs(conn: &Connection, limit: usize) -> SqlResult<V
     Ok(results)
 }
 
-pub fn get_canonical_discover_seeds(conn: &Connection, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
-    let mut stmt = conn.prepare(
+pub fn get_canonical_discover_seeds(conn: &Connection, mood: Option<&str>, limit: usize) -> SqlResult<Vec<CanonicalSong>> {
+    let mood_sql = mood_affinity_clause(mood);
+    let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
          LEFT JOIN tracks t ON st.local_track_id = t.id
-         WHERE st.liked = 1 OR st.play_count >= 1
+         WHERE (st.liked = 1 OR st.play_count >= 1) {}
          ORDER BY (st.liked * 3 + st.play_count) DESC, RANDOM()
-         LIMIT ?1"
-    )?;
+         LIMIT ?1",
+        mood_sql
+    );
+    let mut stmt = conn.prepare(&query_str)?;
 
     let rows = stmt.query_map([limit as i64], map_canonical_row)?;
     let mut results = Vec::new();

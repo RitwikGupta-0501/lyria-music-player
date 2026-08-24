@@ -12,8 +12,7 @@
     import ForgottenFavoritesShelf from "./home/ForgottenFavoritesShelf.svelte";
 
     let { activeView = $bindable("home") } = $props<{ activeView?: string }>();
-    let selectedMood = $state("All");
-
+    
     onMount(() => {
         homeStore.init();
     });
@@ -51,8 +50,8 @@
             {#each ["All", "Deep Focus", "Relax & Chill", "Energy & Drive", "Commute", "Late Night Drift"] as mood}
                 <button 
                     class="mood-pill" 
-                    class:active={selectedMood === mood}
-                    onclick={() => selectedMood = mood}
+                    class:active={homeStore.currentMood === mood}
+                    onclick={() => homeStore.selectMood(mood)}
                 >
                     <span>{mood}</span>
                 </button>
