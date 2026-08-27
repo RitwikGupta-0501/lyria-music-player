@@ -1,7 +1,7 @@
 <script lang="ts">
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
+    import { libraryStore } from "$lib/stores/library.svelte";
     import {
         Play,
         Pause,
@@ -119,8 +119,6 @@
         return "Nothing playing";
     });
 
-    let trackArtist = $derived(audioStore.currentQueueTrack?.artist ?? null);
-
     let isPlaying = $derived(audioStore.playbackState === "Playing");
     let hasTrack = $derived(
         audioStore.currentQueueTrack !== null ||
@@ -134,7 +132,7 @@
 <div
     class="player-pill-container"
     style="--pill-bg: {settingsStore.glassyPlayerBar
-        ? 'rgba(25, 25, 32, 0.35)'
+        ? 'var(--liquid-glass-card-bg)'
         : 'var(--echo-surface)'};"
 >
     <div class="player-pill-wrapper" data-state={pillState}>
@@ -164,8 +162,11 @@
             />
         </div>
 
-        <!-- 2. Main Pill Body -->
+        <!-- 2. Main Pill Body (Liquid Glass Capsule) -->
         <div class="pill-body" class:is-glass={settingsStore.glassyPlayerBar}>
+            <!-- Liquid Glass Specular Catch-Lights -->
+            <div class="liquid-specular-rim player-specular-rim" aria-hidden="true"></div>
+
             <!-- Left Flank: Album Art & Song Details -->
             <div class="flank flank-left">
                 <div class="album-art-container">
@@ -205,8 +206,9 @@
                                     }
                                 }}
                                 title={isLiked ? "Unlike" : "Like song"}
+                                aria-label={isLiked ? "Unlike song" : "Like song"}
                             >
-                                <Heart size={14} weight={isLiked ? "fill" : "bold"} color={isLiked ? "var(--echo-primary, #B58E62)" : "rgba(255,255,255,0.4)"} />
+                                <Heart size={13} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "rgba(255,255,255,0.7)"} />
                             </button>
                         {/if}
                     </div>
@@ -224,10 +226,11 @@
                     class="ctrl-btn"
                     class:active={audioStore.shuffleEnabled}
                     onclick={() => audioStore.toggleShuffle()}
+                    title="Shuffle"
                 >
                     <Shuffle size={16} weight="bold" />
                 </button>
-                <button class="ctrl-btn" onclick={() => audioStore.previous()}>
+                <button class="ctrl-btn" onclick={() => audioStore.previous()} title="Previous track">
                     <SkipBack size={20} weight="fill" />
                 </button>
 
@@ -235,6 +238,7 @@
                     class="play-pause-btn pill-accent-bg pill-accent-shadow"
                     onclick={handlePlayPause}
                     disabled={!hasTrack}
+                    title={isPlaying ? "Pause" : "Play"}
                 >
                     {#if isPlaying}
                         <Pause size={20} weight="fill" />
@@ -243,13 +247,14 @@
                     {/if}
                 </button>
 
-                <button class="ctrl-btn" onclick={() => audioStore.next()}>
+                <button class="ctrl-btn" onclick={() => audioStore.next()} title="Next track">
                     <SkipForward size={20} weight="fill" />
                 </button>
                 <button
                     class="ctrl-btn"
                     class:active={audioStore.repeatMode !== "Off"}
                     onclick={() => audioStore.cycleRepeat()}
+                    title="Repeat"
                 >
                     {#if audioStore.repeatMode === "One"}
                         <RepeatOnce size={16} weight="bold" />
@@ -273,6 +278,7 @@
                     class="ctrl-btn"
                     class:active={queueOpen}
                     onclick={() => transitionLayout(() => { queueOpen = !queueOpen; })}
+                    title="Queue"
                 >
                     <ListNumbers size={16} weight="bold" />
                 </button>
@@ -281,6 +287,7 @@
                     <button
                         class="vol-icon text-muted"
                         onclick={() => audioStore.toggleMute()}
+                        title={audioStore.isMuted ? "Unmute" : "Mute"}
                     >
                         {#if audioStore.isMuted || audioStore.volume === 0}
                             <SpeakerX size={16} weight="bold" />
@@ -317,7 +324,6 @@
 </div>
 
 <style>
-    /* CSS Variables matching user HTML */
     :global(body) {
         --text-main: var(--echo-text-1);
         --muted: var(--echo-text-2);
@@ -351,7 +357,7 @@
         position: relative;
         height: 100%;
         transition:
-            width 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+            width 0.5s cubic-bezier(0.16, 1, 0.3, 1),
             background-color 0.4s ease;
         pointer-events: auto;
     }
@@ -380,11 +386,11 @@
         left: 0;
         width: 100%;
         height: 2px;
-        background-color: var(--pill-bg);
+        background-color: rgba(255, 255, 255, 0.08);
         border-top-left-radius: 9999px;
         border-top-right-radius: 9999px;
         transform: translateY(-50%);
-        transition: all 0.2s;
+        transition: all 0.2s var(--ease-liquid, ease);
         overflow: hidden;
     }
     .seek-hitbox:hover .seek-track {
@@ -394,7 +400,7 @@
         height: 100%;
         border-top-right-radius: 9999px;
         border-bottom-right-radius: 9999px;
-        box-shadow: 0 0 6px rgba(226, 169, 115, 0.2);
+        box-shadow: 0 0 8px rgba(226, 169, 115, 0.35);
     }
     .seek-thumb {
         position: absolute;
@@ -404,10 +410,10 @@
         height: 10px;
         border-radius: 50%;
         opacity: 0;
-        box-shadow: 0 0 6px rgba(226, 169, 115, 0.3);
+        box-shadow: 0 0 8px rgba(226, 169, 115, 0.5);
         transition:
             opacity 0.2s,
-            transform 0.2s;
+            transform 0.2s var(--ease-liquid, ease);
         pointer-events: none;
     }
     .seek-hitbox:hover .seek-thumb {
@@ -424,48 +430,54 @@
         margin: 0;
     }
 
-    /* Main Pill Body */
+    /* Main Pill Body (Crystalline Glass Sheet) */
     .pill-body {
         width: 100%;
         height: 100%;
-        background-color: var(--pill-bg);
         border-radius: 9999px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.05);
         overflow: hidden;
         display: flex;
         align-items: center;
         justify-content: center;
         position: relative;
         z-index: 10;
-        backdrop-filter: blur(6px);
-        transition: all 0.3s;
+        background-color: var(--pill-bg);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        transition: all 0.3s var(--ease-liquid, ease);
     }
+
     .pill-body.is-glass {
-        border: 1px solid rgba(255, 255, 255, 0.13);
-        box-shadow:
-            0 20px 40px rgba(0, 0, 0, 0.6),
-            inset 0 1px 1.5px rgba(255, 255, 255, 0.22),
-            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
+        background: rgba(255, 255, 255, 0.028);
+        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: 
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+            0 10px 30px -4px rgba(0, 0, 0, 0.35);
     }
-    .pill-body.is-glass::before {
+
+    .pill-body.is-glass::after {
         content: "";
         position: absolute;
         inset: 0;
         border-radius: inherit;
         pointer-events: none;
-        backdrop-filter: blur(26px) saturate(1.6) brightness(1.12);
-        mask-image: radial-gradient(
-            ellipse at center,
-            transparent 60%,
-            black 100%
+        background: radial-gradient(
+            ellipse at 50% 0%, 
+            rgba(255, 255, 255, 0.04) 0%, 
+            transparent 60%
         );
-        -webkit-mask-image: radial-gradient(
-            ellipse at center,
-            transparent 60%,
-            black 100%
-        );
-        z-index: -1;
+        z-index: 1;
+    }
+
+    .player-specular-rim {
+        inset-inline: 24px;
+        top: 0;
+        height: 1px;
+        opacity: 0.45;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%);
     }
 
     /* Flanks */
@@ -491,18 +503,19 @@
         align-items: center;
         gap: 10px;
         overflow: hidden;
+        z-index: 15;
     }
     .album-art-container {
         width: 44px;
         height: 44px;
         flex-shrink: 0;
         border-radius: 12px;
-        background-color: #27272a;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background-color: #1a1a20;
+        border: 1px solid rgba(255, 255, 255, 0.15);
         overflow: hidden;
         box-shadow:
-            0 4px 6px -1px rgba(0, 0, 0, 0.1),
-            0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            inset 0 1px 1px rgba(255, 255, 255, 0.2),
+            0 4px 12px rgba(0, 0, 0, 0.4);
     }
     .album-art-container img,
     .album-art-container .placeholder {
@@ -547,7 +560,7 @@
     .center-controls {
         display: flex;
         align-items: center;
-        gap: 2px;
+        gap: 4px;
         flex-shrink: 0;
         z-index: 20;
     }
@@ -555,26 +568,32 @@
         color: var(--echo-text-2);
         transition:
             color 0.15s ease,
-            background-color 0.15s ease;
-        width: 32px;
-        height: 32px;
+            background-color 0.2s var(--ease-liquid, ease),
+            transform 0.15s var(--ease-liquid, ease);
+        width: 34px;
+        height: 34px;
         padding: 0;
         display: flex;
         align-items: center;
         justify-content: center;
         border-radius: 9999px;
         background: transparent;
-        border: none;
+        border: 1px solid transparent;
         cursor: pointer;
         position: relative;
         filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
     }
     .ctrl-btn:hover {
-        color: var(--text-main);
-        background-color: rgba(255, 255, 255, 0.05);
+        color: #ffffff;
+        background-color: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.12);
+        transform: scale(1.08);
+    }
+    .ctrl-btn:active {
+        transform: scale(0.92);
     }
     .ctrl-btn.active {
-        color: var(--echo-text-1);
+        color: #f5cb99;
     }
     .ctrl-btn.active::after {
         content: "";
@@ -585,7 +604,8 @@
         width: 4px;
         height: 4px;
         border-radius: 50%;
-        background-color: var(--echo-text-1);
+        background-color: #f5cb99;
+        box-shadow: 0 0 6px rgba(245, 203, 153, 0.6);
     }
 
     .play-pause-btn {
@@ -596,17 +616,18 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.3s;
+        transition: all 0.25s var(--ease-liquid, ease);
         margin: 0 4px;
         color: var(--echo-void);
         border: none;
         cursor: pointer;
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 4px 16px rgba(0, 0, 0, 0.4);
     }
     .play-pause-btn:not(:disabled):hover {
-        transform: scale(1.05);
+        transform: scale(1.08);
     }
     .play-pause-btn:not(:disabled):active {
-        transform: scale(0.95);
+        transform: scale(0.94);
     }
     .play-pause-btn:disabled {
         cursor: not-allowed;
@@ -622,6 +643,7 @@
         justify-content: flex-end;
         gap: 6px;
         overflow: visible;
+        z-index: 15;
     }
     .vol-wrapper {
         display: flex;
@@ -637,11 +659,12 @@
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        transition: color 0.15s ease;
+        transition: color 0.15s ease, transform 0.15s var(--ease-liquid, ease);
         filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
     }
     .vol-wrapper:hover .vol-icon {
         color: var(--text-main);
+        transform: scale(1.05);
     }
     .vol-hitbox {
         position: relative;
@@ -658,7 +681,7 @@
         left: 0;
         width: 100%;
         height: 2px;
-        background-color: rgba(255, 255, 255, 0.1);
+        background-color: rgba(255, 255, 255, 0.12);
         border-radius: 9999px;
         overflow: hidden;
     }
@@ -689,28 +712,28 @@
     /* Base / Idle State Colors */
     .player-pill-wrapper[data-state="idle"] .pill-accent-bg {
         background-color: #4a3c2b;
-    } /* Unlit, dull brass */
+    }
     .player-pill-wrapper[data-state="idle"] .pill-accent-shadow {
         box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
-    } /* Hardware inset shadow */
+    }
     .player-pill-wrapper[data-state="idle"] .play-pause-btn {
         color: #1a140d;
-    } /* Very dark, unlit icon */
+    }
 
     /* Accent Colors & System Status Transitions */
     .pill-accent-bg,
     .pill-accent-shadow,
     .album-art-container,
     .song-title {
-        transition: all 0.4s ease;
+        transition: all 0.4s var(--ease-liquid, ease);
     }
 
     /* Playing State */
     .player-pill-wrapper[data-state="playing"] .pill-accent-bg {
-        background-color: var(--echo-primary);
+        background: linear-gradient(180deg, #f5cb99 0%, #b58e62 100%);
     }
     .player-pill-wrapper[data-state="playing"] .pill-accent-shadow {
-        box-shadow: 0 0 15px rgba(226, 169, 115, 0.3);
+        box-shadow: 0 0 16px rgba(245, 203, 153, 0.45);
     }
     .player-pill-wrapper[data-state="playing"] .song-title {
         color: var(--text-main);
@@ -721,7 +744,7 @@
 
     /* Paused State */
     .player-pill-wrapper[data-state="paused"] .pill-accent-bg {
-        background-color: var(--echo-primary-dark);
+        background: linear-gradient(180deg, #b58e62 0%, #7a5c38 100%);
         filter: saturate(0.65) opacity(0.85);
     }
     .player-pill-wrapper[data-state="paused"] .pill-accent-shadow {
@@ -741,19 +764,38 @@
     }
 
     .like-btn {
-        background: transparent;
-        border: none;
-        padding: 0.2rem;
-        cursor: pointer;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border-radius: 4px;
-        transition: transform 0.15s ease, opacity 0.15s ease;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
+        backdrop-filter: blur(12px) saturate(180%);
+        -webkit-backdrop-filter: blur(12px) saturate(180%);
+        cursor: pointer;
+        padding: 0;
+        flex-shrink: 0;
+        transition: transform 0.2s var(--ease-liquid, ease), background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     .like-btn:hover {
         transform: scale(1.15);
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(226, 169, 115, 0.45);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.4);
     }
 
+    .like-btn:active {
+        transform: scale(0.9);
+    }
+
+    .like-btn.liked {
+        color: #ffd285;
+        background: linear-gradient(180deg, rgba(200, 157, 110, 0.35) 0%, rgba(150, 107, 61, 0.25) 100%);
+        border-color: rgba(224, 184, 143, 0.55);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 0 10px rgba(245, 203, 153, 0.4);
+    }
 </style>

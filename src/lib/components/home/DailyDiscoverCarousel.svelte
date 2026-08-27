@@ -101,13 +101,13 @@
                             </div>
                         </div>
                         <button 
-                            class="card-like-btn" 
-                            class:is-glass={settingsStore.glassyPlayerBar}
+                            class="liquid-like-btn" 
                             class:liked={item.liked}
                             onclick={(e) => { e.stopPropagation(); homeStore.toggleLike(item); }}
                             title={item.liked ? "Liked" : "Like track"}
+                            aria-label={item.liked ? "Unlike track" : "Like track"}
                         >
-                            <Heart size={15} weight={item.liked ? "fill" : "bold"} color={item.liked ? "var(--echo-primary, #e2a973)" : "#FFFFFF"} />
+                            <Heart size={16} weight={item.liked ? "fill" : "bold"} color={item.liked ? "#ffd285" : "#FFFFFF"} />
                         </button>
                     </div>
                     <div class="card-info">
@@ -291,82 +291,76 @@
         pointer-events: auto;
     }
 
-    .card-like-btn {
+    .liquid-like-btn {
         position: absolute;
         top: 8px;
         right: 8px;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: var(--echo-surface, #101014);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-        color: #FFFFFF;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        min-height: 32px !important;
+        max-height: 32px !important;
+        border-radius: 50% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: rgba(255, 255, 255, 0.028);
+        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: 
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+            0 4px 12px rgba(0, 0, 0, 0.35);
+        color: #ffffff;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
         cursor: pointer;
         opacity: 0;
         transform: scale(0.85);
         pointer-events: none;
-        transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease;
-        z-index: 4;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        z-index: 5;
     }
 
-    .discover-card:hover .card-like-btn {
+    .discover-card:hover .liquid-like-btn {
         opacity: 1;
         transform: scale(1);
         pointer-events: auto;
     }
 
-    .card-like-btn.is-glass {
-        background: rgba(25, 25, 32, 0.38);
-        backdrop-filter: blur(12px) saturate(1.5);
-        -webkit-backdrop-filter: blur(12px) saturate(1.5);
-        border: 1px solid rgba(255, 255, 255, 0.16);
+    .liquid-like-btn:hover {
+        transform: scale(1.12) !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: rgba(226, 169, 115, 0.35) !important;
         box-shadow: 
-            0 8px 24px rgba(0, 0, 0, 0.45),
-            inset 0 1px 1.5px rgba(255, 255, 255, 0.28),
-            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
+            inset 0 1px 1px rgba(255, 255, 255, 0.25),
+            0 6px 16px rgba(0, 0, 0, 0.45) !important;
     }
 
-    .card-like-btn :global(svg) {
+    .liquid-like-btn:active {
+        transform: scale(0.92) !important;
+    }
+
+    .liquid-like-btn.liked {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+        color: #ffd285;
+        background: linear-gradient(180deg, rgba(200, 157, 110, 0.22) 0%, rgba(150, 107, 61, 0.15) 100%);
+        border-color: rgba(224, 184, 143, 0.35);
+        box-shadow: 
+            inset 0 1px 1px rgba(255, 255, 255, 0.25),
+            0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    .liquid-like-btn :global(svg) {
         display: block;
         flex-shrink: 0;
-    }
-
-    .card-like-btn:hover {
-        transform: scale(1.12) !important;
-        background: #1c1c22;
-        border-color: rgba(226, 169, 115, 0.5);
-    }
-
-    .card-like-btn.is-glass:hover {
-        background: rgba(35, 35, 45, 0.55);
-        border-color: rgba(226, 169, 115, 0.5);
-        box-shadow: 
-            0 10px 28px rgba(0, 0, 0, 0.55),
-            inset 0 1px 1.5px rgba(255, 255, 255, 0.35),
-            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
-    }
-
-    .card-like-btn.liked {
-        opacity: 1;
-        transform: scale(1);
-        pointer-events: auto;
-        color: var(--echo-primary, #e2a973);
-        background: rgba(226, 169, 115, 0.2);
-        border-color: rgba(226, 169, 115, 0.5);
-    }
-
-    .card-like-btn.is-glass.liked {
-        color: var(--echo-primary, #e2a973);
-        background: rgba(226, 169, 115, 0.25);
-        border-color: rgba(226, 169, 115, 0.55);
-        box-shadow: 
-            0 8px 24px rgba(0, 0, 0, 0.45),
-            inset 0 1px 1.5px rgba(226, 169, 115, 0.4),
-            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
+        width: 16px;
+        height: 16px;
+        pointer-events: none;
     }
 
     .play-bubble {

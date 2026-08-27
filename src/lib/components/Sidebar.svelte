@@ -68,11 +68,8 @@
 
 <aside 
     class="sidebar" 
-    class:open={sidebarOpen} 
-    class:is-glass={settingsStore.glassyPlayerBar}
+    class:open={sidebarOpen}
 >
-    <!-- 3. Sub-surface Caustic Sheen (Specular Corner Glare) -->
-    <div class="specular-corner-glare" aria-hidden="true"></div>
 
     <!-- Top Section: Header & Navigation Core -->
     <div class="sidebar-top">
@@ -180,46 +177,14 @@
         flex-shrink: 0;
         z-index: 30;
         overflow: hidden;
-        
-        /* 2. Multi-Tiered Depth Blurring & Dispersion */
-        background: rgba(13, 14, 18, 0.45);
-        backdrop-filter: blur(48px) saturate(1.9) brightness(1.1);
-        -webkit-backdrop-filter: blur(48px) saturate(1.9) brightness(1.1);
-        
-        /* 1. Double-Layer Specular Catch-Lights (Optical Rim & Deep Ambient Shadow) */
-        border-right: 1px solid rgba(255, 255, 255, 0.12);
-        box-shadow: 
-            inset 0 1px 1px rgba(255, 255, 255, 0.15),
-            1px 0 30px rgba(0, 0, 0, 0.6);
-        
-        transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease;
+        background: #0d0e11;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: 1px 0 30px rgba(0, 0, 0, 0.5);
+        transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .sidebar.open {
         width: 256px; /* Expanded state */
-    }
-
-    @media (prefers-reduced-transparency: reduce) {
-        .sidebar {
-            background: var(--echo-surface, #101014);
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-        }
-    }
-
-    /* 3. Sub-surface Caustic Sheen */
-    .specular-corner-glare {
-        pointer-events: none;
-        position: absolute;
-        top: -6rem;
-        left: -6rem;
-        width: 15rem;
-        height: 15rem;
-        border-radius: 9999px;
-        background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.12) 0%, rgba(181, 142, 98, 0.08) 45%, transparent 75%);
-        filter: blur(32px);
-        -webkit-filter: blur(32px);
-        z-index: 0;
     }
 
     .sidebar-top {

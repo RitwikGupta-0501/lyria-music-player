@@ -387,7 +387,7 @@
                             }}
                             title={isTrackLiked ? "Unlike track" : "Like track"}
                         >
-                            <HeartIcon size={15} weight={isTrackLiked ? "fill" : "regular"} color={isTrackLiked ? "var(--echo-primary, #B58E62)" : "rgba(255,255,255,0.3)"} />
+                            <HeartIcon size={15} weight={isTrackLiked ? "fill" : "regular"} color={isTrackLiked ? "#ffd285" : "rgba(255,255,255,0.3)"} />
                         </button>
                         {#if isCustomLocalPlaylist}
                             <button

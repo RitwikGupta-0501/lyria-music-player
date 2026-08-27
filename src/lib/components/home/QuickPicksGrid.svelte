@@ -272,6 +272,6 @@
     }
 
     .pill-like-btn.liked {
-        color: #B58E62;
+        color: #ffd285;
     }
 </style>
