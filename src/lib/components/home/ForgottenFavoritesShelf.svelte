@@ -1,6 +1,7 @@
 <script lang="ts">
     import { homeStore } from "$lib/stores/home.svelte";
     import { ClockCounterClockwise, Play } from "phosphor-svelte";
+    import { resolveCoverArt } from "$lib/utils/media";
 </script>
 
 {#if homeStore.forgottenFavorites.length > 0}
@@ -10,7 +11,7 @@
                 <ClockCounterClockwise size={20} weight="bold" class="fav-icon" />
                 <h2>Forgotten Favorites</h2>
             </div>
-            <span class="section-tag">Rediscover Past Loves</span>
+            
         </div>
 
         <div class="favs-carousel-track">
@@ -23,8 +24,8 @@
                     onkeydown={(e) => { if (e.key === 'Enter') homeStore.playFederatedTrack(song); }}
                 >
                     <div class="fav-art-wrapper">
-                        {#if song.cover_art_url}
-                            <img src={song.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} alt={song.title} loading="lazy" />
+                        {#if resolveCoverArt(song.cover_art_url)}
+                            <img src={resolveCoverArt(song.cover_art_url)} alt={song.title} loading="lazy" />
                         {:else}
                             <div class="placeholder-art"></div>
                         {/if}
@@ -75,18 +76,7 @@
         color: #a8dadc;
     }
 
-    .section-tag {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #B58E62;
-        background: rgba(181, 142, 98, 0.08);
-        border: 1px solid rgba(181, 142, 98, 0.18);
-        padding: 0.2rem 0.55rem;
-        border-radius: 4px;
-    }
+    
 
     .favs-carousel-track {
         display: flex;

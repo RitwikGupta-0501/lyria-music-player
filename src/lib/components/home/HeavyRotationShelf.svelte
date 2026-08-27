@@ -1,6 +1,7 @@
 <script lang="ts">
     import { homeStore } from "$lib/stores/home.svelte";
     import { Flame, User, Disc } from "phosphor-svelte";
+    import { resolveCoverArt } from "$lib/utils/media";
 
     let activeTab = $state<"artists" | "albums">("artists");
 </script>
@@ -38,8 +39,8 @@
                 {#each homeStore.heavyRotation.artists as artist}
                     <div class="artist-circle-card">
                         <div class="artist-avatar-wrapper">
-                            {#if artist.avatar_url}
-                                <img src={artist.avatar_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(artist.avatar_url)}` : artist.avatar_url} alt={artist.artist} loading="lazy" />
+                            {#if resolveCoverArt(artist.avatar_url)}
+                                <img src={resolveCoverArt(artist.avatar_url)} alt={artist.artist} loading="lazy" />
                             {:else}
                                 <div class="avatar-placeholder">
                                     <span class="avatar-letter">{artist.artist.charAt(0).toUpperCase()}</span>
@@ -62,8 +63,8 @@
                 {#each homeStore.heavyRotation.albums as album}
                     <div class="album-card">
                         <div class="album-art-wrapper">
-                            {#if album.cover_art_url}
-                                <img src={album.cover_art_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(album.cover_art_url)}` : album.cover_art_url} alt={album.album_title} loading="lazy" />
+                            {#if resolveCoverArt(album.cover_art_url)}
+                                <img src={resolveCoverArt(album.cover_art_url)} alt={album.album_title} loading="lazy" />
                             {:else}
                                 <div class="placeholder-art"></div>
                             {/if}

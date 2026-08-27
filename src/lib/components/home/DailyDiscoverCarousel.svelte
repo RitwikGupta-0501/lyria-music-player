@@ -1,6 +1,8 @@
 <script lang="ts">
     import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
-    import { Sparkle, Play, CaretLeft, CaretRight } from "phosphor-svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
+    import { Sparkle, Play, CaretLeft, CaretRight, Heart } from "phosphor-svelte";
+    import { resolveCoverArt } from "$lib/utils/media";
 
     let trackContainer = $state<HTMLElement | null>(null);
     let canScrollLeft = $state(false);
@@ -42,11 +44,7 @@
         </div>
         
         <div class="header-right-controls">
-            {#if homeStore.failedProviders.length > 0}
-                <span class="section-tag warning" title="Degraded: {homeStore.failedProviders.join(', ')}">Partial Feed</span>
-            {:else}
-                <span class="section-tag">Curated Provenance</span>
-            {/if}
+
 
             <div class="chevron-controls">
                 <button 
@@ -92,8 +90,8 @@
                     onkeydown={(e) => { if (e.key === "Enter") homeStore.playFederatedTrack(item); }}
                 >
                     <div class="card-art-wrapper">
-                        {#if item.cover_art_url}
-                            <img src={item.cover_art_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(item.cover_art_url)}` : item.cover_art_url} alt={item.title} loading="lazy" />
+                        {#if resolveCoverArt(item.cover_art_url)}
+                            <img src={resolveCoverArt(item.cover_art_url)} alt={item.title} loading="lazy" />
                         {:else}
                             <div class="placeholder-art"></div>
                         {/if}
@@ -102,13 +100,20 @@
                                 <Play size={18} weight="fill" />
                             </div>
                         </div>
+                        <button 
+                            class="card-like-btn" 
+                            class:is-glass={settingsStore.glassyPlayerBar}
+                            class:liked={item.liked}
+                            onclick={(e) => { e.stopPropagation(); homeStore.toggleLike(item); }}
+                            title={item.liked ? "Liked" : "Like track"}
+                        >
+                            <Heart size={15} weight={item.liked ? "fill" : "bold"} color={item.liked ? "var(--echo-primary, #e2a973)" : "#FFFFFF"} />
+                        </button>
                     </div>
                     <div class="card-info">
                         <span class="card-title" title={item.title}>{item.title}</span>
                         <span class="card-artist" title={item.artist}>{item.artist}</span>
-                        {#if item.seed_provenance}
-                            <span class="card-provenance" title={item.seed_provenance}>{item.seed_provenance}</span>
-                        {/if}
+
                     </div>
                 </div>
             {/each}
@@ -154,24 +159,9 @@
         gap: 0.75rem;
     }
 
-    .section-tag {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #B58E62;
-        background: rgba(181, 142, 98, 0.08);
-        border: 1px solid rgba(181, 142, 98, 0.18);
-        padding: 0.2rem 0.55rem;
-        border-radius: 4px;
-    }
+    
 
-    .section-tag.warning {
-        color: #E09F55;
-        background: rgba(224, 159, 85, 0.1);
-        border-color: rgba(224, 159, 85, 0.2);
-    }
+    
 
     .chevron-controls {
         display: flex;
@@ -259,6 +249,8 @@
         position: relative;
         background: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
+        contain: layout paint;
+        isolation: isolate;
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
@@ -287,11 +279,94 @@
         align-items: center;
         justify-content: center;
         opacity: 0;
-        transition: opacity 0.2s ease;
+        pointer-events: none;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: opacity;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .discover-card:hover .card-overlay {
         opacity: 1;
+        pointer-events: auto;
+    }
+
+    .card-like-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--echo-surface, #101014);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        color: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        opacity: 0;
+        transform: scale(0.85);
+        pointer-events: none;
+        transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease;
+        z-index: 4;
+    }
+
+    .discover-card:hover .card-like-btn {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+    }
+
+    .card-like-btn.is-glass {
+        background: rgba(25, 25, 32, 0.38);
+        backdrop-filter: blur(12px) saturate(1.5);
+        -webkit-backdrop-filter: blur(12px) saturate(1.5);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 
+            0 8px 24px rgba(0, 0, 0, 0.45),
+            inset 0 1px 1.5px rgba(255, 255, 255, 0.28),
+            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-like-btn :global(svg) {
+        display: block;
+        flex-shrink: 0;
+    }
+
+    .card-like-btn:hover {
+        transform: scale(1.12) !important;
+        background: #1c1c22;
+        border-color: rgba(226, 169, 115, 0.5);
+    }
+
+    .card-like-btn.is-glass:hover {
+        background: rgba(35, 35, 45, 0.55);
+        border-color: rgba(226, 169, 115, 0.5);
+        box-shadow: 
+            0 10px 28px rgba(0, 0, 0, 0.55),
+            inset 0 1px 1.5px rgba(255, 255, 255, 0.35),
+            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-like-btn.liked {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+        color: var(--echo-primary, #e2a973);
+        background: rgba(226, 169, 115, 0.2);
+        border-color: rgba(226, 169, 115, 0.5);
+    }
+
+    .card-like-btn.is-glass.liked {
+        color: var(--echo-primary, #e2a973);
+        background: rgba(226, 169, 115, 0.25);
+        border-color: rgba(226, 169, 115, 0.55);
+        box-shadow: 
+            0 8px 24px rgba(0, 0, 0, 0.45),
+            inset 0 1px 1.5px rgba(226, 169, 115, 0.4),
+            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
     }
 
     .play-bubble {
@@ -339,23 +414,7 @@
         text-overflow: ellipsis;
     }
 
-    .card-provenance {
-        display: inline-block;
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        letter-spacing: 0.05em;
-        color: rgba(181, 142, 98, 0.85);
-        background: rgba(181, 142, 98, 0.1);
-        border: 1px solid rgba(181, 142, 98, 0.2);
-        padding: 0.15rem 0.45rem;
-        border-radius: 4px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-        margin-top: 0.15rem;
-    }
+    
 
     /* Skeleton */
     .skeleton-box {

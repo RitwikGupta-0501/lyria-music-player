@@ -1,6 +1,7 @@
 <script lang="ts">
     import { homeStore, type IncompleteSessionItem } from "$lib/stores/home.svelte";
     import { ArrowCounterClockwise, Play } from "phosphor-svelte";
+    import { resolveCoverArt } from "$lib/utils/media";
 </script>
 
 {#if homeStore.jumpBackIn.length > 0}
@@ -10,7 +11,7 @@
                 <ArrowCounterClockwise size={20} weight="bold" class="jump-icon" />
                 <h2>Jump Back In</h2>
             </div>
-            <span class="section-tag">Resume Playback</span>
+            
         </div>
 
         <div class="session-carousel-track">
@@ -23,8 +24,8 @@
                     onkeydown={(e) => { if (e.key === 'Enter') homeStore.resumeSession(session); }}
                 >
                     <div class="session-art-wrapper">
-                        {#if session.cover_art_url}
-                            <img src={session.cover_art_url.startsWith('/') ? `asset://localhost/${encodeURIComponent(session.cover_art_url)}` : session.cover_art_url} alt={session.title} loading="lazy" />
+                        {#if resolveCoverArt(session.cover_art_url)}
+                            <img src={resolveCoverArt(session.cover_art_url)} alt={session.title} loading="lazy" />
                         {:else}
                             <div class="placeholder-art"></div>
                         {/if}
@@ -82,18 +83,7 @@
         color: #ff9f1c;
     }
 
-    .section-tag {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #B58E62;
-        background: rgba(181, 142, 98, 0.08);
-        border: 1px solid rgba(181, 142, 98, 0.18);
-        padding: 0.2rem 0.55rem;
-        border-radius: 4px;
-    }
+    
 
     .session-carousel-track {
         display: flex;

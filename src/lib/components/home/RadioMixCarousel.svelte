@@ -10,7 +10,7 @@
             <Broadcast size={20} weight="bold" class="radio-icon" />
             <h2>Algorithmic Radios</h2>
         </div>
-        <span class="section-tag">Infinite Dynamic Mixes</span>
+        
     </div>
 
     <div class="radio-carousel-track">
@@ -97,18 +97,7 @@
         color: #B58E62;
     }
 
-    .section-tag {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #B58E62;
-        background: rgba(181, 142, 98, 0.08);
-        border: 1px solid rgba(181, 142, 98, 0.18);
-        padding: 0.2rem 0.55rem;
-        border-radius: 4px;
-    }
+    
 
     .radio-carousel-track {
         display: flex;

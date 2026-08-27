@@ -30,6 +30,7 @@ pub struct FederatedTrack {
     pub play_count: u64,
     pub seed_provenance: Option<String>,
     pub sources: Vec<TrackSourceInfo>,
+    pub liked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

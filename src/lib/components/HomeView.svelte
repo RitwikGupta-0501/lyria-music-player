@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { homeStore } from "$lib/stores/home.svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
     import { ArrowClockwise, Sparkle, Compass, FolderOpen, Play } from "phosphor-svelte";
 
     import QuickPicksGrid from "./home/QuickPicksGrid.svelte";
@@ -31,11 +32,12 @@
         <div class="header-top">
             <div class="header-left">
                 <h1>{getGreeting()}</h1>
-                <p class="subtitle">Your personalized music stream & discovery cockpit</p>
+                
             </div>
             <div class="header-actions">
                 <button 
                     class="refresh-btn" 
+                    class:is-glass={settingsStore.glassyPlayerBar}
                     class:spinning={homeStore.isLoadingRemote}
                     onclick={() => homeStore.loadHome(true)}
                     title="Refresh recommendations"
@@ -50,6 +52,7 @@
             {#each ["All", "Deep Focus", "Relax & Chill", "Energy & Drive", "Commute", "Late Night Drift"] as mood}
                 <button 
                     class="mood-pill" 
+                    class:is-glass={settingsStore.glassyPlayerBar}
                     class:active={homeStore.currentMood === mood}
                     onclick={() => homeStore.selectMood(mood)}
                 >
@@ -89,7 +92,7 @@
                         <FolderOpen size={20} weight="bold" class="cold-icon" />
                         <h2>Discover from Your Library</h2>
                     </div>
-                    <span class="section-tag">Starter Seeds</span>
+                    
                 </div>
 
                 <div class="cold-seeds-grid">
@@ -201,31 +204,63 @@
     }
 
     .mood-pill {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        color: rgba(255, 255, 255, 0.65);
+        font-family: var(--echo-font-body);
+        font-size: 0.82rem;
+        font-weight: 500;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.6));
         background: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 0.4rem 0.9rem;
+        padding: 0.45rem 1rem;
         border-radius: 20px;
         cursor: pointer;
         white-space: nowrap;
-        transition: all 0.2s ease;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .mood-pill:hover {
-        color: #fff;
-        border-color: rgba(181, 142, 98, 0.4);
-        background: #18181C;
+    .mood-pill.is-glass {
+        background: rgba(25, 25, 32, 0.35);
+        backdrop-filter: blur(12px) saturate(1.4);
+        -webkit-backdrop-filter: blur(12px) saturate(1.4);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 
+            0 4px 14px rgba(0, 0, 0, 0.25),
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.7));
+    }
+
+    .mood-pill:hover:not(.active) {
+        color: var(--echo-text-1, #eae8e3);
+        border-color: rgba(255, 255, 255, 0.18);
+        background: #1c1c22;
+    }
+
+    .mood-pill.is-glass:hover:not(.active) {
+        background: rgba(35, 35, 45, 0.55);
+        border-color: rgba(255, 255, 255, 0.22);
+        color: var(--echo-text-1, #ffffff);
+        box-shadow: 
+            0 6px 18px rgba(0, 0, 0, 0.35),
+            inset 0 1px 1px rgba(255, 255, 255, 0.28),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
     }
 
     .mood-pill.active {
-        color: #0E0E10;
-        background: #B58E62;
-        border-color: #B58E62;
-        font-weight: 700;
+        color: var(--echo-primary, #e2a973);
+        background: rgba(226, 169, 115, 0.12);
+        border-color: rgba(226, 169, 115, 0.35);
+        font-weight: 600;
+    }
+
+    .mood-pill.is-glass.active {
+        color: var(--echo-primary, #e2a973);
+        background: rgba(226, 169, 115, 0.18);
+        border-color: rgba(226, 169, 115, 0.45);
+        font-weight: 600;
+        box-shadow: 
+            0 6px 20px rgba(0, 0, 0, 0.35),
+            inset 0 1px 1.5px rgba(226, 169, 115, 0.35),
+            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
     }
 
     .home-header h1 {
@@ -237,14 +272,10 @@
         color: #fff;
     }
 
-    .subtitle {
-        margin: 0;
-        font-size: 0.95rem;
-        color: var(--text-muted, rgba(255, 255, 255, 0.6));
-    }
+    
 
     .refresh-btn {
-        background: var(--surface-1, rgba(255, 255, 255, 0.05));
+        background: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 50%;
         width: 40px;
@@ -254,12 +285,34 @@
         justify-content: center;
         color: var(--text-muted, rgba(255, 255, 255, 0.7));
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .refresh-btn.is-glass {
+        background: rgba(25, 25, 32, 0.35);
+        backdrop-filter: blur(12px) saturate(1.4);
+        -webkit-backdrop-filter: blur(12px) saturate(1.4);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 
+            0 4px 14px rgba(0, 0, 0, 0.25),
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
     }
 
     .refresh-btn:hover {
-        background: var(--surface-2, rgba(255, 255, 255, 0.1));
+        background: #1c1c22;
         color: #fff;
+        border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    .refresh-btn.is-glass:hover {
+        background: rgba(35, 35, 45, 0.55);
+        border-color: rgba(255, 255, 255, 0.22);
+        color: #fff;
+        box-shadow: 
+            0 6px 18px rgba(0, 0, 0, 0.35),
+            inset 0 1px 1px rgba(255, 255, 255, 0.28),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
     }
 
     .refresh-btn.spinning {
@@ -377,17 +430,7 @@
         color: #48cae4;
     }
 
-    .section-tag {
-        font-size: 0.72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--text-muted, rgba(255, 255, 255, 0.5));
-        background: var(--surface-1, rgba(255, 255, 255, 0.05));
-        padding: 0.2rem 0.55rem;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-    }
+    
 
     .cold-seeds-grid {
         display: grid;

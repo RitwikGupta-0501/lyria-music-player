@@ -2,6 +2,7 @@
     import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { Play, Pause, Heart } from "phosphor-svelte";
+    import { resolveCoverArt } from "$lib/utils/media";
 
     function isCurrentTrack(song: FederatedTrack): boolean {
         const cur = audioStore.currentQueueTrack;
@@ -14,13 +15,7 @@
         return isCurrentTrack(song) && audioStore.playbackState === "Playing";
     }
 
-    function formatDuration(ms?: number | null): string {
-        if (!ms) return "";
-        const s = Math.floor(ms / 1000);
-        const mins = Math.floor(s / 60);
-        const secs = s % 60;
-        return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
-    }
+
 </script>
 
 <section class="quick-picks-section">
@@ -28,7 +23,7 @@
         <div class="title-group">
             <h2>Quick Picks</h2>
         </div>
-        <span class="section-tag">High Rotation</span>
+        
     </div>
 
     <div class="quick-picks-grid">
@@ -42,9 +37,9 @@
                 onkeydown={(e) => { if (e.key === "Enter") homeStore.playFederatedTrack(song); }}
             >
                 <div class="pill-art">
-                    {#if song.cover_art_url}
+                    {#if resolveCoverArt(song.cover_art_url)}
                         <img 
-                            src={song.cover_art_url.startsWith("/") ? `asset://localhost/${encodeURIComponent(song.cover_art_url)}` : song.cover_art_url} 
+                            src={resolveCoverArt(song.cover_art_url)} 
                             alt={song.title} 
                             loading="lazy"
                         />
@@ -71,9 +66,6 @@
                 </div>
 
                 <div class="pill-trailing">
-                    {#if song.duration_ms}
-                        <span class="pill-duration">{formatDuration(song.duration_ms)}</span>
-                    {/if}
                     <button 
                         class="pill-like-btn" 
                         class:liked={song.liked}
@@ -116,18 +108,7 @@
         color: #fff;
     }
 
-    .section-tag {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #B58E62;
-        background: rgba(181, 142, 98, 0.08);
-        border: 1px solid rgba(181, 142, 98, 0.18);
-        padding: 0.2rem 0.55rem;
-        border-radius: 4px;
-    }
+    
 
     .quick-picks-grid {
         display: grid;
@@ -270,11 +251,7 @@
         flex-shrink: 0;
     }
 
-    .pill-duration {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.72rem;
-        color: rgba(255, 255, 255, 0.4);
-    }
+
 
     .pill-like-btn {
         background: transparent;

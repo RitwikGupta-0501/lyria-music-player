@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { audioStore } from "./audio.svelte";
 import { toastStore } from "./toast.svelte";
+import { libraryStore } from "./library.svelte";
 
 export interface TrackSourceInfo {
     type: "Local" | "Remote";
@@ -239,6 +240,23 @@ class HomeStore {
                 durationMs: track.duration_ms,
             });
             track.liked = newLiked;
+
+            // Synchronize across all shelves sharing the same canonical_key
+            const updateList = (list: FederatedTrack[]) => {
+                for (const item of list) {
+                    if (item.canonical_key === track.canonical_key) {
+                        item.liked = newLiked;
+                    }
+                }
+            };
+
+            updateList(this.quickPicks);
+            updateList(this.keepListening);
+            updateList(this.forgottenFavorites);
+            updateList(this.dailyDiscover);
+
+            // Sync global libraryStore liked songs for PlayerBar and Playlist views
+            await libraryStore.fetchLikedSongs();
         } catch (e) {
             console.error("Failed to toggle like:", e);
         }

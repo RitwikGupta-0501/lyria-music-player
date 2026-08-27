@@ -582,12 +582,24 @@ pub fn record_playback_event(
 ) -> SqlResult<()> {
     let canonical_key = make_canonical_key(title, artist);
 
-    // 1. Check if a local file exists matching title and artist
-    let local_match: Option<(i64, Option<String>)> = conn.query_row(
-        "SELECT t.id, a.cover_art_path FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE LOWER(t.title) = LOWER(?1) AND LOWER(t.artist) = LOWER(?2) LIMIT 1",
-        [title, artist],
-        |row| Ok((row.get(0)?, row.get(1)?))
-    ).ok();
+    // 1. Check if a local file exists matching title and artist or source_id
+    let local_match: Option<(i64, Option<String>)> = if provider_id == "local" {
+        source_id.parse::<i64>().ok().and_then(|t_id| {
+            conn.query_row(
+                "SELECT t.id, a.cover_art_path FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE t.id = ?1 LIMIT 1",
+                [t_id],
+                |row| Ok((row.get(0)?, row.get(1)?))
+            ).ok()
+        })
+    } else {
+        None
+    }.or_else(|| {
+        conn.query_row(
+            "SELECT t.id, a.cover_art_path FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE LOWER(TRIM(t.title)) = LOWER(TRIM(?1)) AND (LOWER(TRIM(t.artist)) = LOWER(TRIM(?2)) OR t.artist IS NULL) LIMIT 1",
+            [title, artist],
+            |row| Ok((row.get(0)?, row.get(1)?))
+        ).ok()
+    });
 
     let local_track_id = local_match.as_ref().map(|m| m.0);
     let resolved_cover = cover_art_url.map(|s| s.to_string()).or_else(|| local_match.and_then(|m| m.1));

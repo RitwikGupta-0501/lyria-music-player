@@ -699,8 +699,21 @@ impl RecommendationCompiler {
 
     pub fn compile_and_deduplicate(&self, tracks: Vec<(String, TrackResult, Option<String>)>) -> Vec<FederatedTrack> {
         let overrides = self.load_overrides();
-        let mut federated: Vec<FederatedTrack> = Vec::new();
+        let liked_keys: std::collections::HashSet<String> = if let Ok(conn) = self.open_read_conn() {
+            let stmt = conn.prepare("SELECT canonical_key FROM song_telemetry WHERE liked = 1").ok();
+            if let Some(mut s) = stmt {
+                s.query_map([], |row| row.get::<_, String>(0))
+                    .ok()
+                    .map(|iter| iter.flatten().collect())
+                    .unwrap_or_default()
+            } else {
+                std::collections::HashSet::new()
+            }
+        } else {
+            std::collections::HashSet::new()
+        };
 
+        let mut federated: Vec<FederatedTrack> = Vec::new();
         let mut artist_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
         for (provider_id, track, provenance) in tracks {
@@ -758,6 +771,7 @@ impl RecommendationCompiler {
                 }
             } else {
                 *count += 1;
+                let is_liked = liked_keys.contains(&key);
                 federated.push(FederatedTrack {
                     canonical_key: key,
                     title: track.title,
@@ -769,6 +783,7 @@ impl RecommendationCompiler {
                     play_count: 0,
                     seed_provenance: provenance,
                     sources: vec![source],
+                    liked: is_liked,
                 });
             }
         }
@@ -777,7 +792,21 @@ impl RecommendationCompiler {
     }
 
     fn canonical_songs_to_federated(&self, songs: Vec<CanonicalSong>) -> Vec<FederatedTrack> {
+        let artwork_dir = self.db_path.parent().and_then(|p| p.parent()).map(|p| p.join("artwork"));
+
         songs.into_iter().map(|s| {
+            let mut resolved_cover = s.cover_art_url.clone();
+            if resolved_cover.is_none() {
+                if let Some(local_id) = s.local_track_id {
+                    if let Some(ref art_dir) = artwork_dir {
+                        let candidate_path = art_dir.join(format!("{}.jpg", local_id));
+                        if candidate_path.exists() {
+                            resolved_cover = Some(candidate_path.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+
             let source = if let Some(local_id) = s.local_track_id {
                 TrackSourceInfo::Local {
                     track_id: local_id,
@@ -790,7 +819,7 @@ impl RecommendationCompiler {
                     remote_track_id: s.last_source_id,
                     stream_url: None,
                     quality_hint: None,
-                    cover_art_url: s.cover_art_url.clone(),
+                    cover_art_url: resolved_cover.clone(),
                     duration_ms: s.duration_ms,
                 }
             };
@@ -801,11 +830,12 @@ impl RecommendationCompiler {
                 artist: s.artist,
                 album: s.album,
                 isrc: None,
-                cover_art_url: s.cover_art_url,
+                cover_art_url: resolved_cover,
                 duration_ms: s.duration_ms,
                 play_count: s.play_count as u64,
                 seed_provenance: None,
                 sources: vec![source],
+                liked: s.liked,
             }
         }).collect()
     }
