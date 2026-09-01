@@ -77,6 +77,7 @@
         <div class="sidebar-header">
             <button 
                 class="toggle-btn" 
+                class:is-glass={settingsStore.glassyPlayerBar}
                 onclick={toggleSidebar} 
                 title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                 aria-label="Toggle navigation"
@@ -95,11 +96,14 @@
             {#if activeIndex !== -1}
                 <div 
                     class="sliding-glass-pill" 
+                    class:is-glass={settingsStore.glassyPlayerBar}
                     class:is-moving={isMoving}
                     style="transform: translateY({pillTop}px) {isMoving ? 'scaleY(1.12) scaleX(0.97)' : 'scale(1)'};"
                 >
-                    <!-- 1. Internal Refractive Specular Catch-Light -->
-                    <div class="specular-top-highlight" aria-hidden="true"></div>
+                    {#if settingsStore.glassyPlayerBar}
+                        <!-- 1. Internal Refractive Specular Catch-Light -->
+                        <div class="specular-top-highlight" aria-hidden="true"></div>
+                    {/if}
                 </div>
             {/if}
 
@@ -143,8 +147,10 @@
             title="Settings"
         >
             {#if activeView === "settings"}
-                <div class="active-pill settings-pill">
-                    <div class="specular-top-highlight" aria-hidden="true"></div>
+                <div class="active-pill settings-pill" class:is-glass={settingsStore.glassyPlayerBar}>
+                    {#if settingsStore.glassyPlayerBar}
+                        <div class="specular-top-highlight" aria-hidden="true"></div>
+                    {/if}
                 </div>
             {/if}
 
@@ -180,7 +186,14 @@
         background: #0d0e11;
         border-right: 1px solid rgba(255, 255, 255, 0.06);
         box-shadow: 1px 0 30px rgba(0, 0, 0, 0.5);
-        transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        
+        /* Hardware Acceleration & Subtree Containment (In-Flow, Zero Jitter) */
+        contain: layout paint;
+        will-change: width;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        
+        transition: width 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .sidebar.open {
@@ -209,16 +222,21 @@
         height: 40px;
         flex-shrink: 0;
         border-radius: 1rem;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
         color: #e4e4e7;
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         transition: all 0.2s ease;
         padding: 0;
+    }
+
+    .toggle-btn.is-glass {
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
     }
 
     .toggle-btn:hover {
@@ -236,17 +254,20 @@
         display: flex;
         align-items: center;
         overflow: hidden;
-        max-width: 0;
         opacity: 0;
-        transform: translateX(-8px);
-        transition: max-width 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        pointer-events: none;
+        transform: translateX(-6px) translateZ(0);
+        will-change: opacity, transform;
+        backface-visibility: hidden;
+        transition: opacity 0.08s ease, transform 0.08s ease;
         white-space: nowrap;
     }
 
     .brand-wrapper.visible {
-        max-width: 180px;
         opacity: 1;
-        transform: translateX(0);
+        pointer-events: auto;
+        transform: translateX(0) translateZ(0);
+        transition: opacity 0.14s ease 0.04s, transform 0.14s cubic-bezier(0.16, 1, 0.3, 1) 0.04s;
     }
 
     .wordmark {
@@ -280,22 +301,19 @@
         border-radius: 1rem;
         pointer-events: none;
         z-index: 1;
-        
-        /* Refractive Amber/Brass Liquid Gradient */
-        background: linear-gradient(180deg, rgba(200, 157, 110, 0.25) 0%, rgba(150, 107, 61, 0.15) 100%);
-        border: 1px solid rgba(224, 184, 143, 0.40);
-        backdrop-filter: blur(24px) saturate(2);
-        -webkit-backdrop-filter: blur(24px) saturate(2);
-        
-        /* Double-Layer Specular Catch-Lights */
+        background: rgba(226, 169, 115, 0.12);
+        border: 1px solid rgba(226, 169, 115, 0.3);
+        transition: 
+            transform 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+            opacity 0.15s ease;
+    }
+
+    .sliding-glass-pill.is-glass {
+        background: linear-gradient(180deg, rgba(200, 157, 110, 0.22) 0%, rgba(150, 107, 61, 0.12) 100%);
+        border: 1px solid rgba(224, 184, 143, 0.35);
         box-shadow: 
             inset 0 1px 1px rgba(255, 255, 255, 0.35),
             0 8px 24px -4px rgba(0, 0, 0, 0.5);
-            
-        transition: 
-            transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
-            width 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-            opacity 0.2s ease;
     }
 
     /* 1. Internal Refractive Specular Catch-Light Line */
@@ -385,17 +403,20 @@
         display: flex;
         align-items: center;
         overflow: hidden;
-        max-width: 0;
         opacity: 0;
-        transform: translateX(-6px);
-        transition: max-width 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        pointer-events: none;
+        transform: translateX(-6px) translateZ(0);
+        will-change: opacity, transform;
+        backface-visibility: hidden;
+        transition: opacity 0.08s ease, transform 0.08s ease;
         white-space: nowrap;
     }
 
     .label-wrapper.visible {
-        max-width: 160px;
         opacity: 1;
-        transform: translateX(0);
+        pointer-events: auto;
+        transform: translateX(0) translateZ(0);
+        transition: opacity 0.14s ease 0.04s, transform 0.14s cubic-bezier(0.16, 1, 0.3, 1) 0.04s;
     }
 
     .label {
@@ -418,15 +439,18 @@
         position: absolute;
         inset: 0;
         border-radius: 1rem;
-        background: linear-gradient(180deg, rgba(200, 157, 110, 0.25) 0%, rgba(150, 107, 61, 0.15) 100%);
-        border: 1px solid rgba(224, 184, 143, 0.40);
-        backdrop-filter: blur(24px) saturate(2);
-        -webkit-backdrop-filter: blur(24px) saturate(2);
+        background: rgba(226, 169, 115, 0.12);
+        border: 1px solid rgba(226, 169, 115, 0.3);
+        pointer-events: none;
+        z-index: -1;
+    }
+
+    .active-pill.settings-pill.is-glass {
+        background: linear-gradient(180deg, rgba(200, 157, 110, 0.22) 0%, rgba(150, 107, 61, 0.12) 100%);
+        border: 1px solid rgba(224, 184, 143, 0.35);
         box-shadow: 
             inset 0 1px 1px rgba(255, 255, 255, 0.35),
             0 8px 24px -4px rgba(0, 0, 0, 0.5);
-        pointer-events: none;
-        z-index: -1;
     }
 
     .settings-icon {

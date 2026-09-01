@@ -42,6 +42,7 @@ export class LibraryStore {
     likedSongs = $state<any[]>([]);
     isScanning = $state(false);
     lastScanResult = $state<number | null>(null);
+    onLikeToggled: ((canonicalKey: string, isLiked: boolean) => void) | null = null;
 
     async fetchAlbums() {
         try {
@@ -103,6 +104,9 @@ export class LibraryStore {
                 durationMs: track.duration_ms,
             });
             await this.fetchLikedSongs();
+            if (this.onLikeToggled) {
+                this.onLikeToggled(key, isLiked);
+            }
             return isLiked;
         } catch (e) {
             console.error("Failed to toggle like:", e);

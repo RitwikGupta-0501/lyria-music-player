@@ -421,6 +421,13 @@ async fn get_home_radios(
 }
 
 #[tauri::command]
+async fn get_home_adjacent_horizons(
+    state: State<'_, AppState>,
+) -> Result<Vec<providers::recommendations::AdjacentHorizonPayload>, String> {
+    state.recommendation_compiler.compute_adjacent_horizons()
+}
+
+#[tauri::command]
 async fn get_home_adjacent_horizon(
     state: State<'_, AppState>,
 ) -> Result<Option<providers::recommendations::AdjacentHorizonPayload>, String> {
@@ -1243,6 +1250,7 @@ pub fn run() {
             get_home_local_shelves,
             get_home_remote_shelves,
             get_home_radios,
+            get_home_adjacent_horizons,
             get_home_adjacent_horizon,
             get_radio_stream,
             clear_recommendations_cache,

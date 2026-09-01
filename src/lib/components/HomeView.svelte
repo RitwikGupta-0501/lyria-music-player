@@ -170,12 +170,22 @@
 
 <style>
     .home-view {
-        padding: 2.5rem 2.5rem 10rem 2.5rem;
+        padding: 2.5rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
         height: 100%;
         overflow-y: auto;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         display: flex;
         flex-direction: column;
         gap: 3rem;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 900px) {
+        .home-view {
+            padding: 1.5rem 1.25rem 10rem 1.25rem;
+            gap: 2rem;
+        }
     }
 
     .home-header {
@@ -275,24 +285,32 @@
     
 
     .refresh-btn {
-        background: #141416;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 50%;
-        width: 40px;
-        height: 40px;
+        width: 36px;
+        height: 36px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--text-muted, rgba(255, 255, 255, 0.7));
+        color: #FFFFFF;
         cursor: pointer;
-        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        padding: 0;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    }
+
+    .refresh-btn :global(svg) {
+        display: block;
+        flex-shrink: 0;
+        fill: currentColor;
     }
 
     .refresh-btn.is-glass {
-        background: rgba(25, 25, 32, 0.35);
+        background: rgba(25, 25, 32, 0.45);
         backdrop-filter: blur(12px) saturate(1.4);
         -webkit-backdrop-filter: blur(12px) saturate(1.4);
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.14);
         box-shadow: 
             0 4px 14px rgba(0, 0, 0, 0.25),
             inset 0 1px 1px rgba(255, 255, 255, 0.18),
@@ -300,19 +318,23 @@
     }
 
     .refresh-btn:hover {
-        background: #1c1c22;
-        color: #fff;
-        border-color: rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.16);
+        color: #B58E62;
+        border-color: rgba(181, 142, 98, 0.4);
     }
 
     .refresh-btn.is-glass:hover {
-        background: rgba(35, 35, 45, 0.55);
-        border-color: rgba(255, 255, 255, 0.22);
-        color: #fff;
+        background: rgba(45, 45, 60, 0.65);
+        border-color: rgba(181, 142, 98, 0.4);
+        color: #B58E62;
         box-shadow: 
             0 6px 18px rgba(0, 0, 0, 0.35),
             inset 0 1px 1px rgba(255, 255, 255, 0.28),
             inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+    }
+
+    .refresh-btn:active {
+        transform: scale(0.92);
     }
 
     .refresh-btn.spinning {

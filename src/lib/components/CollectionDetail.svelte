@@ -423,8 +423,8 @@
         flex-direction: column;
         position: absolute;
         inset: 0;
-        padding: 1.5rem;
-        padding-bottom: 8rem;
+        padding: 1.5rem 1.5rem var(--drawer-scroll-padding, 8rem) 1.5rem;
+        scroll-padding-bottom: var(--drawer-scroll-padding, 8rem);
     }
 
     .album-header {

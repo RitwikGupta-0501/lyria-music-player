@@ -451,10 +451,12 @@
         display: flex;
         flex-direction: column;
         gap: 2rem;
-        padding: 1.5rem 2rem 8.5rem 2rem;
+        padding: 1.5rem 2rem var(--player-clearance, 10rem) 2rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         max-width: 1200px;
         margin: 0 auto;
         width: 100%;
+        box-sizing: border-box;
     }
 
     .artist-topbar {

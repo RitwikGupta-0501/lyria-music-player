@@ -105,9 +105,136 @@ pub fn clean_title(title: &str) -> String {
     s.trim().to_string()
 }
 
+pub fn clean_artist_for_display(raw: &str) -> String {
+    let s = raw.trim();
+    if s.is_empty() {
+        return "Unknown Artist".to_string();
+    }
+
+    // Split by bullet '•' or '|' or '·' if present
+    for delimiter in ['•', '|', '·'] {
+        if s.contains(delimiter) {
+            let parts: Vec<&str> = s.split(delimiter).collect();
+            let noise_words = ["view", "views", "video", "audio", "subscribers", "subscriber", "mins", "min", "sec", "hours", "official", "lyrics", "hd", "4k"];
+            for part in &parts {
+                let p_trimmed = part.trim();
+                let p_lower = p_trimmed.to_lowercase();
+                let is_timestamp = p_trimmed.contains(':') && p_trimmed.chars().all(|c| c.is_ascii_digit() || c == ':');
+                let is_noise = noise_words.iter().any(|k| p_lower.contains(k)) || is_timestamp;
+                if !is_noise && p_trimmed.len() > 1 {
+                    return clean_artist_for_display(p_trimmed);
+                }
+            }
+        }
+    }
+
+    let mut result = s.to_string();
+    let lower = result.to_lowercase();
+    if lower.ends_with(" - topic") {
+        result = result[..result.len() - 8].trim().to_string();
+    } else if lower.ends_with(" vevo") {
+        result = result[..result.len() - 5].trim().to_string();
+    } else if lower.ends_with("vevo") {
+        result = result[..result.len() - 4].trim().to_string();
+    }
+
+    if result.to_lowercase().starts_with("video - ") || result.to_lowercase().starts_with("video • ") {
+        result = result[8..].trim().to_string();
+    }
+
+    result
+}
+
+pub fn split_artist_names(raw: &str) -> Vec<String> {
+    let clean = clean_artist_for_display(raw);
+    if clean.is_empty() || clean.eq_ignore_ascii_case("unknown artist") {
+        return Vec::new();
+    }
+
+    // Split on common collaboration and feature delimiters
+    let normalized = clean
+        .replace(" feat. ", " ; ")
+        .replace(" feat ", " ; ")
+        .replace(" ft. ", " ; ")
+        .replace(" ft ", " ; ")
+        .replace(" with ", " ; ")
+        .replace(" & ", " ; ")
+        .replace(" / ", " ; ")
+        .replace(", ", " ; ");
+
+    let mut names = Vec::new();
+    for part in normalized.split(';') {
+        let trimmed = part.trim();
+        if trimmed.len() > 1 && !trimmed.eq_ignore_ascii_case("the") && !trimmed.eq_ignore_ascii_case("unknown") {
+            names.push(trimmed.to_string());
+        }
+    }
+
+    if names.is_empty() {
+        names.push(clean);
+    }
+    names
+}
+
+pub fn clean_album_title_for_display(raw: &str) -> Option<String> {
+    let mut s = raw.trim().to_string();
+    if s.is_empty() {
+        return None;
+    }
+
+    let alpha_count = s.chars().filter(|c| c.is_alphanumeric()).count();
+    if alpha_count < 2 {
+        return None;
+    }
+    if s.eq_ignore_ascii_case("unknown") || s.eq_ignore_ascii_case("unknown album") || s == "&" || s == "/" || s == "•" {
+        return None;
+    }
+
+    let noise_suffixes = [
+        "(original motion picture soundtrack)",
+        "[original motion picture soundtrack]",
+        "(original soundtrack)",
+        "[original soundtrack]",
+        "(deluxe edition)",
+        "[deluxe edition]",
+        "(deluxe version)",
+        "[deluxe version]",
+        "(expanded edition)",
+        "[expanded edition]",
+        "(special edition)",
+        "[special edition]",
+        "(bonus track edition)",
+        "[bonus track edition]",
+        "(remastered)",
+        "[remastered]",
+        "(anniversary edition)",
+        "[anniversary edition]",
+    ];
+
+    for noise in &noise_suffixes {
+        if s.to_lowercase().contains(noise) {
+            let lower = s.to_lowercase();
+            if let Some(pos) = lower.find(noise) {
+                s = s[..pos].trim().to_string();
+            }
+        }
+    }
+
+    s = s.trim_end_matches(&['-', '–', '—', '/', ':', '|'][..]).trim().to_string();
+
+    if s.chars().filter(|c| c.is_alphanumeric()).count() < 2 {
+        None
+    } else {
+        Some(s)
+    }
+}
+
 pub fn clean_artist(artist: &str) -> String {
+    // Clean raw display name / remove video bullet metadata first
+    let display_cleaned = clean_artist_for_display(artist);
+
     // 1. Unicode NFKC normalization + diacritic stripping
-    let mut s = strip_diacritics(artist).nfkc().collect::<String>();
+    let mut s = strip_diacritics(&display_cleaned).nfkc().collect::<String>();
 
     // 2. Lowercase
     s = s.to_lowercase();

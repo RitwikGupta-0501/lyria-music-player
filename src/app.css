@@ -40,9 +40,11 @@
   --echo-font-body: "Outfit", system-ui, -apple-system, sans-serif;
   --echo-font-heading: "Newsreader", serif;
 
-  /* Layout */
+  /* Layout & Clearance */
   --sidebar-w: 83px;
-  /* Collapsed width */
+  --player-clearance: 10rem;
+  --player-scroll-padding: 10rem;
+  --drawer-scroll-padding: 8rem;
 
   /* ─────────────────────────────────────────
      LIQUID GLASS SYSTEM TOKENS (macOS Sonoma / VisionOS Refraction)
@@ -131,6 +133,8 @@ h6 {
   position: relative;
   background: var(--echo-void);
   z-index: 10;
+  contain: layout;
+  scroll-padding-bottom: var(--player-scroll-padding, 10rem);
 }
 
 /* ─────────────────────────────────────────

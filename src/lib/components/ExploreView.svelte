@@ -880,13 +880,21 @@
 
 <style>
     .explore-canvas {
-        padding: 1.5rem 2rem 9rem 2rem; /* pb-36 (144px) clearance for Player Island */
-        max-width: 1360px;
-        margin: 0 auto;
+        padding: 1.5rem 2rem var(--player-clearance, 10rem) 2rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
+        width: 100%;
         display: flex;
         flex-direction: column;
         gap: 2.2rem;
         color: #fff;
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 900px) {
+        .explore-canvas {
+            padding: 1.25rem 1.25rem 9rem 1.25rem;
+            gap: 1.5rem;
+        }
     }
 
     /* ─── Top Discovery Bar ─── */
@@ -935,7 +943,7 @@
     .clear-search-btn, .refresh-btn {
         background: transparent;
         border: none;
-        color: rgba(255, 255, 255, 0.5);
+        color: rgba(255, 255, 255, 0.75);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -943,6 +951,11 @@
         padding: 0.25rem;
         border-radius: 4px;
         transition: color 0.15s ease, transform 0.15s ease;
+    }
+    .clear-search-btn :global(svg), .refresh-btn :global(svg) {
+        display: block;
+        flex-shrink: 0;
+        fill: currentColor;
     }
     .clear-search-btn:hover, .refresh-btn:hover {
         color: #fff;

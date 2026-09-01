@@ -102,6 +102,7 @@
                         </div>
                         <button 
                             class="liquid-like-btn" 
+                            class:is-glass={settingsStore.glassyPlayerBar}
                             class:liked={item.liked}
                             onclick={(e) => { e.stopPropagation(); homeStore.toggleLike(item); }}
                             title={item.liked ? "Liked" : "Like track"}
@@ -304,14 +305,9 @@
         border-radius: 50% !important;
         padding: 0 !important;
         margin: 0 !important;
-        background: rgba(255, 255, 255, 0.028);
-        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
-        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        box-shadow: 
-            inset 0 1px 1px rgba(255, 255, 255, 0.18),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
-            0 4px 12px rgba(0, 0, 0, 0.35);
+        background: rgba(18, 20, 26, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
         color: #ffffff;
         display: flex !important;
         align-items: center !important;
@@ -324,6 +320,17 @@
         z-index: 5;
     }
 
+    .liquid-like-btn.is-glass {
+        background: rgba(255, 255, 255, 0.028);
+        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: 
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+            0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
     .discover-card:hover .liquid-like-btn {
         opacity: 1;
         transform: scale(1);
@@ -332,6 +339,12 @@
 
     .liquid-like-btn:hover {
         transform: scale(1.12) !important;
+        background: rgba(30, 32, 40, 0.95) !important;
+        border-color: rgba(226, 169, 115, 0.35) !important;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55) !important;
+    }
+
+    .liquid-like-btn.is-glass:hover {
         background: rgba(255, 255, 255, 0.08) !important;
         border-color: rgba(226, 169, 115, 0.35) !important;
         box-shadow: 
@@ -348,6 +361,12 @@
         transform: scale(1);
         pointer-events: auto;
         color: #ffd285;
+        background: rgba(45, 35, 25, 0.9);
+        border-color: rgba(224, 184, 143, 0.35);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    .liquid-like-btn.is-glass.liked {
         background: linear-gradient(180deg, rgba(200, 157, 110, 0.22) 0%, rgba(150, 107, 61, 0.15) 100%);
         border-color: rgba(224, 184, 143, 0.35);
         box-shadow: 

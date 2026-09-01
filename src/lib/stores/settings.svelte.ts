@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { DEFAULT_KEYMAP, type KeyAction, type KeyBinding } from "./keymap";
 
 export class SettingsStore {
     loaded = $state(false);
@@ -17,6 +18,7 @@ export class SettingsStore {
     discoveryArtistDiversityCeiling = $derived(
         parseInt(this.settings["discovery_artist_diversity_ceiling"] || "3", 10)
     );
+    defaultRemoteProvider = $derived(this.settings["default_remote_provider"] || "local");
 
     async init() {
         try {
@@ -68,6 +70,57 @@ export class SettingsStore {
 
     async setDiscoveryArtistDiversityCeiling(ceiling: number) {
         await this.setSetting("discovery_artist_diversity_ceiling", ceiling.toString());
+    }
+
+    async setDefaultRemoteProvider(providerId: string) {
+        await this.setSetting("default_remote_provider", providerId);
+    }
+
+    getKeymap(): Record<KeyAction, KeyBinding> {
+        const customJson = this.settings["custom_keymap"];
+        const keymap: Record<KeyAction, KeyBinding> = {
+            refreshRecommendations: { ...DEFAULT_KEYMAP.refreshRecommendations.binding },
+            playPause: { ...DEFAULT_KEYMAP.playPause.binding },
+            prevTrack: { ...DEFAULT_KEYMAP.prevTrack.binding },
+            nextTrack: { ...DEFAULT_KEYMAP.nextTrack.binding },
+            seekBack: { ...DEFAULT_KEYMAP.seekBack.binding },
+            seekForward: { ...DEFAULT_KEYMAP.seekForward.binding },
+            volumeUp: { ...DEFAULT_KEYMAP.volumeUp.binding },
+            volumeDown: { ...DEFAULT_KEYMAP.volumeDown.binding },
+            toggleShuffle: { ...DEFAULT_KEYMAP.toggleShuffle.binding },
+            cycleRepeat: { ...DEFAULT_KEYMAP.cycleRepeat.binding },
+            search: { ...DEFAULT_KEYMAP.search.binding },
+            escape: { ...DEFAULT_KEYMAP.escape.binding },
+        };
+
+        if (customJson) {
+            try {
+                const parsed = JSON.parse(customJson);
+                for (const [action, binding] of Object.entries(parsed)) {
+                    if (action in keymap && binding && typeof binding === "object") {
+                        keymap[action as KeyAction] = binding as KeyBinding;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse custom keymap:", e);
+            }
+        }
+
+        return keymap;
+    }
+
+    getKeybinding(action: KeyAction): KeyBinding {
+        return this.getKeymap()[action] || DEFAULT_KEYMAP[action].binding;
+    }
+
+    async setKeybinding(action: KeyAction, binding: KeyBinding) {
+        const currentMap = this.getKeymap();
+        currentMap[action] = binding;
+        await this.setSetting("custom_keymap", JSON.stringify(currentMap));
+    }
+
+    async resetKeymap() {
+        await this.setSetting("custom_keymap", "");
     }
 }
 

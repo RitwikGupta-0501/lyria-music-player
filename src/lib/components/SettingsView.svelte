@@ -3,10 +3,42 @@
     import { libraryStore } from "$lib/stores/library.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
-    import { CaretDown, Check, TerminalWindow, Copy, FolderOpen } from "phosphor-svelte";
+    import { CaretDown, Check, TerminalWindow, Copy, FolderOpen, ArrowCounterClockwise, Keyboard } from "phosphor-svelte";
+    import { DEFAULT_KEYMAP, formatBinding, eventToBinding, type KeyAction, type KeyBinding } from "$lib/stores/keymap";
     import { onMount } from "svelte";
 
-    let activeTab = $state<"playback" | "appearance" | "data" | "advanced">("playback");
+    let activeTab = $state<"playback" | "appearance" | "shortcuts" | "data" | "advanced">("playback");
+    let recordingAction = $state<KeyAction | null>(null);
+
+    function startRecording(action: KeyAction) {
+        recordingAction = action;
+    }
+
+    function stopRecording() {
+        recordingAction = null;
+    }
+
+    async function handleKeyRecord(e: KeyboardEvent, action: KeyAction) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (e.key === "Escape") {
+            stopRecording();
+            return;
+        }
+
+        const newBinding = eventToBinding(e);
+        if (newBinding) {
+            await settingsStore.setKeybinding(action, newBinding);
+            toastStore.success(`Updated shortcut for ${DEFAULT_KEYMAP[action]?.label || action}`);
+            stopRecording();
+        }
+    }
+
+    async function handleResetKeymap() {
+        await settingsStore.resetKeymap();
+        toastStore.success("Restored factory default shortcuts");
+    }
 
     let isDropdownOpen = $state(false);
     let isCopyLogsSuccess = $state(false);
@@ -36,9 +68,41 @@
         { value: 5, label: "5 Tracks (Relaxed Diversity)" },
     ];
 
+    let isProviderDropdownOpen = $state(false);
+    let availableProviders = $state<Array<{ value: string; label: string }>>([
+        { value: "local", label: "Local Files Only (No Remote Fallback)" }
+    ]);
+
     onMount(async () => {
         await settingsStore.init();
+        try {
+            const providers = await invoke<any[]>("get_providers");
+            if (providers && providers.length > 0) {
+                const resolverProviders = providers
+                    .filter((p: any) => {
+                        if (p.status !== "enabled") return false;
+                        const caps: string[] = p.capabilities || [];
+                        return caps.some(c => ["resolve", "stream", "url_resolver"].includes(c.toLowerCase()));
+                    })
+                    .map((p: any) => ({
+                        value: p.id,
+                        label: `${p.name || p.id} (WASM)`,
+                    }));
+                
+                availableProviders = [
+                    { value: "local", label: "Local Files Only (No Remote Fallback)" },
+                    ...resolverProviders,
+                ];
+            }
+        } catch (e) {
+            console.error("Failed to load providers in settings:", e);
+        }
     });
+
+    async function selectProvider(val: string) {
+        await settingsStore.setDefaultRemoteProvider(val);
+        isProviderDropdownOpen = false;
+    }
 
     async function toggleKeepPlaying() {
         await settingsStore.setKeepPlayingOnQueueClear(!settingsStore.keepPlayingOnQueueClear);
@@ -68,6 +132,9 @@
         }
         if (isDiversityCeilingOpen) {
             isDiversityCeilingOpen = false;
+        }
+        if (isProviderDropdownOpen) {
+            isProviderDropdownOpen = false;
         }
     }
 
@@ -156,6 +223,13 @@
                 onclick={() => (activeTab = "appearance")}
             >
                 Appearance
+            </button>
+            <button
+                class="nav-item"
+                class:active={activeTab === "shortcuts"}
+                onclick={() => (activeTab = "shortcuts")}
+            >
+                Shortcuts & Keybinds
             </button>
             <button
                 class="nav-item"
@@ -386,6 +460,67 @@
                             {/if}
                         </div>
                     </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <p class="setting-label">Default Streaming / Fallback Provider</p>
+                            <p class="setting-desc">
+                                Select the fallback provider used to stream and resolve tracks when local audio files are missing.
+                            </p>
+                        </div>
+
+                        <div class="custom-select-container">
+                            <button
+                                class="select-trigger"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    isProviderDropdownOpen = !isProviderDropdownOpen;
+                                    isDropdownOpen = false;
+                                    isQueueCompletionOpen = false;
+                                    isDiversityCeilingOpen = false;
+                                }}
+                                disabled={!settingsStore.loaded}
+                            >
+                                <span
+                                    >{availableProviders.find(
+                                        (o) => o.value === settingsStore.defaultRemoteProvider,
+                                    )?.label || (settingsStore.defaultRemoteProvider === "local" ? "Local Files Only (No Remote Fallback)" : settingsStore.defaultRemoteProvider)}</span
+                                >
+                                <CaretDown
+                                    size={14}
+                                    weight="bold"
+                                    class={isProviderDropdownOpen ? "rotated" : ""}
+                                />
+                            </button>
+
+                            {#if isProviderDropdownOpen}
+                                <div class="custom-select-menu glass">
+                                    {#each availableProviders as opt}
+                                        <button
+                                            class="select-option"
+                                            class:selected={settingsStore.defaultRemoteProvider ===
+                                                opt.value}
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                selectProvider(opt.value);
+                                            }}
+                                        >
+                                            <span class="opt-label"
+                                                >{opt.label}</span
+                                            >
+                                            {#if settingsStore.defaultRemoteProvider === opt.value}
+                                                <Check
+                                                    size={14}
+                                                    weight="bold"
+                                                    class="check-icon"
+                                                />
+                                            {/if}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+                    </div>
                 </section>
             {:else if activeTab === "appearance"}
                 <section class="settings-section">
@@ -411,6 +546,79 @@
                             />
                             <span class="slider round"></span>
                         </label>
+                    </div>
+                </section>
+            {:else if activeTab === "shortcuts"}
+                <section class="settings-section">
+                    <div class="section-title-row">
+                        <div>
+                            <h3 class="section-title">Shortcuts & Keybindings</h3>
+                            <p class="section-desc">Click any keybinding to record a new key combination.</p>
+                        </div>
+                        <button class="action-btn secondary" onclick={handleResetKeymap} title="Reset to Factory Defaults">
+                            <ArrowCounterClockwise size={14} weight="bold" />
+                            <span>Reset Defaults</span>
+                        </button>
+                    </div>
+
+                    <!-- Category: Discovery & Navigation -->
+                    <div class="shortcuts-group">
+                        <h4 class="group-title">Discovery & Navigation</h4>
+                        <div class="shortcuts-ledger">
+                            {#each (Object.entries(DEFAULT_KEYMAP).filter(([_, e]) => e.category === "discovery" || e.category === "navigation")) as [action, entry]}
+                                <div class="shortcut-row">
+                                    <div class="shortcut-info">
+                                        <p class="setting-label">{entry.label}</p>
+                                        <p class="setting-desc">{entry.description}</p>
+                                    </div>
+                                    <div class="shortcut-recorder-wrap">
+                                        <button 
+                                            class="keybind-btn" 
+                                            class:is-recording={recordingAction === action}
+                                            onclick={() => startRecording(action as KeyAction)}
+                                            onkeydown={(e) => handleKeyRecord(e, action as KeyAction)}
+                                            title="Click to change shortcut"
+                                        >
+                                            {#if recordingAction === action}
+                                                <span class="recording-pulse">Press key... (Esc to cancel)</span>
+                                            {:else}
+                                                <span class="keybind-tag">{formatBinding(settingsStore.getKeybinding(action as KeyAction))}</span>
+                                            {/if}
+                                        </button>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <!-- Category: Playback Control -->
+                    <div class="shortcuts-group">
+                        <h4 class="group-title">Playback & Audio Controls</h4>
+                        <div class="shortcuts-ledger">
+                            {#each (Object.entries(DEFAULT_KEYMAP).filter(([_, e]) => e.category === "playback")) as [action, entry]}
+                                <div class="shortcut-row">
+                                    <div class="shortcut-info">
+                                        <p class="setting-label">{entry.label}</p>
+                                        <p class="setting-desc">{entry.description}</p>
+                                    </div>
+                                    <div class="shortcut-recorder-wrap">
+                                        <button 
+                                            class="keybind-btn" 
+                                            class:is-recording={recordingAction === action}
+                                            onclick={() => startRecording(action as KeyAction)}
+                                            onkeydown={(e) => handleKeyRecord(e, action as KeyAction)}
+                                            title="Click to change shortcut"
+                                        >
+                                            {#if recordingAction === action}
+                                                <span class="recording-pulse">Press key... (Esc to cancel)</span>
+                                            {:else}
+                                                <span class="keybind-tag">{formatBinding(settingsStore.getKeybinding(action as KeyAction))}</span>
+                                            {/if}
+                                        </button>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
                     </div>
                 </section>
             {:else if activeTab === "data"}
@@ -603,7 +811,8 @@
     .settings-content {
         flex: 1;
         overflow-y: auto;
-        padding: 3rem 4rem;
+        padding: 3rem 4rem var(--player-clearance, 10rem) 4rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         display: flex;
         flex-direction: column;
     }
@@ -649,6 +858,123 @@
         font-weight: 500;
         color: var(--echo-text-1);
         margin: 0;
+    }
+
+    .section-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--echo-border);
+        margin-bottom: 0.5rem;
+    }
+
+    .section-title-row .section-title {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-bottom: 0.2rem;
+    }
+
+    .section-desc {
+        font-size: 0.82rem;
+        color: var(--echo-text-2);
+        margin: 0;
+    }
+
+    .shortcuts-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 0.5rem;
+    }
+
+    .group-title {
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--echo-primary, #e2a973);
+        margin: 0;
+    }
+
+    .shortcuts-ledger {
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--echo-border);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .shortcut-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.85rem 1.1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        transition: background 0.15s ease;
+    }
+
+    .shortcut-row:last-child {
+        border-bottom: none;
+    }
+
+    .shortcut-row:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .shortcut-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        margin-right: 1.5rem;
+    }
+
+    .keybind-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 90px;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .keybind-btn:hover:not(.is-recording) {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(226, 169, 115, 0.4);
+        color: var(--echo-primary, #e2a973);
+    }
+
+    .keybind-btn.is-recording {
+        background: rgba(226, 169, 115, 0.15);
+        border-color: var(--echo-primary, #e2a973);
+        box-shadow: 0 0 12px rgba(226, 169, 115, 0.25);
+    }
+
+    .keybind-tag {
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--echo-text-1, #fff);
+        letter-spacing: 0.04em;
+    }
+
+    .recording-pulse {
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.74rem;
+        font-weight: 600;
+        color: var(--echo-primary, #e2a973);
+        animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
     }
 
     .setting-desc {

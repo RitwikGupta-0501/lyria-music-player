@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::db::canonical::{
-    compute_dedup_confidence, make_canonical_key, CandidateTrack, FederatedTrack,
+    clean_artist_for_display, compute_dedup_confidence, make_canonical_key, CandidateTrack, FederatedTrack,
 };
 use crate::db::queries::{self, CanonicalSong};
 use crate::providers::{CanonicalSeedV1, ProviderManager, TrackResult, RadioStreamResultV1, PROVIDER_ABI_VERSION};
@@ -189,11 +189,12 @@ impl RecommendationCompiler {
                 Vec::new()
             };
 
-            let seed_key = make_canonical_key("", &a.artist);
+            let display_name = clean_artist_for_display(&a.artist);
+            let seed_key = make_canonical_key("", &display_name);
             cards.push(RadioMixCard {
-                id: format!("radio-artist-{}", a.artist.to_lowercase().replace(' ', "-")),
-                title: format!("{} Mix", a.artist),
-                subtitle: format!("Inspired by your plays of {}", a.artist),
+                id: format!("radio-artist-{}", display_name.to_lowercase().replace(' ', "-")),
+                title: format!("{} Mix", display_name),
+                subtitle: format!("Inspired by your plays of {}", display_name),
                 category: "artist".to_string(),
                 covers,
                 gradient_start: palette.0.to_string(),
@@ -202,7 +203,7 @@ impl RecommendationCompiler {
                     abi_version: PROVIDER_ABI_VERSION,
                     canonical_key: seed_key,
                     title: String::new(),
-                    artist: a.artist,
+                    artist: display_name,
                     album: None,
                     isrc: None,
                     duration_ms: None,
@@ -219,9 +220,16 @@ impl RecommendationCompiler {
         };
 
         let top_artists = queries::get_heavy_rotation_7d(&conn, 4).unwrap_or_default();
-        let a1 = top_artists.artists.get(0).map(|a| a.artist.as_str()).unwrap_or("OneRepublic");
-        let a2 = top_artists.artists.get(1).map(|a| a.artist.as_str()).unwrap_or(a1);
-        let a3 = top_artists.artists.get(2).map(|a| a.artist.as_str()).unwrap_or(a2);
+        let a1_raw = top_artists.artists.get(0).map(|a| a.artist.as_str()).unwrap_or("OneRepublic");
+        let a2_raw = top_artists.artists.get(1).map(|a| a.artist.as_str()).unwrap_or(a1_raw);
+        let a3_raw = top_artists.artists.get(2).map(|a| a.artist.as_str()).unwrap_or(a2_raw);
+
+        let a1_clean = clean_artist_for_display(a1_raw);
+        let a2_clean = clean_artist_for_display(a2_raw);
+        let a3_clean = clean_artist_for_display(a3_raw);
+        let a1 = a1_clean.as_str();
+        let a2 = a2_clean.as_str();
+        let a3 = a3_clean.as_str();
 
         let (m1_title, m1_sub, m1_artist, m1_query, m1_start, m1_end, m2_title, m2_sub, m2_artist, m2_query, m2_start, m2_end) = match mood.map(|m| m.trim().to_lowercase()).as_deref() {
             Some("deep focus") | Some("focus") => (
@@ -347,7 +355,7 @@ impl RecommendationCompiler {
             seed: CanonicalSeedV1 {
                 abi_version: PROVIDER_ABI_VERSION,
                 canonical_key: make_canonical_key(m1_artist, &m1_query),
-                title: m1_query,
+                title: m1_query.to_string(),
                 artist: m1_artist.to_string(),
                 album: None,
                 isrc: None,
@@ -368,7 +376,7 @@ impl RecommendationCompiler {
             seed: CanonicalSeedV1 {
                 abi_version: PROVIDER_ABI_VERSION,
                 canonical_key: make_canonical_key(m2_artist, &m2_query),
-                title: m2_query,
+                title: m2_query.to_string(),
                 artist: m2_artist.to_string(),
                 album: None,
                 isrc: None,
@@ -382,6 +390,7 @@ impl RecommendationCompiler {
     }
 
     pub async fn compile_federated_radio(&self, seed: &CanonicalSeedV1) -> Result<RadioStreamResultV1, String> {
+        self.ensure_providers_synced();
         let p_mgr = match &self.provider_manager {
             Some(pm) => pm.clone(),
             None => return Err("ProviderManager not initialized".to_string()),
@@ -432,63 +441,154 @@ impl RecommendationCompiler {
         })
     }
 
-    pub fn compute_adjacent_horizon(&self) -> Result<Option<AdjacentHorizonPayload>, String> {
+    pub fn compute_adjacent_horizons(&self) -> Result<Vec<AdjacentHorizonPayload>, String> {
         let conn = self.open_read_conn()?;
-        let top_artists = queries::get_heavy_rotation_7d(&conn, 1).unwrap_or_default();
+        let top_artists = queries::get_heavy_rotation_7d(&conn, 5).unwrap_or_default();
         let dominant_artist = top_artists.artists.first().map(|a| a.artist.clone()).unwrap_or_else(|| "Your Library".to_string());
 
-        // Contrast bridge mapping based on hash / rotation
-        let contrasts = [
-            ("Modern Japanese Jazz", "Take a detour from standard structures into intricate polyrhythmic brass and Tokyo city jazz fusion.", "#FFB703"),
-            ("Analog Synthwave & Retrowave", "Step into lush analog sawtooth waves, gated drums, and neon retro-futurism.", "#FB8500"),
-            ("Neo-Classical & Ambient Strings", "Clear your auditory palette with minimalist acoustic piano and cinematic string quartets.", "#219EBC"),
-            ("Afro-Cuban Jazz & Global Funk", "Bridge rhythmic grooves into organic percussion, brass polyrhythms, and vintage soul.", "#E76F51"),
+        struct HorizonDef {
+            genre: &'static str,
+            description: &'static str,
+            accent: &'static str,
+            preview_tracks: &'static [(&'static str, &'static str, &'static str, u64, &'static str)],
+        }
+
+        let definitions = [
+            HorizonDef {
+                genre: "Modern Japanese Jazz & Fusion",
+                description: "Take a detour from standard arrangements into intricate polyrhythmic brass, electric piano solos, and Tokyo city fusion.",
+                accent: "#D4A86E",
+                preview_tracks: &[
+                    ("Midnight Rendezvous", "Casiopea", "Mint Jams", 227000, "https://i.ytimg.com/vi/6ESNk_w8t54/hqdefault.jpg"),
+                    ("Early Summer", "Ryo Fukui", "Scenery", 254000, "https://i.ytimg.com/vi/Hrr3dp7zDYs/hqdefault.jpg"),
+                    ("Truth", "T-Square", "Truth", 298000, "https://i.ytimg.com/vi/e0aaq76bV0k/hqdefault.jpg"),
+                ],
+            },
+            HorizonDef {
+                genre: "Analog Synthwave & Cyberpunk",
+                description: "Step into lush analog sawtooth waves, gated reverb drums, and cinematic neon retro-futurism.",
+                accent: "#FF8C38",
+                preview_tracks: &[
+                    ("Nightcall", "Kavinsky", "OutRun", 259000, "https://i.ytimg.com/vi/MV_3Dpw-BRY/hqdefault.jpg"),
+                    ("Resonance", "HOME", "Odyssey", 212000, "https://i.ytimg.com/vi/8GW6sLrK40k/hqdefault.jpg"),
+                    ("Days of Thunder", "The Midnight", "Days of Thunder", 328000, "https://i.ytimg.com/vi/v5u7XwR6r9w/hqdefault.jpg"),
+                ],
+            },
+            HorizonDef {
+                genre: "Neo-Classical & Cinematic Strings",
+                description: "Clear your auditory palette with minimalist acoustic piano motifs and contemplative, breathing string quartets.",
+                accent: "#38BDF8",
+                preview_tracks: &[
+                    ("Divenire", "Ludovico Einaudi", "Divenire", 402000, "https://i.ytimg.com/vi/1_A_B6u8-7E/hqdefault.jpg"),
+                    ("On The Nature of Daylight", "Max Richter", "The Blue Notebooks", 371000, "https://i.ytimg.com/vi/rVN1B-tUYA8/hqdefault.jpg"),
+                    ("Written on the Sky", "Max Richter", "The Blue Notebooks", 99000, "https://i.ytimg.com/vi/qY_Uu_n89eU/hqdefault.jpg"),
+                ],
+            },
+            HorizonDef {
+                genre: "Afro-Cuban Jazz & Global Funk",
+                description: "Bridge rhythmic grooves into organic percussion, montuno piano riffs, brass polyrhythms, and vintage soul.",
+                accent: "#E76F51",
+                preview_tracks: &[
+                    ("Water No Get Enemy", "Fela Kuti", "Expensive Shit", 590000, "https://i.ytimg.com/vi/IQBC5URoF0s/hqdefault.jpg"),
+                    ("Afrodisia", "Mongo Santamaria", "Afro-Roots", 242000, "https://i.ytimg.com/vi/g-nU8bI0W2w/hqdefault.jpg"),
+                    ("Chameleon", "Herbie Hancock", "Head Hunters", 941000, "https://i.ytimg.com/vi/UbkqE4fpvdI/hqdefault.jpg"),
+                ],
+            },
+            HorizonDef {
+                genre: "Nordic Ambient & Downtempo",
+                description: "Immerse in glacial harmonic textures, subdued acoustic strums, and expansive Scandinavian soundscapes.",
+                accent: "#A78BFA",
+                preview_tracks: &[
+                    ("A Walk", "Tycho", "Dive", 317000, "https://i.ytimg.com/vi/mehLx_Fjv_c/hqdefault.jpg"),
+                    ("Cirrus", "Bonobo", "The North Borders", 352000, "https://i.ytimg.com/vi/WF34N4U3GM8/hqdefault.jpg"),
+                    ("Svefn-g-englar", "Sigur Rós", "Ágætis byrjun", 604000, "https://i.ytimg.com/vi/84i7zQ_ACnU/hqdefault.jpg"),
+                ],
+            },
         ];
 
-        let idx = (dominant_artist.len()) % contrasts.len();
-        let (suggested_genre, description, accent) = contrasts[idx];
+        let mut horizons = Vec::new();
+        let start_idx = (dominant_artist.len()) % definitions.len();
 
-        let seed_key = make_canonical_key(suggested_genre, "Adjacent Horizon");
-        let seed = CanonicalSeedV1 {
-            abi_version: PROVIDER_ABI_VERSION,
-            canonical_key: seed_key,
-            title: suggested_genre.to_string(),
-            artist: "Adjacent Horizon".to_string(),
-            album: None,
-            isrc: None,
-            duration_ms: None,
-            native_id: None,
-            provider_id: None,
-        };
+        for i in 0..4 {
+            let def_idx = (start_idx + i) % definitions.len();
+            let def = &definitions[def_idx];
 
-        // Quick sample preview tracks from local database or fallback
-        let preview_raw = queries::get_canonical_discover_seeds(&conn, None, 4).unwrap_or_default();
-        let preview_tracks = self.canonical_songs_to_federated(preview_raw);
+            let seed_key = make_canonical_key(def.genre, "Adjacent Horizon");
+            let seed = CanonicalSeedV1 {
+                abi_version: PROVIDER_ABI_VERSION,
+                canonical_key: seed_key,
+                title: def.genre.to_string(),
+                artist: "Adjacent Horizon".to_string(),
+                album: None,
+                isrc: None,
+                duration_ms: None,
+                native_id: None,
+                provider_id: None,
+            };
 
-        Ok(Some(AdjacentHorizonPayload {
-            dominant_genre_or_artist: dominant_artist.clone(),
-            suggested_genre: suggested_genre.to_string(),
-            tagline: format!("You've been listening to {}. Explore {}.", dominant_artist, suggested_genre),
-            description: description.to_string(),
-            accent_color: accent.to_string(),
-            seed,
-            preview_tracks,
-        }))
+            let preview_tracks: Vec<FederatedTrack> = def.preview_tracks.iter().map(|(t, a, alb, dur, art)| {
+                let key = make_canonical_key(t, a);
+                FederatedTrack {
+                    canonical_key: key.clone(),
+                    title: t.to_string(),
+                    artist: a.to_string(),
+                    album: Some(alb.to_string()),
+                    isrc: None,
+                    cover_art_url: Some(art.to_string()),
+                    duration_ms: Some(*dur),
+                    play_count: 0,
+                    seed_provenance: Some(def.genre.to_string()),
+                    sources: vec![
+                        TrackSourceInfo::Remote {
+                            provider_id: "youtube-wasm".to_string(),
+                            remote_track_id: key,
+                            stream_url: None,
+                            quality_hint: None,
+                            cover_art_url: Some(art.to_string()),
+                            duration_ms: Some(*dur),
+                        }
+                    ],
+                    liked: false,
+                }
+            }).collect();
+
+            horizons.push(AdjacentHorizonPayload {
+                dominant_genre_or_artist: dominant_artist.clone(),
+                suggested_genre: def.genre.to_string(),
+                tagline: format!("Beyond {}. Explore {}.", dominant_artist, def.genre),
+                description: def.description.to_string(),
+                accent_color: def.accent.to_string(),
+                seed,
+                preview_tracks,
+            });
+        }
+
+        Ok(horizons)
+    }
+
+    pub fn compute_adjacent_horizon(&self) -> Result<Option<AdjacentHorizonPayload>, String> {
+        let horizons = self.compute_adjacent_horizons()?;
+        Ok(horizons.into_iter().next())
     }
 
     pub fn get_daily_discover_seeds(&self, mood: Option<&str>) -> Result<Vec<CanonicalSeedV1>, String> {
         let conn = self.open_read_conn()?;
-        let raw_seeds = queries::get_canonical_discover_seeds(&conn, mood, 15).unwrap_or_default();
+        let raw_seeds = queries::get_canonical_discover_seeds(&conn, mood, 25).unwrap_or_default();
 
         // Distinct artist diversity for seeds: maximum 1 seed per artist
+        // Balance selection: prioritize up to 3 recent listens and up to 2 favorite tracks
         let mut seen_artists = std::collections::HashSet::new();
-        let mut diverse_seeds = Vec::new();
+        let mut recent_candidates = Vec::new();
+        let mut favorite_candidates = Vec::new();
 
         for s in raw_seeds {
             let artist_norm = s.artist.trim().to_lowercase();
             if seen_artists.insert(artist_norm) {
+                let is_recent = s.last_played_at.is_some();
+                let is_favorite = s.liked || s.play_count >= 2;
+
                 let key = make_canonical_key(&s.title, &s.artist);
-                diverse_seeds.push(CanonicalSeedV1 {
+                let seed = CanonicalSeedV1 {
                     abi_version: PROVIDER_ABI_VERSION,
                     canonical_key: key,
                     title: s.title,
@@ -498,10 +598,49 @@ impl RecommendationCompiler {
                     duration_ms: s.duration_ms,
                     native_id: if s.last_provider_id != "local" { Some(s.last_source_id) } else { None },
                     provider_id: Some(s.last_provider_id),
-                });
+                };
+
+                if is_recent {
+                    recent_candidates.push(seed.clone());
+                }
+                if is_favorite {
+                    favorite_candidates.push(seed);
+                } else if !is_recent {
+                    recent_candidates.push(seed);
+                }
             }
-            if diverse_seeds.len() >= 5 {
+        }
+
+        let mut diverse_seeds = Vec::new();
+        let mut picked_keys = std::collections::HashSet::new();
+
+        // 1. Pick up to 6 recent seeds
+        for s in &recent_candidates {
+            if diverse_seeds.len() >= 6 {
                 break;
+            }
+            if picked_keys.insert(s.canonical_key.clone()) {
+                diverse_seeds.push(s.clone());
+            }
+        }
+
+        // 2. Pick up to 4 favorite seeds
+        for s in &favorite_candidates {
+            if diverse_seeds.len() >= 10 {
+                break;
+            }
+            if picked_keys.insert(s.canonical_key.clone()) {
+                diverse_seeds.push(s.clone());
+            }
+        }
+
+        // 3. Fallback: fill remaining slots up to 10 from all candidate pools
+        for s in recent_candidates.into_iter().chain(favorite_candidates.into_iter()) {
+            if diverse_seeds.len() >= 10 {
+                break;
+            }
+            if picked_keys.insert(s.canonical_key.clone()) {
+                diverse_seeds.push(s);
             }
         }
 
@@ -511,20 +650,15 @@ impl RecommendationCompiler {
     pub fn get_valid_cache(&self, seed_canonical_key: &str, provider_id: &str, shelf_type: &str) -> Option<Vec<TrackResult>> {
         let conn = self.open_read_conn().ok()?;
         let mut stmt = conn.prepare(
-            "SELECT payload_json, fetched_at, ttl_seconds FROM recommendation_cache
-             WHERE seed_canonical_key = ?1 AND provider_id = ?2 AND shelf_type = ?3"
+            "SELECT payload_json FROM recommendation_cache
+             WHERE seed_canonical_key = ?1 AND provider_id = ?2 AND shelf_type = ?3
+               AND (datetime(fetched_at, '+' || ttl_seconds || ' seconds') > datetime('now') OR ttl_seconds = 0)"
         ).ok()?;
 
-        let result = stmt.query_row(rusqlite::params![seed_canonical_key, provider_id, shelf_type], |row| {
-            let json: String = row.get(0)?;
-            let fetched_at_str: String = row.get(1)?;
-            let ttl: i64 = row.get(2)?;
-            Ok((json, fetched_at_str, ttl))
+        let json: String = stmt.query_row(rusqlite::params![seed_canonical_key, provider_id, shelf_type], |row| {
+            row.get(0)
         }).ok()?;
 
-        // TTL validation
-        let (json, _fetched_at_str, _ttl) = result;
-        // If parsed timestamp is within ttl, return
         let items: Vec<TrackResult> = serde_json::from_str(&json).ok()?;
         Some(items)
     }
@@ -600,11 +734,25 @@ impl RecommendationCompiler {
         }
     }
 
+    fn ensure_providers_synced(&self) {
+        if let Some(ref pm) = self.provider_manager {
+            let is_empty = pm.providers.read().map(|p| p.is_empty()).unwrap_or(true);
+            if is_empty {
+                if let Ok(conn) = self.open_read_conn() {
+                    if let Ok(providers) = crate::db::queries::get_providers(&conn) {
+                        pm.sync_registry(providers);
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn get_federated_daily_discover(
         &self,
         seeds: Vec<CanonicalSeedV1>,
         cancel_token: CancellationToken,
     ) -> FederatedShelfResult {
+        self.ensure_providers_synced();
         let mut cached_tracks: Vec<(String, TrackResult, Option<String>)> = Vec::new();
         let mut missing_queries: Vec<(String, CanonicalSeedV1)> = Vec::new();
 
@@ -644,7 +792,7 @@ impl RecommendationCompiler {
             set.spawn(async move {
                 tokio::select! {
                     _ = c_token.cancelled() => Err((p_id_clone, seed_clone, ProviderErrorType::Generic("cancelled".into()))),
-                    res = tokio::time::timeout(Duration::from_secs(4), async {
+                    res = tokio::time::timeout(Duration::from_secs(8), async {
                         p_mgr.get_related(&p_id_clone, &seed_clone).await
                     }) => match res {
                         Ok(Ok(tracks)) => Ok((p_id_clone, seed_clone, tracks)),
@@ -719,7 +867,7 @@ impl RecommendationCompiler {
         for (provider_id, track, provenance) in tracks {
             let artist_norm = track.artist.trim().to_lowercase();
             let count = artist_counts.entry(artist_norm.clone()).or_insert(0);
-            if *count >= 2 {
+            if *count >= 3 {
                 continue; // Enforce artist diversity capping in Daily Discover
             }
 
@@ -813,6 +961,12 @@ impl RecommendationCompiler {
                     file_path: s.local_file_path.unwrap_or_default(),
                     album_id: None,
                 }
+            } else if s.last_provider_id == "local" || s.last_provider_id.is_empty() {
+                TrackSourceInfo::Local {
+                    track_id: 0,
+                    file_path: s.local_file_path.unwrap_or_default(),
+                    album_id: None,
+                }
             } else {
                 TrackSourceInfo::Remote {
                     provider_id: s.last_provider_id,
@@ -860,14 +1014,14 @@ mod tests {
         let compiler = RecommendationCompiler::new_for_testing(db_path);
 
         // 1. Test get_local_shelves returns all expanded fields
-        let shelves = compiler.get_local_shelves().unwrap();
+        let shelves = compiler.get_local_shelves(None).unwrap();
         assert_eq!(shelves.quick_picks.len(), 1);
         assert_eq!(shelves.quick_picks[0].title, "Everything in Its Right Place");
         assert_eq!(shelves.heavy_rotation.artists.len(), 1);
         assert_eq!(shelves.heavy_rotation.artists[0].artist, "Radiohead");
 
         // 2. Test compile_algorithmic_radios
-        let radios = compiler.compile_algorithmic_radios().unwrap();
+        let radios = compiler.compile_algorithmic_radios(None).unwrap();
         assert!(radios.len() >= 3); // At least 1 artist mix + 2 temporal mood mixes
         let artist_mix = radios.iter().find(|r| r.category == "artist").unwrap();
         assert_eq!(artist_mix.title, "Radiohead Mix");
@@ -878,5 +1032,51 @@ mod tests {
         let h = horizon.unwrap();
         assert_eq!(h.dominant_genre_or_artist, "Radiohead");
         assert!(!h.suggested_genre.is_empty());
+    }
+
+    #[test]
+    fn test_daily_discover_seeds_and_cache_ttl() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_ttl.db");
+        {
+            let conn = crate::db::schema::init_db(&db_path).unwrap();
+            queries::record_playback_event(&conn, "Track Old", "Old Artist", None, None, "local", "1", Some(200000)).unwrap();
+            queries::record_playback_event(&conn, "Track New", "New Artist", None, None, "local", "2", Some(180000)).unwrap();
+        }
+
+        let compiler = RecommendationCompiler::new_for_testing(db_path);
+
+        // 1. Verify seeds pick the distinct artists
+        let seeds = compiler.get_daily_discover_seeds(None).unwrap();
+        assert_eq!(seeds.len(), 2);
+
+        // 2. Test cache save and TTL retrieval
+        let track = TrackResult {
+            id: "rec-1".into(),
+            title: "Recommended 1".into(),
+            artist: "Rec Artist".into(),
+            album: None,
+            isrc: None,
+            cover_art_url: None,
+            stream_url: None,
+            quality_hint: None,
+            duration_ms: None,
+        };
+
+        // Cache valid with 3600s TTL
+        compiler.save_cache("seed::1", "test-provider", "daily_discover", &[track.clone()], 3600);
+        let cached = compiler.get_valid_cache("seed::1", "test-provider", "daily_discover");
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().len(), 1);
+
+        // Expired cache with negative/0 relative time simulation (insert directly with expired fetched_at)
+        let write_conn = compiler.open_write_conn().unwrap();
+        write_conn.execute(
+            "UPDATE recommendation_cache SET fetched_at = datetime('now', '-7200 seconds') WHERE seed_canonical_key = 'seed::1'",
+            [],
+        ).unwrap();
+
+        let expired = compiler.get_valid_cache("seed::1", "test-provider", "daily_discover");
+        assert!(expired.is_none(), "Expired cache should return None");
     }
 }

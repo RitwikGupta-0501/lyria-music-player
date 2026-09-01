@@ -28,6 +28,9 @@ pub async fn load_audio(
             (crate::audio::TrackSource::Local(pb), None)
         }
         crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, duration_ms, .. } => {
+            if provider_id == "local" || provider_id.is_empty() {
+                return Err("Local track cannot be resolved remotely without a file path".to_string());
+            }
             let (final_url, headers, resolved_duration) = {
                 let resolved = state.provider_manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
                     tracing::error!("Failed to resolve track '{}' via '{}': {}", remote_track_id, provider_id, e);
@@ -86,6 +89,9 @@ pub async fn queue_next_audio(
             (crate::audio::TrackSource::Local(pb), None)
         }
         crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, duration_ms, .. } => {
+            if provider_id == "local" || provider_id.is_empty() {
+                return Err("Local track cannot be resolved remotely without a file path".to_string());
+            }
             let (final_url, headers, resolved_duration) = {
                 let resolved = state.provider_manager.resolve(&provider_id, &remote_track_id).await.map_err(|e| {
                     tracing::error!("Failed to resolve track '{}' via '{}': {}", remote_track_id, provider_id, e);

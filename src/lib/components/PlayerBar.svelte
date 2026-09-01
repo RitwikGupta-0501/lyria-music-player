@@ -1,7 +1,7 @@
 <script lang="ts">
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { libraryStore } from "$lib/stores/library.svelte";
+    import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
     import {
         Play,
         Pause,
@@ -189,10 +189,11 @@
                             {@const currentTrackObj = audioStore.currentQueueTrack}
                             {@const trackTitleStr = currentTrackObj?.title || (audioStore.currentTrack !== "None" ? audioStore.currentTrack : "")}
                             {@const trackArtistStr = currentTrackObj?.artist || "unknown"}
-                            {@const trackKey = `${trackTitleStr}::${trackArtistStr}`.toLowerCase().trim()}
-                            {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === trackKey)}
+                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr })}
+                            {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === trackKey.toLowerCase().trim())}
                             <button 
                                 class="like-btn" 
+                                class:is-glass={settingsStore.glassyPlayerBar}
                                 class:liked={isLiked}
                                 onclick={() => {
                                     if (trackTitleStr) {
@@ -770,21 +771,30 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(12px) saturate(180%);
-        -webkit-backdrop-filter: blur(12px) saturate(180%);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         cursor: pointer;
         padding: 0;
         flex-shrink: 0;
         transition: transform 0.2s var(--ease-liquid, ease), background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
+    .like-btn.is-glass {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
+        backdrop-filter: blur(12px) saturate(180%);
+        -webkit-backdrop-filter: blur(12px) saturate(180%);
+    }
+
     .like-btn:hover {
         transform: scale(1.15);
-        background: rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.10);
         border-color: rgba(226, 169, 115, 0.45);
+    }
+
+    .like-btn.is-glass:hover {
+        background: rgba(255, 255, 255, 0.14);
         box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.4);
     }
 
@@ -794,8 +804,13 @@
 
     .like-btn.liked {
         color: #ffd285;
-        background: linear-gradient(180deg, rgba(200, 157, 110, 0.35) 0%, rgba(150, 107, 61, 0.25) 100%);
-        border-color: rgba(224, 184, 143, 0.55);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 0 10px rgba(245, 203, 153, 0.4);
+        background: rgba(45, 35, 25, 0.85);
+        border-color: rgba(224, 184, 143, 0.35);
+    }
+
+    .like-btn.is-glass.liked {
+        background: linear-gradient(180deg, rgba(200, 157, 110, 0.25) 0%, rgba(150, 107, 61, 0.15) 100%);
+        border-color: rgba(224, 184, 143, 0.45);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3);
     }
 </style>

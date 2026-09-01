@@ -171,7 +171,8 @@
         flex-direction: column;
         height: 100%;
         width: 100%;
-        padding-bottom: 5rem; /* Allow space for player bar */
+        padding-bottom: var(--drawer-scroll-padding, 8rem);
+        scroll-padding-bottom: var(--drawer-scroll-padding, 8rem);
     }
 
     .queue-header {
