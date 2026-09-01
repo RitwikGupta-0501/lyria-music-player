@@ -163,8 +163,16 @@
 
     /* ── Album grid ── */
     .album-grid {
-        padding: 2.5rem; /* p-10 */
-        padding-bottom: 10rem; /* pb-40 */
+        padding: 2.5rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 900px) {
+        .album-grid {
+            padding: 1.5rem 1.25rem 10rem 1.25rem;
+        }
     }
     .virtual-row {
         display: grid;

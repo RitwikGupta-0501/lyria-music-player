@@ -135,7 +135,10 @@ export class AudioStore {
             this.currentTime = payload.position;
 
             if (payload.state === "Playing" && this.currentQueueTrack) {
-                this.logPlayback(this.currentQueueTrack);
+                // Log playback only after listening for >= 10s or >= 25% of duration (prevents immediate skip pollution)
+                if (payload.position >= 10 || (payload.duration > 0 && (payload.position / payload.duration) >= 0.25)) {
+                    this.logPlayback(this.currentQueueTrack);
+                }
             }
 
             if (payload.state === "Stopped") {
@@ -400,7 +403,6 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
-                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
@@ -485,7 +487,6 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
-                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
@@ -509,7 +510,6 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
-                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);
@@ -535,7 +535,6 @@ export class AudioStore {
                         artist: t.artist || null,
                         album: null
                     });
-                    this.logPlayback(t);
                     this.queueNextAudio();
                 } catch (loadErr) {
                     console.warn(`Failed to load audio for track '${t.title}':`, loadErr);

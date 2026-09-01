@@ -385,13 +385,16 @@ async fn resolve_stream_url(
 #[tauri::command]
 async fn get_home_local_shelves(
     state: State<'_, AppState>,
+    mood: Option<String>,
 ) -> Result<providers::recommendations::HomeLocalShelves, String> {
-    state.recommendation_compiler.get_local_shelves()
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
+    state.recommendation_compiler.get_local_shelves(mood_filter)
 }
 
 #[tauri::command]
 async fn get_home_remote_shelves(
     state: State<'_, AppState>,
+    mood: Option<String>,
 ) -> Result<providers::recommendations::FederatedShelfResult, String> {
     let new_token = tokio_util::sync::CancellationToken::new();
     {
@@ -402,26 +405,62 @@ async fn get_home_remote_shelves(
         *lock = Some(new_token.clone());
     }
 
-    let seeds = state.recommendation_compiler.get_daily_discover_seeds()?;
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
+    let seeds = state.recommendation_compiler.get_daily_discover_seeds(mood_filter)?;
     Ok(state.recommendation_compiler.get_federated_daily_discover(seeds, new_token).await)
 }
 
+
 #[tauri::command]
-async fn get_home_feed(state: State<'_, AppState>) -> Result<HomeFeedPayload, String> {
+async fn get_home_radios(
+    state: State<'_, AppState>,
+    mood: Option<String>,
+) -> Result<Vec<providers::recommendations::RadioMixCard>, String> {
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
+    state.recommendation_compiler.compile_algorithmic_radios(mood_filter)
+}
+
+#[tauri::command]
+async fn get_home_adjacent_horizons(
+    state: State<'_, AppState>,
+) -> Result<Vec<providers::recommendations::AdjacentHorizonPayload>, String> {
+    state.recommendation_compiler.compute_adjacent_horizons()
+}
+
+#[tauri::command]
+async fn get_home_adjacent_horizon(
+    state: State<'_, AppState>,
+) -> Result<Option<providers::recommendations::AdjacentHorizonPayload>, String> {
+    state.recommendation_compiler.compute_adjacent_horizon()
+}
+
+#[tauri::command]
+async fn get_radio_stream(
+    state: State<'_, AppState>,
+    _provider_id: String,
+    seed: providers::CanonicalSeedV1,
+) -> Result<providers::RadioStreamResultV1, String> {
+    state.recommendation_compiler.compile_federated_radio(&seed).await
+}
+
+#[tauri::command]
+async fn get_home_feed(state: State<'_, AppState>, mood: Option<String>) -> Result<HomeFeedPayload, String> {
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+
     let (tx_qp, rx_qp) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalQuickPicks { limit: 20, resp: tx_qp }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalQuickPicks { mood: mood_filter.clone(), limit: 20, resp: tx_qp }).map_err(|e| e.to_string())?;
     let qp = rx_qp.await.map_err(|e| e.to_string())??;
 
     let (tx_kl, rx_kl) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalKeepListening { limit: 20, resp: tx_kl }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalKeepListening { mood: mood_filter.clone(), limit: 20, resp: tx_kl }).map_err(|e| e.to_string())?;
     let kl = rx_kl.await.map_err(|e| e.to_string())??;
 
     let (tx_ff, rx_ff) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalForgottenFavorites { limit: 20, resp: tx_ff }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalForgottenFavorites { mood: mood_filter.clone(), limit: 20, resp: tx_ff }).map_err(|e| e.to_string())?;
     let ff = rx_ff.await.map_err(|e| e.to_string())??;
 
     let (tx_ds, rx_ds) = tokio::sync::oneshot::channel();
-    state.db_tx.send(crate::db::DbRequest::GetCanonicalDiscoverSeeds { limit: 5, resp: tx_ds }).map_err(|e| e.to_string())?;
+    state.db_tx.send(crate::db::DbRequest::GetCanonicalDiscoverSeeds { mood: mood_filter, limit: 5, resp: tx_ds }).map_err(|e| e.to_string())?;
     let ds = rx_ds.await.map_err(|e| e.to_string())??;
 
     Ok(HomeFeedPayload {
@@ -1046,7 +1085,14 @@ fn open_in_file_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[tauri::command]
+async fn clear_recommendations_cache(state: State<'_, AppState>) -> Result<(), String> {
+    state.recommendation_compiler.clear_all_cache();
+    state.provider_manager.clear_all_plugin_cache();
+    tracing::info!("Cleared recommendation cache and reloaded providers");
+    Ok(())
+}
+
 pub fn run() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -1104,33 +1150,36 @@ pub fn run() {
 
             let db_thread_handle = db::start_db_thread(conn, db_rx);
             
-            // Copy / update extension bundles into providers_dir
-            let mut source_dirs = Vec::new();
-            if let Ok(resource_dir) = app.path().resource_dir() {
-                source_dirs.push(resource_dir.join("providers"));
-                source_dirs.push(resource_dir.join("extensions"));
-            }
-            // Dev workspace fallback
-            source_dirs.push(std::path::PathBuf::from("../extensions"));
-            source_dirs.push(std::path::PathBuf::from("extensions"));
+            #[cfg(feature = "sync-workspace-extensions")]
+            {
+                // Copy / update extension bundles into providers_dir (Disabled by default)
+                let mut source_dirs = Vec::new();
+                if let Ok(resource_dir) = app.path().resource_dir() {
+                    source_dirs.push(resource_dir.join("providers"));
+                    source_dirs.push(resource_dir.join("extensions"));
+                }
+                // Dev workspace fallback
+                source_dirs.push(std::path::PathBuf::from("../extensions"));
+                source_dirs.push(std::path::PathBuf::from("extensions"));
 
-            for src in source_dirs {
-                if src.exists() && src.is_dir() {
-                    if let Ok(entries) = std::fs::read_dir(&src) {
-                        for entry in entries.flatten() {
-                            let p = entry.path();
-                            if p.is_file() {
-                                if let Some(name) = p.file_name() {
-                                    let dest = providers_dir.join(name);
-                                    let should_copy = if !dest.exists() {
-                                        true
-                                    } else if let (Ok(meta_src), Ok(meta_dest)) = (p.metadata(), dest.metadata()) {
-                                        meta_src.len() != meta_dest.len() || meta_src.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) > meta_dest.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                                    } else {
-                                        false
-                                    };
-                                    if should_copy {
-                                        let _ = std::fs::copy(&p, &dest);
+                for src in source_dirs {
+                    if src.exists() && src.is_dir() {
+                        if let Ok(entries) = std::fs::read_dir(&src) {
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.is_file() {
+                                    if let Some(name) = p.file_name() {
+                                        let dest = providers_dir.join(name);
+                                        let should_copy = if !dest.exists() {
+                                            true
+                                        } else if let (Ok(meta_src), Ok(meta_dest)) = (p.metadata(), dest.metadata()) {
+                                            meta_src.len() != meta_dest.len() || meta_src.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) > meta_dest.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                                        } else {
+                                            false
+                                        };
+                                        if should_copy {
+                                            let _ = std::fs::copy(&p, &dest);
+                                        }
                                     }
                                 }
                             }
@@ -1200,6 +1249,11 @@ pub fn run() {
             get_home_feed,
             get_home_local_shelves,
             get_home_remote_shelves,
+            get_home_radios,
+            get_home_adjacent_horizons,
+            get_home_adjacent_horizon,
+            get_radio_stream,
+            clear_recommendations_cache,
             record_track_play,
             toggle_track_like,
             get_liked_songs,

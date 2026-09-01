@@ -451,10 +451,12 @@
         display: flex;
         flex-direction: column;
         gap: 2rem;
-        padding: 1.5rem 2rem 8.5rem 2rem;
+        padding: 1.5rem 2rem var(--player-clearance, 10rem) 2rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         max-width: 1200px;
         margin: 0 auto;
         width: 100%;
+        box-sizing: border-box;
     }
 
     .artist-topbar {
@@ -556,6 +558,7 @@
         max-width: 650px;
         margin: 0.4rem 0 0.8rem 0;
         display: -webkit-box;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;

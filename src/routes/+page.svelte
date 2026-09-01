@@ -34,7 +34,11 @@
     function getDrawerTitle() {
         if (queueOpen) return "Up Next";
         if (exploreStore.activeDrawerCollection?.kind === "album") return "Album Details";
-        if (exploreStore.activeDrawerCollection?.kind === "playlist") return "Playlist Details";
+        if (exploreStore.activeDrawerCollection?.id?.toString().startsWith("horizon-")) return "Adjacent Horizon";
+        if (exploreStore.activeDrawerCollection?.kind === "playlist") {
+            if (exploreStore.activeDrawerCollection?.subtitle?.includes("Radio")) return "Radio Mix";
+            return "Playlist Details";
+        }
         return "";
     }
 

@@ -61,11 +61,37 @@ opus = "0.3.1"
 unicode-normalization = "0.1"
 tokio-util = { version = "0.7", features = ["time"] }
 
+[features]
+default = []
+sync-workspace-extensions = []
+
 [profile.dev]
 incremental = true
 split-debuginfo = "unpacked"
 
-[profile.dev.package."*"]
+# Optimize only heavy DSP/audio decoding & resampling crates in dev mode
+# (lets serde, tokio, reqwest, rusqlite, tauri compile fast without optimization passes)
+[profile.dev.package.symphonia]
 opt-level = 2
-debug = 0
+
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 2
+
+[profile.dev.package.symphonia-bundle-flac]
+opt-level = 2
+
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 2
+
+[profile.dev.package.rubato]
+opt-level = 2
+
+[profile.dev.package.opus]
+opt-level = 2
+
+[profile.dev.package.rodio]
+opt-level = 2
+
+[profile.dev.package.ringbuf]
+opt-level = 2
 

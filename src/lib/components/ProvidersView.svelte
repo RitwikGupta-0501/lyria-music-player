@@ -606,8 +606,9 @@ async function handleVerifyChecksum() {
     .providers-view {
         position: absolute;
         inset: 0;
-        padding: 2rem;
-        padding-bottom: 8rem;
+        padding: 2rem 2rem var(--player-clearance, 10rem) 2rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
         gap: 2rem;

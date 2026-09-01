@@ -16,6 +16,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { audioStore } from "./audio.svelte";
 import { libraryStore } from "./library.svelte";
 import { toastStore } from "./toast.svelte";
+import { settingsStore } from "./settings.svelte";
+import type { AdjacentHorizonPayload, RadioMixCard } from "./home.svelte";
 
 export interface TrackResult {
     id: string;
@@ -286,22 +288,31 @@ export class ExploreStore {
             return;
         }
 
-        const pId = album.provider_id || "youtube-wasm";
+        const fallbackProvider = (settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
+            ? settingsStore.defaultRemoteProvider
+            : "youtube-wasm";
+        const pId = (album.provider_id && album.provider_id !== "local")
+            ? album.provider_id
+            : fallbackProvider;
+
+        const albumTitle = album.title || album.id || "Album";
+        const albumArtist = album.artist || "Unknown Artist";
+
         // Instantly populate drawer stub with card metadata so drawer opens immediately with title and cover art!
         this.activeDrawerCollection = {
             kind: 'album',
             source: 'remote',
             id: album.id,
-            title: album.title || "Album",
-            subtitle: album.artist || "Unknown Artist",
+            title: albumTitle,
+            subtitle: albumArtist,
             cover_art_url: album.cover_art_url || null,
             provider_id: pId,
             tracks: [],
         };
         this.selectedRemoteAlbum = {
             id: album.id,
-            title: album.title || "Album",
-            artist: album.artist || "Unknown Artist",
+            title: albumTitle,
+            artist: albumArtist,
             cover_art_url: album.cover_art_url || null,
             tracks: [],
             provider_id: pId,
@@ -311,23 +322,97 @@ export class ExploreStore {
         this.isLoadingAlbum = true;
 
         try {
-            const res = await invoke<AlbumDetailResult>("browse_provider_album", {
-                providerId: pId,
-                albumId: album.id,
-            });
+            let res: AlbumDetailResult | null = null;
+
+            // 1. If album.id is a real remote browse ID (e.g. MPREb_... or OLAK5uy_... or starts with MPRE or OLAK or VL)
+            if (album.id && (album.id.startsWith("MPRE") || album.id.startsWith("OLAK") || album.id.startsWith("VL") || album.id.startsWith("FE"))) {
+                res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                    providerId: pId,
+                    albumId: album.id,
+                }).catch(() => null);
+            }
+
+            // 2. If browse_provider_album failed or album.id was a plain title
+            if (!res) {
+                const searchQuery = `${albumArtist} ${albumTitle}`.trim();
+                const searchRes = await invoke<CategorizedSearchResult>("search_provider_categorized", {
+                    providerId: pId,
+                    query: searchQuery,
+                    filter: "albums",
+                }).catch(() => null);
+
+                let remoteAlbumId: string | null = null;
+                let foundCover: string | null = null;
+
+                if (searchRes && searchRes.sections) {
+                    for (const sec of searchRes.sections) {
+                        for (const item of sec.items) {
+                            if (item.type === "Album" && item.data.id) {
+                                remoteAlbumId = item.data.id;
+                                foundCover = item.data.cover_art_url || null;
+                                break;
+                            }
+                            if (item.type === "TopResult" && item.data.item_type === "album" && item.data.id) {
+                                remoteAlbumId = item.data.id;
+                                foundCover = item.data.cover_art_url || null;
+                                break;
+                            }
+                        }
+                        if (remoteAlbumId) break;
+                    }
+                }
+
+                if (remoteAlbumId) {
+                    res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                        providerId: pId,
+                        albumId: remoteAlbumId,
+                    }).catch(() => null);
+                }
+
+                // 3. Fallback track query
+                if (!res) {
+                    const trackResults = await invoke<any[]>("search_provider", {
+                        providerId: pId,
+                        query: searchQuery,
+                    }).catch(() => []);
+
+                    if (trackResults && trackResults.length > 0) {
+                        const tracks = trackResults.slice(0, 20).map((t: any) => ({
+                            id: t.id,
+                            title: t.title,
+                            artist: t.artist || albumArtist,
+                            album: albumTitle,
+                            cover_art_url: t.cover_art_url || album.cover_art_url || foundCover,
+                            duration_ms: t.duration_ms,
+                            stream_url: t.stream_url,
+                            provider_id: pId,
+                        }));
+
+                        res = {
+                            id: album.id,
+                            title: albumTitle,
+                            artist: albumArtist,
+                            cover_art_url: album.cover_art_url || foundCover || (tracks[0] && tracks[0].cover_art_url) || null,
+                            tracks,
+                            provider_id: pId,
+                        };
+                    }
+                }
+            }
+
             if (res && this.activeDrawerCollection?.id === album.id) {
                 this.activeDrawerCollection = {
                     ...this.activeDrawerCollection,
-                    title: res.title || album.title || "Album",
-                    subtitle: res.artist || album.artist || "Unknown Artist",
+                    title: res.title || albumTitle,
+                    subtitle: res.artist || albumArtist,
                     cover_art_url: res.cover_art_url || album.cover_art_url || null,
                     tracks: res.tracks || [],
                     rawRemote: res,
                 };
                 this.selectedRemoteAlbum = {
                     ...res,
-                    title: res.title || album.title || "Album",
-                    artist: res.artist || album.artist || "Unknown Artist",
+                    title: res.title || albumTitle,
+                    artist: res.artist || albumArtist,
                     cover_art_url: res.cover_art_url || album.cover_art_url || null,
                 };
                 document.dispatchEvent(new CustomEvent("echo:navigate-album"));
@@ -338,6 +423,170 @@ export class ExploreStore {
         } finally {
             this.isLoadingCollection = false;
             this.isLoadingAlbum = false;
+        }
+    }
+
+    async openRadioMix(card: { id: string; title: string; subtitle?: string; covers?: string[]; seed: any }) {
+        const fallbackProvider = (settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
+            ? settingsStore.defaultRemoteProvider
+            : "youtube-wasm";
+        const pId = (card.seed?.provider_id && card.seed?.provider_id !== "local")
+            ? card.seed.provider_id
+            : fallbackProvider;
+
+        this.activeDrawerCollection = {
+            kind: "playlist",
+            source: "remote",
+            id: card.id,
+            title: card.title,
+            subtitle: card.subtitle || "Radio Station",
+            cover_art_url: (card.covers && card.covers[0]) || null,
+            provider_id: pId,
+            tracks: [],
+        };
+        this.isLoadingCollection = true;
+        this.isLoadingPlaylist = true;
+
+        try {
+            let tracks: any[] = [];
+            const radioResult: any = await invoke("get_radio_stream", {
+                providerId: pId,
+                seed: card.seed,
+            }).catch(() => null);
+
+            if (radioResult && radioResult.tracks && radioResult.tracks.length > 0) {
+                tracks = radioResult.tracks.map((t: any) => ({
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album || "",
+                    cover_art_url: t.cover_art_url || (card.covers && card.covers[0]) || null,
+                    duration_ms: t.duration_ms,
+                    stream_url: t.stream_url,
+                    provider_id: pId,
+                }));
+            } else {
+                const query = card.seed?.artist || card.seed?.title || card.title;
+                const searchResults = await invoke<any[]>("search_provider", {
+                    providerId: pId,
+                    query,
+                }).catch(() => []);
+
+                if (searchResults && searchResults.length > 0) {
+                    tracks = searchResults.map((t: any) => ({
+                        id: t.id,
+                        title: t.title,
+                        artist: t.artist,
+                        album: t.album || "",
+                        cover_art_url: t.cover_art_url || (card.covers && card.covers[0]) || null,
+                        duration_ms: t.duration_ms,
+                        stream_url: t.stream_url,
+                        provider_id: pId,
+                    }));
+                }
+            }
+
+            if (this.activeDrawerCollection?.id === card.id) {
+                this.activeDrawerCollection = {
+                    ...this.activeDrawerCollection,
+                    tracks,
+                };
+            }
+        } catch (e) {
+            console.error("Failed to load radio mix tracks:", e);
+        } finally {
+            this.isLoadingCollection = false;
+            this.isLoadingPlaylist = false;
+        }
+    }
+
+    async openHorizon(payload: AdjacentHorizonPayload) {
+        const fallbackProvider = (settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
+            ? settingsStore.defaultRemoteProvider
+            : "youtube-wasm";
+        const pId = (payload.seed?.provider_id && payload.seed?.provider_id !== "local")
+            ? payload.seed.provider_id
+            : fallbackProvider;
+
+        const initialTracks = (payload.preview_tracks || []).map((t: any) => ({
+            id: t.sources?.[0]?.remote_track_id || t.canonical_key,
+            title: t.title,
+            artist: t.artist,
+            album: t.album || "",
+            cover_art_url: t.cover_art_url,
+            duration_ms: t.duration_ms,
+            provider_id: pId,
+        }));
+
+        const horizonId = `horizon-${payload.suggested_genre.toLowerCase().replace(/\s+/g, "-")}`;
+        this.activeDrawerCollection = {
+            kind: "playlist",
+            source: "remote",
+            id: horizonId,
+            title: payload.suggested_genre,
+            subtitle: payload.tagline,
+            cover_art_url: (payload.preview_tracks && payload.preview_tracks[0]?.cover_art_url) || null,
+            provider_id: pId,
+            tracks: initialTracks,
+        };
+        this.isLoadingCollection = true;
+        this.isLoadingPlaylist = true;
+
+        try {
+            const radioResult: any = await invoke("get_radio_stream", {
+                providerId: pId,
+                seed: payload.seed,
+            }).catch(() => null);
+
+            let moreTracks: any[] = [];
+            if (radioResult && radioResult.tracks && radioResult.tracks.length > 0) {
+                moreTracks = radioResult.tracks.map((t: any) => ({
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album || "",
+                    cover_art_url: t.cover_art_url || null,
+                    duration_ms: t.duration_ms,
+                    stream_url: t.stream_url,
+                    provider_id: pId,
+                }));
+            } else {
+                const searchResults = await invoke<any[]>("search_provider", {
+                    providerId: pId,
+                    query: payload.suggested_genre,
+                }).catch(() => []);
+
+                if (searchResults && searchResults.length > 0) {
+                    moreTracks = searchResults.map((t: any) => ({
+                        id: t.id,
+                        title: t.title,
+                        artist: t.artist,
+                        album: t.album || "",
+                        cover_art_url: t.cover_art_url || null,
+                        duration_ms: t.duration_ms,
+                        stream_url: t.stream_url,
+                        provider_id: pId,
+                    }));
+                }
+            }
+
+            if (this.activeDrawerCollection?.id === horizonId) {
+                const combined = [...initialTracks];
+                for (const mt of moreTracks) {
+                    if (!combined.some(ct => ct.title.toLowerCase() === mt.title.toLowerCase() && ct.artist.toLowerCase() === mt.artist.toLowerCase())) {
+                        combined.push(mt);
+                    }
+                }
+                this.activeDrawerCollection = {
+                    ...this.activeDrawerCollection,
+                    tracks: combined,
+                };
+            }
+        } catch (e) {
+            console.error("Failed to load horizon tracks:", e);
+        } finally {
+            this.isLoadingCollection = false;
+            this.isLoadingPlaylist = false;
         }
     }
 
@@ -399,14 +648,107 @@ export class ExploreStore {
 
     async openArtist(artist: { id: string; name?: string; provider_id?: string }) {
         this.isLoadingArtist = true;
+        const artistName = artist.name || artist.id;
+        const pId = (artist.provider_id && artist.provider_id !== "local")
+            ? artist.provider_id
+            : ((settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
+                ? settingsStore.defaultRemoteProvider
+                : "youtube-wasm");
+
+        // Immediately navigate with provisional state
+        this.selectedArtist = {
+            id: artist.id,
+            name: artistName,
+            top_tracks: [],
+            albums: [],
+            singles: [],
+            provider_id: pId,
+        };
+        document.dispatchEvent(new CustomEvent("echo:navigate-artist"));
+
         try {
-            const res = await invoke<ArtistDetailResult>("browse_provider_artist", {
-                providerId: artist.provider_id || "youtube-wasm",
-                artistId: artist.id,
-            });
+            let res: ArtistDetailResult | null = null;
+
+            // 1. If artist.id is already a remote channel ID (starts with UC or MPRE or FE)
+            if (artist.id && (artist.id.startsWith("UC") || artist.id.startsWith("FE") || artist.id.startsWith("MPRE"))) {
+                res = await invoke<ArtistDetailResult>("browse_provider_artist", {
+                    providerId: pId,
+                    artistId: artist.id,
+                }).catch(() => null);
+            }
+
+            // 2. If browse_provider_artist failed or artist.id was a plain name
+            if (!res) {
+                // Search for the artist profile on the provider
+                const searchRes = await invoke<CategorizedSearchResult>("search_provider_categorized", {
+                    providerId: pId,
+                    query: artistName,
+                    filter: "artists",
+                }).catch(() => null);
+
+                let remoteArtistId: string | null = null;
+                let avatarUrl: string | null = null;
+                let subscribers: string | null = null;
+
+                if (searchRes && searchRes.sections) {
+                    for (const sec of searchRes.sections) {
+                        for (const item of sec.items) {
+                            if (item.type === "Artist" && item.data.id) {
+                                remoteArtistId = item.data.id;
+                                avatarUrl = item.data.avatar_url || null;
+                                subscribers = item.data.subscribers || null;
+                                break;
+                            }
+                            if (item.type === "TopResult" && item.data.item_type === "artist" && item.data.id) {
+                                remoteArtistId = item.data.id;
+                                avatarUrl = item.data.cover_art_url || null;
+                                break;
+                            }
+                        }
+                        if (remoteArtistId) break;
+                    }
+                }
+
+                if (remoteArtistId) {
+                    res = await invoke<ArtistDetailResult>("browse_provider_artist", {
+                        providerId: pId,
+                        artistId: remoteArtistId,
+                    }).catch(() => null);
+                }
+
+                // 3. Fallback synthesis: If still no full profile, search tracks & albums for this artist
+                if (!res) {
+                    const trackResults = await invoke<any[]>("search_provider", {
+                        providerId: pId,
+                        query: artistName,
+                    }).catch(() => []);
+
+                    // Also find local albums matching this artist
+                    const localAlbums: AlbumItem[] = libraryStore.albums
+                        .filter(a => a.artist && a.artist.toLowerCase().includes(artistName.toLowerCase()))
+                        .map(a => ({
+                            id: `local-${a.id}`,
+                            title: a.title,
+                            artist: a.artist || artistName,
+                            cover_art_url: a.cover_art_path ? (a.cover_art_path.startsWith("/") ? `asset://localhost/${encodeURIComponent(a.cover_art_path)}` : a.cover_art_path) : null,
+                            is_local: true,
+                        }));
+
+                    res = {
+                        id: artist.id,
+                        name: artistName,
+                        avatar_url: avatarUrl,
+                        subscribers: subscribers,
+                        top_tracks: trackResults.slice(0, 15),
+                        albums: localAlbums,
+                        singles: [],
+                        provider_id: pId,
+                    };
+                }
+            }
+
             if (res) {
                 this.selectedArtist = res;
-                document.dispatchEvent(new CustomEvent("echo:navigate-artist"));
             }
         } catch (e) {
             console.error("Failed to browse artist:", e);
