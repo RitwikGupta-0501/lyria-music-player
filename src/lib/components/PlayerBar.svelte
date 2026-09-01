@@ -26,9 +26,11 @@
 
     /* ── Album art for now-playing track ── */
     let playerArtUrl = $state<string | null>(null);
+    let currentArtReqId = 0;
 
     $effect(() => {
         const track = audioStore.currentQueueTrack;
+        const reqId = ++currentArtReqId;
         if (
             track &&
             track.source.type === "Local" &&
@@ -38,10 +40,10 @@
             libraryStore
                 .getArtworkUrl(track.source.track_id, track.source.file_path)
                 .then((url) => {
-                    playerArtUrl = url;
+                    if (reqId === currentArtReqId) playerArtUrl = url;
                 })
                 .catch(() => {
-                    playerArtUrl = null;
+                    if (reqId === currentArtReqId) playerArtUrl = null;
                 });
         } else if (
             track &&

@@ -1,3 +1,17 @@
+export interface DrawerCollectionTrack {
+    id: string | number;
+    title: string;
+    artist?: string | null;
+    album?: string | null;
+    file_path?: string | null;
+    cover_art_url?: string | null;
+    provider_id?: string;
+    duration_ms?: number | null;
+    track_number?: number | null;
+    liked?: boolean;
+    canonical_key?: string;
+}
+
 export interface DrawerCollection {
     kind: 'album' | 'playlist';
     source: 'local' | 'remote';
@@ -7,8 +21,8 @@ export interface DrawerCollection {
     cover_art_url?: string | null;
     cover_art_path?: string | null;
     provider_id?: string;
-    tracks?: any[];
-    rawLocal?: any;
+    tracks?: DrawerCollectionTrack[];
+    rawLocal?: unknown;
     rawRemote?: AlbumDetailResult | null;
 }
 
@@ -466,11 +480,33 @@ export class ExploreStore {
                     provider_id: pId,
                 }));
             } else {
-                const query = card.seed?.artist || card.seed?.title || card.title;
-                const searchResults = await invoke<any[]>("search_provider", {
+                const cleanArt = (card.seed?.artist || "")
+                    .replace(/\s*•\s*[\d.]+[MK]?\s*views.*$/i, "")
+                    .replace(/\s*•.*$/i, "")
+                    .replace(/\s*-\s*Topic$/i, "")
+                    .replace(/\s*VEVO$/i, "")
+                    .trim();
+                
+                const cleanTit = (card.seed?.title || card.title || "")
+                    .replace(/\s*•\s*[\d.]+[MK]?\s*views.*$/i, "")
+                    .replace(/\s*•.*$/i, "")
+                    .trim();
+
+                const query = (!cleanArt || cleanArt.toLowerCase() === "unknown" || cleanTit.toLowerCase().includes(cleanArt.toLowerCase()))
+                    ? cleanTit
+                    : `${cleanArt} ${cleanTit}`;
+
+                let searchResults = await invoke<any[]>("search_provider", {
                     providerId: pId,
                     query,
                 }).catch(() => []);
+
+                if ((!searchResults || searchResults.length === 0) && cleanTit && cleanTit !== query) {
+                    searchResults = await invoke<any[]>("search_provider", {
+                        providerId: pId,
+                        query: cleanTit,
+                    }).catch(() => []);
+                }
 
                 if (searchResults && searchResults.length > 0) {
                     tracks = searchResults.map((t: any) => ({

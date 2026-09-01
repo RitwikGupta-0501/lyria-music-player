@@ -73,14 +73,11 @@
     let checksumVerified = $state(false);
 
     let scrollContainer = $state<HTMLElement | null>(null);
-    let virtStore = $derived.by(() => {
-        const container = scrollContainer;
-        return createVirtualizer({
-            count: providers.length,
-            getScrollElement: () => container,
-            estimateSize: () => 76,
-            overscan: 5,
-        });
+    let virtStore = createVirtualizer({
+        get count() { return providers.length; },
+        getScrollElement: () => scrollContainer,
+        estimateSize: () => 76,
+        overscan: 5,
     });
 
     // Dynamic icon resolution

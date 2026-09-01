@@ -61,7 +61,13 @@
         }))
     );
 
-    let displayTracks = $derived(isFavorites ? favoriteTracks : tracks);
+    let displayTracks = $derived(
+        isFavorites 
+            ? favoriteTracks 
+            : isRemote 
+                ? (collection.tracks && collection.tracks.length > 0 ? collection.tracks : tracks) 
+                : tracks
+    );
 
     let artUrl = $derived(
         collection.cover_art_url ||
@@ -83,14 +89,13 @@
             getScrollElement: () => container,
             estimateSize: () => 52,
             overscan: 10,
+            initialRect: { width: 400, height: 800 },
         });
     });
 
     async function loadData() {
-        if (collection.id === "favorites") {
-            tracks = collection.tracks || [];
-        } else if (collection.source === "remote") {
-            tracks = collection.tracks || [];
+        if (collection.id === "favorites" || collection.source === "remote") {
+            return;
         } else if (collection.kind === "album") {
             const albumId = Number(collection.id);
             const localTracks = await libraryStore.getAlbumTracks(albumId);
@@ -113,12 +118,6 @@
         if (collection) {
             loadData();
         }
-
-        const closeDropdowns = () => {
-            activeDropdown = null;
-        };
-        document.addEventListener("click", closeDropdowns);
-        return () => document.removeEventListener("click", closeDropdowns);
     });
 
     function toggleDropdown(e: Event, index: number) {
@@ -180,7 +179,7 @@
                 }
             }
 
-            const queueTracks = displayTracks.map((t) => ({
+            const queueTracks = displayTracks.map((t: any) => ({
                 id: t.id,
                 title: t.title,
                 artist: t.artist,
@@ -215,7 +214,7 @@
             }
         }
 
-        const queueTracks = displayTracks.map((t) => ({
+        const queueTracks = displayTracks.map((t: any) => ({
             id: t.id,
             title: t.title,
             artist: t.artist,
@@ -227,6 +226,8 @@
         await audioStore.setQueue(queueTracks, index);
     }
 </script>
+
+<svelte:window onclick={() => activeDropdown = null} />
 
 <div class="view-album">
     <div class="album-header">

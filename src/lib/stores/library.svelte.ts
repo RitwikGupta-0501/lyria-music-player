@@ -14,6 +14,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { toastStore } from './toast.svelte';
 
+export interface LikedSong {
+    canonical_key: string;
+    title: string;
+    artist?: string | null;
+    album?: string | null;
+    cover_art_url?: string | null;
+    last_provider_id?: string | null;
+    last_source_id?: string | null;
+    local_track_id?: number | null;
+    local_file_path?: string | null;
+    file_path?: string | null;
+    duration_ms?: number | null;
+}
+
 export interface Album {
     id: number;
     title: string;
@@ -39,7 +53,7 @@ export class LibraryStore {
     albums = $state<Album[]>([]);
     recentAlbums = $state<Album[]>([]);
     playlists = $state<Playlist[]>([]);
-    likedSongs = $state<any[]>([]);
+    likedSongs = $state<LikedSong[]>([]);
     isScanning = $state(false);
     lastScanResult = $state<number | null>(null);
     onLikeToggled: ((canonicalKey: string, isLiked: boolean) => void) | null = null;
@@ -68,9 +82,9 @@ export class LibraryStore {
         }
     }
 
-    async fetchLikedSongs(): Promise<any[]> {
+    async fetchLikedSongs(): Promise<LikedSong[]> {
         try {
-            const songs = await invoke<any[]>("get_liked_songs", { limit: 500 });
+            const songs = await invoke<LikedSong[]>("get_liked_songs", { limit: 500 });
             this.likedSongs = songs || [];
             return this.likedSongs;
         } catch (e) {

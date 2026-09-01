@@ -437,7 +437,7 @@ async fn get_home_adjacent_horizon(
 #[tauri::command]
 async fn get_radio_stream(
     state: State<'_, AppState>,
-    _provider_id: String,
+    provider_id: String,
     seed: providers::CanonicalSeedV1,
 ) -> Result<providers::RadioStreamResultV1, String> {
     state.recommendation_compiler.compile_federated_radio(&seed).await
