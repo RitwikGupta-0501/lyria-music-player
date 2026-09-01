@@ -1,3 +1,69 @@
+
+export interface UserRegionInfo {
+    countryCode: string;
+    countryName: string;
+    chartQuery: string;
+}
+
+const COUNTRY_NAME_MAP: Record<string, string> = {
+    IN: "India",
+    US: "USA",
+    GB: "UK",
+    CA: "Canada",
+    AU: "Australia",
+    NZ: "New Zealand",
+    DE: "Germany",
+    FR: "France",
+    ES: "Spain",
+    JP: "Japan",
+    KR: "Korea",
+    BR: "Brazil",
+    MX: "Mexico",
+    IT: "Italy",
+    NL: "Netherlands",
+    SE: "Sweden",
+    NO: "Norway",
+};
+
+export function getUserRegionInfo(): UserRegionInfo {
+    try {
+        let region = "US";
+        if (typeof navigator !== "undefined" && navigator.language) {
+            try {
+                const loc = new Intl.Locale(navigator.language);
+                if (loc.region) region = loc.region.toUpperCase();
+            } catch {
+                const parts = navigator.language.split("-");
+                if (parts.length > 1) region = parts[1].toUpperCase();
+            }
+        }
+        if ((region === "US" || !region) && typeof Intl !== "undefined") {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+            if (tz.includes("Calcutta") || tz.includes("Kolkata") || tz.includes("India")) region = "IN";
+            else if (tz.includes("London")) region = "GB";
+            else if (tz.includes("Tokyo")) region = "JP";
+            else if (tz.includes("Sydney") || tz.includes("Melbourne")) region = "AU";
+            else if (tz.includes("Toronto") || tz.includes("Vancouver")) region = "CA";
+            else if (tz.includes("Berlin")) region = "DE";
+            else if (tz.includes("Paris")) region = "FR";
+            else if (tz.includes("Madrid")) region = "ES";
+            else if (tz.includes("Sao_Paulo")) region = "BR";
+        }
+        const name = COUNTRY_NAME_MAP[region] || region;
+        return {
+            countryCode: region,
+            countryName: name,
+            chartQuery: `Top 50 Songs ${name} Official Chart`,
+        };
+    } catch {
+        return {
+            countryCode: "US",
+            countryName: "USA",
+            chartQuery: "Top 50 Songs USA Official Chart",
+        };
+    }
+}
+
 export interface DrawerCollectionTrack {
     id: string | number;
     title: string;
@@ -208,12 +274,45 @@ const CATEGORY_COLORS: CategoryPalette = {
     "Chill": "#6A7B6E",
 };
 
+
+
+
+const DEFAULT_GLOBAL_CHARTS: TrackResult[] = [
+    { id: "dQw4w9WgXcQ", title: "Starboy", artist: "The Weeknd ft. Daft Punk", cover_art_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=400&auto=format&fit=crop", duration_ms: 230000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "4NRXx6U8ABQ", title: "Nightcall", artist: "Kavinsky", cover_art_url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop", duration_ms: 259000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "dX3k_QDnzHE", title: "Midnight City", artist: "M83", cover_art_url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=400&auto=format&fit=crop", duration_ms: 243000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "a5uQMwRMHcs", title: "Instant Crush", artist: "Daft Punk ft. Julian Casablancas", cover_art_url: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?q=80&w=400&auto=format&fit=crop", duration_ms: 337000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "5NV6Rdv1a3I", title: "Get Lucky", artist: "Daft Punk ft. Pharrell Williams", cover_art_url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=400&auto=format&fit=crop", duration_ms: 248000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+];
+
+const DEFAULT_VIRAL_CHARTS: TrackResult[] = [
+    { id: "viral-1", title: "Birds of a Feather", artist: "Billie Eilish", cover_art_url: "https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=400&auto=format&fit=crop", duration_ms: 198000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-2", title: "Espresso", artist: "Sabrina Carpenter", cover_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=400&auto=format&fit=crop", duration_ms: 175000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-3", title: "Heat Waves", artist: "Glass Animals", cover_art_url: "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?q=80&w=400&auto=format&fit=crop", duration_ms: 238000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-4", title: "Houdini", artist: "Dua Lipa", cover_art_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=400&auto=format&fit=crop", duration_ms: 185000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-5", title: "vampire", artist: "Olivia Rodrigo", cover_art_url: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=80&w=400&auto=format&fit=crop", duration_ms: 219000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+];
+
+const DEFAULT_REGIONAL_CHARTS: TrackResult[] = [
+    { id: "reg-1", title: "Chammak Challo", artist: "Vishal-Shekhar ft. Akon", cover_art_url: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=80&w=400&auto=format&fit=crop", duration_ms: 226000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-2", title: "Lover", artist: "Diljit Dosanjh", cover_art_url: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?q=80&w=400&auto=format&fit=crop", duration_ms: 191000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-3", title: "Kesariya", artist: "Arijit Singh & Pritam", cover_art_url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=400&auto=format&fit=crop", duration_ms: 268000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-4", title: "Hukum - Thalaivar Alappara", artist: "Anirudh Ravichander", cover_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=400&auto=format&fit=crop", duration_ms: 207000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-5", title: "MONACO", artist: "Bad Bunny", cover_art_url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=400&auto=format&fit=crop", duration_ms: 267000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+];
+
 export class ExploreStore {
+    userRegion = $state<UserRegionInfo>(getUserRegionInfo());
     spotlights = $state<EditorialSpotlight[]>([]);
     activeSpotlightIndex = $state<number>(0);
     categoryGrid = $state<GenreItem[]>([]);
-    rankedTracks = $state<TrackResult[]>([]);
+    rankedTracks = $state<TrackResult[]>([...DEFAULT_GLOBAL_CHARTS]);
     newReleases2x2 = $state<AlbumItem[]>([]);
+    featuredPlaylists = $state<PlaylistItem[]>([]);
+    activeChartTab = $state<'global' | 'viral' | 'regional'>('global');
+    viralTracks = $state<TrackResult[]>([...DEFAULT_VIRAL_CHARTS]);
+    regionalTracks = $state<TrackResult[]>([...DEFAULT_REGIONAL_CHARTS]);
+    isLoadingChartTab = $state(false);
 
     activeCategory = $state<GenreItem | null>(null);
     categoryTracks = $state<TrackResult[]>([]);
@@ -806,7 +905,16 @@ export class ExploreStore {
             : null
     );
 
-    filteredRankedTracks = $derived(this.rankedTracks.slice(0, 5));
+    currentChartTracks = $derived.by(() => {
+        if (this.activeChartTab === 'viral') {
+            return this.viralTracks;
+        }
+        if (this.activeChartTab === 'regional') {
+            return this.regionalTracks;
+        }
+        return this.rankedTracks;
+    });
+    filteredRankedTracks = $derived(this.rankedTracks);
     filteredNewReleases = $derived(this.newReleases2x2.slice(0, 4));
 
     // Dynamic filtering based on active source filters and active category filter
@@ -877,7 +985,7 @@ export class ExploreStore {
     }
 
     async init(force = false) {
-        if (this.isLoaded && !force && this.lastFetchedAt && (Date.now() - this.lastFetchedAt < this.CACHE_TTL_MS)) {
+        if (this.isLoaded && !force && this.lastFetchedAt && (Date.now() - this.lastFetchedAt < this.CACHE_TTL_MS) && this.rankedTracks.length > 0) {
             return;
         }
         await this.loadExplore(force);
@@ -1111,6 +1219,7 @@ export class ExploreStore {
             const allGenres: GenreItem[] = [];
             const allTracks: TrackResult[] = [];
             const allAlbums: AlbumItem[] = [];
+            const allPlaylists: PlaylistItem[] = [];
 
             for (const agg of (modules || [])) {
                 try {
@@ -1149,6 +1258,12 @@ export class ExploreStore {
                                     provider_id: agg.provider_id,
                                     provider_name: agg.provider_name,
                                 });
+                            } else if (item.type === "Playlist") {
+                                allPlaylists.push({
+                                    ...item.data,
+                                    provider_id: agg.provider_id,
+                                    provider_name: agg.provider_name,
+                                });
                             }
                         }
                     }
@@ -1182,14 +1297,158 @@ export class ExploreStore {
                 }));
             }
 
-            this.rankedTracks = allTracks;
+            if (allTracks.length > 0) {
+                this.rankedTracks = allTracks;
+            } else {
+                try {
+                    const fallbackTracks = await invoke<any[]>("search_provider", {
+                        providerId: "youtube-wasm",
+                        query: "Top 50 Global Music Charts",
+                    });
+                    if (fallbackTracks && fallbackTracks.length > 0) {
+                        this.rankedTracks = fallbackTracks.slice(0, 10).map(t => ({
+                            id: t.id,
+                            title: t.title,
+                            artist: t.artist || "Top Artist",
+                            cover_art_url: t.cover_art_url,
+                            duration_ms: t.duration_ms,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    }
+                } catch {
+                    this.rankedTracks = [
+                        { id: "chart-1", title: "Starboy", artist: "The Weeknd ft. Daft Punk", duration_ms: 230000, provider_id: "youtube-wasm" },
+                        { id: "chart-2", title: "Nightcall", artist: "Kavinsky", duration_ms: 259000, provider_id: "youtube-wasm" },
+                        { id: "chart-3", title: "Midnight City", artist: "M83", duration_ms: 243000, provider_id: "youtube-wasm" },
+                        { id: "chart-4", title: "Instant Crush", artist: "Daft Punk ft. Julian Casablancas", duration_ms: 337000, provider_id: "youtube-wasm" },
+                        { id: "chart-5", title: "Get Lucky", artist: "Daft Punk ft. Pharrell Williams", duration_ms: 248000, provider_id: "youtube-wasm" },
+                    ];
+                }
+            }
             this.newReleases2x2 = allAlbums;
+
+            if (allPlaylists.length > 0) {
+                this.featuredPlaylists = allPlaylists;
+            } else {
+                this.featuredPlaylists = [
+                    {
+                        id: "deep-work-flow",
+                        title: "Deep Work & Flow State",
+                        author: "Curated Electronic • Minimalist Focus",
+                        cover_art_url: "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=800&auto=format&fit=crop",
+                        item_count: 25,
+                        provider_id: "youtube-wasm",
+                    },
+                    {
+                        id: "analog-synth-explorations",
+                        title: "Analog Synth Explorations",
+                        author: "Modular, Ambient & Retrowave",
+                        cover_art_url: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?q=80&w=800&auto=format&fit=crop",
+                        item_count: 30,
+                        provider_id: "youtube-wasm",
+                    },
+                    {
+                        id: "acoustic-rainy-sunday",
+                        title: "Acoustic Rainy Sunday",
+                        author: "Folk, Fingerstyle & Warm Strings",
+                        cover_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=800&auto=format&fit=crop",
+                        item_count: 22,
+                        provider_id: "youtube-wasm",
+                    },
+                    {
+                        id: "midnight-synthwave",
+                        title: "Midnight Driving Synthwave",
+                        author: "Neon Outrun & Cinematic Basslines",
+                        cover_art_url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=800&auto=format&fit=crop",
+                        item_count: 28,
+                        provider_id: "youtube-wasm",
+                    },
+                ];
+            }
             this.isLoaded = true;
             this.lastFetchedAt = Date.now();
         } catch (e) {
             console.error("Failed to load explore feed:", e);
         } finally {
             this.isLoading = false;
+        }
+    }
+
+    async setChartTab(tab: 'global' | 'viral' | 'regional', force = false) {
+        this.activeChartTab = tab;
+        if (tab === 'viral' && (force || this.viralTracks.length === 0 || this.viralTracks[0]?.id === 'viral-1')) {
+            this.isLoadingChartTab = true;
+            try {
+                const data = await invoke<ModuleData>("fetch_provider_module", {
+                    providerId: "youtube-wasm",
+                    moduleId: "charts_viral",
+                });
+                if (data && data.items && data.items.length > 0) {
+                    const tracks = data.items
+                        .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                        .map(i => ({
+                            ...i.data,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    if (tracks.length > 0) {
+                        this.viralTracks = tracks;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load viral chart via module:", e);
+            } finally {
+                this.isLoadingChartTab = false;
+            }
+        } else if (tab === 'regional' && (force || this.regionalTracks.length === 0 || this.regionalTracks[0]?.id === 'reg-1')) {
+            this.isLoadingChartTab = true;
+            try {
+                const data = await invoke<ModuleData>("fetch_provider_module", {
+                    providerId: "youtube-wasm",
+                    moduleId: `charts_regional_${this.userRegion.countryCode}`,
+                });
+                if (data && data.items && data.items.length > 0) {
+                    const tracks = data.items
+                        .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                        .map(i => ({
+                            ...i.data,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    if (tracks.length > 0) {
+                        this.regionalTracks = tracks;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load regional chart via module:", e);
+            } finally {
+                this.isLoadingChartTab = false;
+            }
+        } else if (tab === 'global' && force) {
+            this.isLoadingChartTab = true;
+            try {
+                const data = await invoke<ModuleData>("fetch_provider_module", {
+                    providerId: "youtube-wasm",
+                    moduleId: "charts_top",
+                });
+                if (data && data.items && data.items.length > 0) {
+                    const tracks = data.items
+                        .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                        .map(i => ({
+                            ...i.data,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    if (tracks.length > 0) {
+                        this.rankedTracks = tracks;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to reload global chart via module:", e);
+            } finally {
+                this.isLoadingChartTab = false;
+            }
         }
     }
 

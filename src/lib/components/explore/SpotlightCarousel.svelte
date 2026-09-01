@@ -167,6 +167,7 @@
         letter-spacing: 0.08em;
     }
     .hero-title {
+        font-family: var(--echo-font-heading, "Playfair Display", serif);
         font-size: 2.1rem;
         font-weight: 700;
         letter-spacing: -0.02em;

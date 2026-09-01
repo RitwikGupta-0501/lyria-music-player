@@ -437,7 +437,7 @@ async fn get_home_adjacent_horizon(
 #[tauri::command]
 async fn get_radio_stream(
     state: State<'_, AppState>,
-    provider_id: String,
+    #[allow(unused_variables)] provider_id: String,
     seed: providers::CanonicalSeedV1,
 ) -> Result<providers::RadioStreamResultV1, String> {
     state.recommendation_compiler.compile_federated_radio(&seed).await
@@ -1150,7 +1150,7 @@ pub fn run() {
 
             let db_thread_handle = db::start_db_thread(conn, db_rx);
             
-            #[cfg(feature = "sync-workspace-extensions")]
+            #[cfg(any(debug_assertions, feature = "sync-workspace-extensions"))]
             {
                 // Copy / update extension bundles into providers_dir (Disabled by default)
                 let mut source_dirs = Vec::new();
