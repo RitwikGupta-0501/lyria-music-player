@@ -673,7 +673,7 @@ impl ProviderManager {
             }
         };
 
-        let results: ModuleData = serde_json::from_slice(&res_bytes).map_err(|e| {
+        let mut results: ModuleData = serde_json::from_slice(&res_bytes).map_err(|e| {
             self.invalidate_plugin_cache(&provider_id);
             SandboxError::ScriptError {
                 script: provider_id,
@@ -681,6 +681,30 @@ impl ProviderManager {
             }
         })?;
         
+        let mut seen = std::collections::HashSet::new();
+        results.items.retain(|item| {
+            match item {
+                ModuleItem::Album(a) => {
+                    !a.id.trim().is_empty() && !a.title.trim().is_empty() && !a.artist.trim().is_empty() && seen.insert(a.id.clone())
+                }
+                ModuleItem::Track(t) => {
+                    !t.id.trim().is_empty() && !t.title.trim().is_empty() && seen.insert(t.id.clone())
+                }
+                ModuleItem::Spotlight(s) => {
+                    !s.id.trim().is_empty() && !s.title.trim().is_empty() && seen.insert(s.id.clone())
+                }
+                ModuleItem::Genre(g) => {
+                    !g.title.trim().is_empty() && seen.insert(format!("{}:{}", g.title.to_lowercase(), g.endpoint_params.as_deref().unwrap_or(&g.id)))
+                }
+                ModuleItem::Artist(a) => {
+                    !a.id.trim().is_empty() && !a.name.trim().is_empty() && seen.insert(a.id.clone())
+                }
+                ModuleItem::Playlist(p) => {
+                    !p.id.trim().is_empty() && !p.title.trim().is_empty() && seen.insert(p.id.clone())
+                }
+            }
+        });
+
         Ok(results)
     }
 

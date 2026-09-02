@@ -314,7 +314,8 @@
         justify-content: center !important;
         cursor: pointer;
         opacity: 0;
-        transform: scale(0.85);
+        transform: scale(0.85) translateZ(0);
+        backface-visibility: hidden;
         pointer-events: none;
         transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         z-index: 5;

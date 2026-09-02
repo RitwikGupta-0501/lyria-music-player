@@ -1,7 +1,24 @@
 <script lang="ts">
     import { exploreStore } from "$lib/stores/explore.svelte";
+    import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
     import { getInitial } from "$lib/utils/format";
-    import { Sparkle, Play } from "phosphor-svelte";
+    import { Sparkle, Play, Heart, CaretLeft, CaretRight } from "phosphor-svelte";
+
+    let currentPage = $state(0);
+    const PAGE_SIZE = 4;
+    const totalPages = $derived(Math.ceil(exploreStore.filteredNewReleases.length / PAGE_SIZE) || 1);
+    const displayedAlbums = $derived(
+        exploreStore.filteredNewReleases.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+    );
+
+    function prevPage() {
+        if (currentPage > 0) currentPage--;
+    }
+
+    function nextPage() {
+        if (currentPage < totalPages - 1) currentPage++;
+    }
 </script>
 
 <div class="new-release-radar">
@@ -10,59 +27,105 @@
             <Sparkle size={20} weight="bold" class="section-icon" />
             <h2>New Releases</h2>
         </div>
-        <span class="header-badge">RADAR</span>
+        {#if totalPages > 1}
+            <div class="chevron-controls">
+                <button 
+                    type="button"
+                    class="chevron-btn" 
+                    onclick={prevPage} 
+                    disabled={currentPage === 0}
+                    title="Previous releases"
+                    aria-label="Previous releases"
+                >
+                    <CaretLeft size={16} weight="bold" />
+                </button>
+                <button 
+                    type="button"
+                    class="chevron-btn" 
+                    onclick={nextPage} 
+                    disabled={currentPage >= totalPages - 1}
+                    title="Next releases"
+                    aria-label="Next releases"
+                >
+                    <CaretRight size={16} weight="bold" />
+                </button>
+            </div>
+        {/if}
     </div>
 
-    <div class="albums-2x2-grid">
-        {#each exploreStore.filteredNewReleases as album}
-            <div 
-                class="album-card"
-                role="button"
-                tabindex="0"
-                onclick={() => exploreStore.openAlbum(album)}
-                onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openAlbum(album); }}
-            >
-                <div class="album-art-wrapper">
-                    {#if album.cover_art_url}
-                        <img src={album.cover_art_url} alt={album.title} class="album-img" loading="lazy" />
-                    {:else}
-                        <div class="typographic-art-squircle large">
-                            <span>{getInitial(album.artist)}</span>
+    {#if exploreStore.isLoading && exploreStore.filteredNewReleases.length === 0}
+        <div class="albums-2x2-grid">
+            {#each Array(4) as _}
+                <div class="discover-card skeleton">
+                    <div class="card-art-wrapper skeleton-box"></div>
+                    <div class="skeleton-line title"></div>
+                    <div class="skeleton-line artist"></div>
+                </div>
+            {/each}
+        </div>
+    {:else}
+        <div class="albums-2x2-grid">
+            {#each displayedAlbums as album}
+                {@const albumKey = getCanonicalKey({ title: album.title, artist: album.artist })}
+                {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === albumKey.toLowerCase().trim())}
+                <div 
+                    class="discover-card"
+                    role="button"
+                    tabindex="0"
+                    onclick={() => exploreStore.openAlbum(album)}
+                    onkeydown={(e) => { if (e.key === "Enter") exploreStore.openAlbum(album); }}
+                >
+                    <div class="card-art-wrapper">
+                        {#if album.cover_art_url}
+                            <img src={album.cover_art_url} alt={album.title} loading="lazy" />
+                        {:else}
+                            <div class="placeholder-art">
+                                <span>{getInitial(album.artist)}</span>
+                            </div>
+                        {/if}
+
+                        <div class="card-overlay">
+                            <div class="play-bubble">
+                                <Play size={18} weight="fill" />
+                            </div>
                         </div>
-                    {/if}
 
-                    <div class="release-badge-pill">
-                        <span>NEW DROP</span>
-                    </div>
-
-                    <div class="album-overlay">
                         <button 
-                            type="button" 
-                            class="play-bubble" 
-                            onclick={(e) => { e.stopPropagation(); exploreStore.playAlbum(album); }}
-                            title="Play Album"
+                            type="button"
+                            class="liquid-like-btn" 
+                            class:is-glass={settingsStore.glassyPlayerBar}
+                            class:liked={isLiked}
+                            onclick={(e) => { 
+                                e.stopPropagation(); 
+                                libraryStore.toggleLike({
+                                    title: album.title,
+                                    artist: album.artist,
+                                    canonical_key: albumKey,
+                                    cover_art_url: album.cover_art_url || undefined,
+                                });
+                            }}
+                            title={isLiked ? "Liked" : "Like release"}
+                            aria-label={isLiked ? "Unlike release" : "Like release"}
                         >
-                            <Play size={18} weight="fill" />
+                            <Heart size={16} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "#FFFFFF"} />
                         </button>
                     </div>
-                </div>
 
-                <div class="album-meta">
-                    <div class="title-row">
-                        <span class="album-title" title={album.title}>{album.title}</span>
+                    <div class="card-info">
+                        <span class="card-title" title={album.title}>{album.title}</span>
+                        <span class="card-artist" title={album.artist}>{album.artist}</span>
                     </div>
-                    <span class="album-artist" title={album.artist}>{album.artist}</span>
                 </div>
-            </div>
-        {/each}
-    </div>
+            {/each}
+        </div>
+    {/if}
 </div>
 
 <style>
     .new-release-radar {
         display: flex;
         flex-direction: column;
-        gap: 1rem;
+        gap: 1.25rem;
         height: 100%;
     }
 
@@ -76,81 +139,111 @@
     .header-title-group {
         display: flex;
         align-items: center;
-        gap: 0.55rem;
+        gap: 0.65rem;
     }
 
     :global(.section-icon) {
-        color: #B58E62;
+        color: #b58e62;
     }
 
     h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
+        letter-spacing: -0.01em;
         color: #fff;
     }
 
-    .header-badge {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.62rem;
-        font-weight: 700;
-        letter-spacing: 0.1em;
-        color: #D4A86E;
-        background: rgba(181, 142, 98, 0.12);
-        border: 1px solid rgba(181, 142, 98, 0.25);
-        padding: 0.2rem 0.5rem;
-        border-radius: 4px;
+    .chevron-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: rgba(18, 18, 22, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 0.2rem 0.3rem;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    }
+
+    .chevron-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.2s ease;
+    }
+
+    .chevron-btn:hover:not(:disabled) {
+        color: #B58E62;
+        background: rgba(255, 255, 255, 0.16);
+        border-color: rgba(181, 142, 98, 0.4);
+    }
+
+    .chevron-btn:active:not(:disabled) {
+        transform: scale(0.92);
+    }
+
+    .chevron-btn:disabled {
+        opacity: 0.25;
+        pointer-events: none;
+        cursor: default;
     }
 
     .albums-2x2-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: 0.85rem;
+        gap: 1.25rem;
     }
 
-    .album-card {
-        background: rgba(18, 18, 22, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 10px;
-        padding: 0.65rem;
+    .discover-card {
         display: flex;
         flex-direction: column;
-        gap: 0.65rem;
+        gap: 0.6rem;
         cursor: pointer;
-        transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        min-width: 0;
     }
 
-    .album-card:hover {
-        transform: translateY(-2px);
-        background: rgba(26, 26, 32, 0.7);
-        border-color: rgba(181, 142, 98, 0.35);
+    .discover-card:hover {
+        transform: translateY(-3px);
     }
 
-    .album-art-wrapper {
-        aspect-ratio: 1 / 1;
+    .card-art-wrapper {
         width: 100%;
-        border-radius: 8px;
+        aspect-ratio: 1;
+        border-radius: 12px;
         overflow: hidden;
         position: relative;
         background: #141416;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        contain: layout paint;
+        isolation: isolate;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .album-img {
+    .discover-card:hover .card-art-wrapper {
+        border-color: rgba(181, 142, 98, 0.35);
+        box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.6);
+    }
+
+    .card-art-wrapper img {
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition: transform 0.3s ease;
     }
 
-    .album-card:hover .album-img {
-        transform: scale(1.04);
-    }
-
-    .typographic-art-squircle.large {
+    .placeholder-art {
         width: 100%;
         height: 100%;
-        background: #202026;
+        background: #18181B;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -160,76 +253,113 @@
         color: #D4A86E;
     }
 
-    .release-badge-pill {
-        position: absolute;
-        top: 6px;
-        left: 6px;
-        background: rgba(14, 14, 16, 0.85);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(212, 168, 110, 0.4);
-        padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        z-index: 2;
-    }
-
-    .release-badge-pill span {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.55rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        color: #D4A86E;
-    }
-
-    .album-overlay {
+    .card-overlay {
         position: absolute;
         inset: 0;
         background: rgba(0, 0, 0, 0.35);
         display: flex;
-        align-items: flex-end;
-        justify-content: flex-end;
-        padding: 0.6rem;
+        align-items: center;
+        justify-content: center;
         opacity: 0;
-        transition: opacity 0.2s ease;
+        pointer-events: none;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: opacity;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .album-card:hover .album-overlay {
+    .discover-card:hover .card-overlay {
         opacity: 1;
+        pointer-events: auto;
     }
 
     .play-bubble {
-        width: 34px;
-        height: 34px;
+        width: 44px;
+        height: 44px;
         border-radius: 50%;
-        background: #D4A86E;
+        background: #B58E62;
         color: #0E0E10;
-        border: none;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        cursor: pointer;
-        transition: transform 0.15s ease, background-color 0.15s ease;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        transform: scale(0.9);
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease;
+    }
+
+    .discover-card:hover .play-bubble {
+        transform: scale(1);
     }
 
     .play-bubble:hover {
-        transform: scale(1.1);
-        background: #E5B97F;
+        transform: scale(1.08) !important;
+        background: #C9A070;
     }
 
-    .album-meta {
+    .liquid-like-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        min-height: 32px !important;
+        max-height: 32px !important;
+        border-radius: 50% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: rgba(18, 20, 26, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+        color: #ffffff;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer;
+        opacity: 0;
+        transform: scale(0.85) translateZ(0);
+        backface-visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        z-index: 5;
+    }
+
+    .liquid-like-btn.is-glass {
+        background: rgba(255, 255, 255, 0.028);
+        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: 
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+            0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    .discover-card:hover .liquid-like-btn {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+    }
+
+    .liquid-like-btn.liked {
+        opacity: 1 !important;
+        transform: scale(1) !important;
+        pointer-events: auto !important;
+        background: rgba(45, 35, 25, 0.9) !important;
+        border-color: rgba(224, 184, 143, 0.45) !important;
+    }
+
+    .card-info {
         display: flex;
         flex-direction: column;
-        gap: 0.15rem;
+        gap: 0.2rem;
+        min-width: 0;
     }
 
-    .title-row {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-    }
-
-    .album-title {
-        font-size: 0.85rem;
+    .card-title {
+        font-family: var(--echo-font-body, system-ui, sans-serif);
+        font-size: 0.88rem;
         font-weight: 600;
         color: #fff;
         white-space: nowrap;
@@ -237,11 +367,45 @@
         text-overflow: ellipsis;
     }
 
-    .album-artist {
-        font-size: 0.74rem;
+    .card-artist {
+        font-size: 0.76rem;
         color: rgba(255, 255, 255, 0.5);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    /* Skeleton Loading Cards */
+    .discover-card.skeleton {
+        pointer-events: none;
+    }
+
+    .skeleton-box {
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 100%);
+        background-size: 200% 100%;
+        animation: skeleton-pulse 1.5s infinite;
+    }
+
+    .skeleton-line {
+        height: 10px;
+        border-radius: 4px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 100%);
+        background-size: 200% 100%;
+        animation: skeleton-pulse 1.5s infinite;
+    }
+
+    .skeleton-line.title {
+        width: 75%;
+        margin-top: 4px;
+    }
+
+    .skeleton-line.artist {
+        width: 50%;
+        margin-top: 2px;
+    }
+
+    @keyframes skeleton-pulse {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
     }
 </style>

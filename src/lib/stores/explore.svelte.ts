@@ -306,12 +306,12 @@ export class ExploreStore {
     spotlights = $state<EditorialSpotlight[]>([]);
     activeSpotlightIndex = $state<number>(0);
     categoryGrid = $state<GenreItem[]>([]);
-    rankedTracks = $state<TrackResult[]>([...DEFAULT_GLOBAL_CHARTS]);
+    rankedTracks = $state<TrackResult[]>([]);
     newReleases2x2 = $state<AlbumItem[]>([]);
-    featuredPlaylists = $state<PlaylistItem[]>([]);
+    trendingAlbums = $state<AlbumItem[]>([]);
     activeChartTab = $state<'global' | 'viral' | 'regional'>('global');
-    viralTracks = $state<TrackResult[]>([...DEFAULT_VIRAL_CHARTS]);
-    regionalTracks = $state<TrackResult[]>([...DEFAULT_REGIONAL_CHARTS]);
+    viralTracks = $state<TrackResult[]>([]);
+    regionalTracks = $state<TrackResult[]>([]);
     isLoadingChartTab = $state(false);
 
     activeCategory = $state<GenreItem | null>(null);
@@ -396,7 +396,7 @@ export class ExploreStore {
         this.selectedRemotePlaylist = null;
     }
 
-    async openAlbum(album: { id: string; title?: string; artist?: string; cover_art_url?: string | null; is_local?: boolean; provider_id?: string }) {
+    async openAlbum(album: { id: string; title?: string; artist?: string; year?: string | null; cover_art_url?: string | null; is_local?: boolean; provider_id?: string }) {
         if (album.is_local || album.id.startsWith("local-")) {
             return;
         }
@@ -917,6 +917,15 @@ export class ExploreStore {
     filteredRankedTracks = $derived(this.rankedTracks);
     filteredNewReleases = $derived(this.newReleases2x2.slice(0, 4));
 
+    showAllCategories = $state(false);
+    toggleAllCategories() {
+        this.showAllCategories = !this.showAllCategories;
+    }
+
+    displayedCategories = $derived(
+        this.showAllCategories ? this.categoryGrid : this.categoryGrid.slice(0, 8)
+    );
+
     // Dynamic filtering based on active source filters and active category filter
     searchSections = $derived.by(() => {
         const allowedSources = new Set(this.activeSourceFilters);
@@ -1218,8 +1227,9 @@ export class ExploreStore {
             const allSpotlights: EditorialSpotlight[] = [];
             const allGenres: GenreItem[] = [];
             const allTracks: TrackResult[] = [];
+            const newReleasesAlbums: AlbumItem[] = [];
+            const trendingAlbumsList: AlbumItem[] = [];
             const allAlbums: AlbumItem[] = [];
-            const allPlaylists: PlaylistItem[] = [];
 
             for (const agg of (modules || [])) {
                 try {
@@ -1235,7 +1245,6 @@ export class ExploreStore {
                                     ...item.data,
                                     provider_id: agg.provider_id,
                                     provider_name: agg.provider_name,
-                                    cover_art_url: item.data.cover_art_url || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop",
                                 });
                             } else if (item.type === "Genre") {
                                 const title = item.data.title;
@@ -1253,17 +1262,17 @@ export class ExploreStore {
                                     provider_name: agg.provider_name,
                                 });
                             } else if (item.type === "Album") {
-                                allAlbums.push({
+                                const albumObj: AlbumItem = {
                                     ...item.data,
                                     provider_id: agg.provider_id,
                                     provider_name: agg.provider_name,
-                                });
-                            } else if (item.type === "Playlist") {
-                                allPlaylists.push({
-                                    ...item.data,
-                                    provider_id: agg.provider_id,
-                                    provider_name: agg.provider_name,
-                                });
+                                };
+                                allAlbums.push(albumObj);
+                                if (agg.module.id === "new_releases") {
+                                    newReleasesAlbums.push(albumObj);
+                                } else if (agg.module.id === "trending_albums") {
+                                    trendingAlbumsList.push(albumObj);
+                                }
                             }
                         }
                     }
@@ -1272,100 +1281,29 @@ export class ExploreStore {
                 }
             }
 
-            if (allSpotlights.length > 0) {
-                this.spotlights = allSpotlights;
+            this.spotlights = allSpotlights;
+            if (this.spotlights.length > 0) {
                 this.activeSpotlightIndex = 0;
-            } else {
-                this.spotlights = [{
-                    id: "default-spotlight",
-                    title: "Echoes of Eternity",
-                    artist: "Kavinsky & Daft Punk",
-                    cover_art_url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop",
-                    description: "Curated Master Edition • 24-bit 96kHz Lossless",
-                    release_year: "2026",
-                    provider_name: "Echo Curated",
-                }];
             }
 
-            if (allGenres.length > 0) {
-                this.categoryGrid = allGenres;
-            } else {
-                this.categoryGrid = Object.keys(CATEGORY_COLORS).map((title, i) => ({
-                    id: `genre-${i}`,
-                    title,
-                    color_hex: CATEGORY_COLORS[title],
-                }));
-            }
-
-            if (allTracks.length > 0) {
-                this.rankedTracks = allTracks;
-            } else {
-                try {
-                    const fallbackTracks = await invoke<any[]>("search_provider", {
-                        providerId: "youtube-wasm",
-                        query: "Top 50 Global Music Charts",
-                    });
-                    if (fallbackTracks && fallbackTracks.length > 0) {
-                        this.rankedTracks = fallbackTracks.slice(0, 10).map(t => ({
-                            id: t.id,
-                            title: t.title,
-                            artist: t.artist || "Top Artist",
-                            cover_art_url: t.cover_art_url,
-                            duration_ms: t.duration_ms,
-                            provider_id: "youtube-wasm",
-                            provider_name: "YouTube Music",
-                        }));
-                    }
-                } catch {
-                    this.rankedTracks = [
-                        { id: "chart-1", title: "Starboy", artist: "The Weeknd ft. Daft Punk", duration_ms: 230000, provider_id: "youtube-wasm" },
-                        { id: "chart-2", title: "Nightcall", artist: "Kavinsky", duration_ms: 259000, provider_id: "youtube-wasm" },
-                        { id: "chart-3", title: "Midnight City", artist: "M83", duration_ms: 243000, provider_id: "youtube-wasm" },
-                        { id: "chart-4", title: "Instant Crush", artist: "Daft Punk ft. Julian Casablancas", duration_ms: 337000, provider_id: "youtube-wasm" },
-                        { id: "chart-5", title: "Get Lucky", artist: "Daft Punk ft. Pharrell Williams", duration_ms: 248000, provider_id: "youtube-wasm" },
-                    ];
+            const seenGenres = new Set<string>();
+            const deduplicatedGenres: GenreItem[] = [];
+            for (const g of allGenres) {
+                const norm = g.title.toLowerCase().trim();
+                if (!seenGenres.has(norm)) {
+                    seenGenres.add(norm);
+                    deduplicatedGenres.push(g);
                 }
             }
-            this.newReleases2x2 = allAlbums;
+            this.categoryGrid = deduplicatedGenres;
 
-            if (allPlaylists.length > 0) {
-                this.featuredPlaylists = allPlaylists;
-            } else {
-                this.featuredPlaylists = [
-                    {
-                        id: "deep-work-flow",
-                        title: "Deep Work & Flow State",
-                        author: "Curated Electronic • Minimalist Focus",
-                        cover_art_url: "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=800&auto=format&fit=crop",
-                        item_count: 25,
-                        provider_id: "youtube-wasm",
-                    },
-                    {
-                        id: "analog-synth-explorations",
-                        title: "Analog Synth Explorations",
-                        author: "Modular, Ambient & Retrowave",
-                        cover_art_url: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?q=80&w=800&auto=format&fit=crop",
-                        item_count: 30,
-                        provider_id: "youtube-wasm",
-                    },
-                    {
-                        id: "acoustic-rainy-sunday",
-                        title: "Acoustic Rainy Sunday",
-                        author: "Folk, Fingerstyle & Warm Strings",
-                        cover_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=800&auto=format&fit=crop",
-                        item_count: 22,
-                        provider_id: "youtube-wasm",
-                    },
-                    {
-                        id: "midnight-synthwave",
-                        title: "Midnight Driving Synthwave",
-                        author: "Neon Outrun & Cinematic Basslines",
-                        cover_art_url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=800&auto=format&fit=crop",
-                        item_count: 28,
-                        provider_id: "youtube-wasm",
-                    },
-                ];
-            }
+            this.rankedTracks = allTracks;
+
+            this.newReleases2x2 = newReleasesAlbums.length > 0 ? newReleasesAlbums : allAlbums.slice(0, 4);
+
+            this.trendingAlbums = trendingAlbumsList.length > 0
+                ? trendingAlbumsList
+                : allAlbums.filter(a => !this.newReleases2x2.some(nr => nr.id === a.id));
             this.isLoaded = true;
             this.lastFetchedAt = Date.now();
         } catch (e) {

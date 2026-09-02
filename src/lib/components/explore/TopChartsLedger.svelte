@@ -5,6 +5,7 @@
     import { Play, Pause, ChartLineUp, Flame, GlobeHemisphereWest } from "phosphor-svelte";
 </script>
 
+{#if exploreStore.isLoadingChartTab || exploreStore.isLoading || exploreStore.currentChartTracks.length > 0}
 <div class="top-charts-ledger">
     <div class="section-header-row">
         <div class="header-title-group">
@@ -105,6 +106,7 @@
         {/if}
     </div>
 </div>
+{/if}
 
 <style>
     .top-charts-ledger {

@@ -82,6 +82,9 @@
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
         margin-bottom: 0.85rem;
         position: relative;
+        isolation: isolate;
+        transform: translateZ(0);
+        backface-visibility: hidden;
     }
 
     .art-img {
@@ -89,11 +92,14 @@
         height: 100%;
         object-fit: cover;
         display: block;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: transform;
         transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .album-card:hover .art-img {
-        transform: scale(1.05);
+        transform: scale(1.05) translateZ(0);
     }
 
     .art-placeholder {
@@ -108,10 +114,10 @@
     .play-overlay {
         position: absolute;
         inset: 0;
-        background-color: rgba(0, 0, 0, 0.4);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
+        background-color: rgba(0, 0, 0, 0.55);
         opacity: 0;
+        transform: translateZ(0);
+        backface-visibility: hidden;
         transition: opacity 0.25s ease;
         display: flex;
         align-items: center;

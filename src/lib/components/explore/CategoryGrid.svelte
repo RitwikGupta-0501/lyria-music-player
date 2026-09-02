@@ -1,6 +1,6 @@
 <script lang="ts">
     import { exploreStore } from "$lib/stores/explore.svelte";
-    import { SquaresFour } from "phosphor-svelte";
+    import { SquaresFour, CaretDown, CaretUp } from "phosphor-svelte";
 
     const CATEGORY_COLORS = [
         "#D4A86E", // Echo Brass
@@ -21,11 +21,24 @@
                 <SquaresFour size={20} weight="bold" class="section-icon" />
                 <h2>Browse Moods & Genres</h2>
             </div>
-            <span class="category-count">{exploreStore.categoryGrid.length} Genres</span>
+            {#if exploreStore.categoryGrid.length > 8}
+                <button 
+                    type="button" 
+                    class="see-more-btn"
+                    onclick={() => exploreStore.toggleAllCategories()}
+                >
+                    <span>{exploreStore.showAllCategories ? "See Less" : "See All (" + exploreStore.categoryGrid.length + ")"}</span>
+                    {#if exploreStore.showAllCategories}
+                        <CaretUp size={13} weight="bold" />
+                    {:else}
+                        <CaretDown size={13} weight="bold" />
+                    {/if}
+                </button>
+            {/if}
         </div>
 
         <div class="category-grid">
-            {#each exploreStore.categoryGrid as cat, i}
+            {#each exploreStore.displayedCategories as cat, i}
                 {@const color = cat.color_hex || CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
                 <button 
                     class="category-tile" 
@@ -65,19 +78,36 @@
         color: #B58E62;
     }
 
+    .see-more-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--echo-primary, #d4a86e);
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        padding: 0.28rem 0.65rem;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    }
+
+    .see-more-btn:hover {
+        background: rgba(181, 142, 98, 0.15);
+        border-color: rgba(181, 142, 98, 0.35);
+        color: #fff;
+        transform: translateY(-1px);
+    }
+
     h2 {
         font-family: var(--echo-font-heading, "Playfair Display", serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
         color: #fff;
-    }
-
-    .category-count {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.4);
     }
 
     .category-grid {
@@ -104,6 +134,8 @@
         align-items: center;
         padding: 0 1.25rem;
         text-align: left;
+        transform: translateZ(0);
+        backface-visibility: hidden;
         transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, background 0.2s ease;
     }
 

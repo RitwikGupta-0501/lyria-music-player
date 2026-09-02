@@ -166,8 +166,10 @@
 
         <!-- 2. Main Pill Body (Liquid Glass Capsule) -->
         <div class="pill-body" class:is-glass={settingsStore.glassyPlayerBar}>
-            <!-- Liquid Glass Specular Catch-Lights -->
-            <div class="liquid-specular-rim player-specular-rim" aria-hidden="true"></div>
+            <!-- Liquid Glass Specular Catch-Lights (Only in Glass Mode) -->
+            {#if settingsStore.glassyPlayerBar}
+                <div class="liquid-specular-rim player-specular-rim" aria-hidden="true"></div>
+            {/if}
 
             <!-- Left Flank: Album Art & Song Details -->
             <div class="flank flank-left">
@@ -451,36 +453,67 @@
     }
 
     .pill-body.is-glass {
-        background: rgba(255, 255, 255, 0.028);
-        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
-        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        box-shadow: 
-            inset 0 1px 1px rgba(255, 255, 255, 0.18),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
-            0 10px 30px -4px rgba(0, 0, 0, 0.35);
+        background: var(--liquid-glass-card-bg);
+        backdrop-filter: blur(var(--liquid-glass-card-blur)) 
+                         saturate(var(--liquid-glass-saturate)) 
+                         contrast(var(--liquid-glass-contrast)) 
+                         brightness(var(--liquid-glass-brightness));
+        -webkit-backdrop-filter: blur(var(--liquid-glass-card-blur)) 
+                                 saturate(var(--liquid-glass-saturate)) 
+                                 contrast(var(--liquid-glass-contrast)) 
+                                 brightness(var(--liquid-glass-brightness));
+        border: 1px solid transparent;
+        border-color: var(--liquid-border-card);
+        box-shadow: var(--liquid-specular-pill), 0 14px 38px -4px rgba(0, 0, 0, 0.48);
     }
 
+    /* Active & Paused Track Caustic Internal Scatter */
+    .player-pill-wrapper[data-state="playing"] .pill-body.is-glass,
+    .player-pill-wrapper[data-state="paused"] .pill-body.is-glass {
+        background: var(--liquid-glass-amber-bg);
+        border-color: var(--liquid-border-amber);
+        box-shadow: var(--liquid-specular-amber), 0 16px 44px -4px rgba(0, 0, 0, 0.55);
+    }
+
+    /* 135deg Sub-surface Ambient Light Sheen */
     .pill-body.is-glass::after {
         content: "";
         position: absolute;
         inset: 0;
         border-radius: inherit;
         pointer-events: none;
-        background: radial-gradient(
-            ellipse at 50% 0%, 
-            rgba(255, 255, 255, 0.04) 0%, 
-            transparent 60%
+        background: linear-gradient(
+            135deg, 
+            rgba(255, 255, 255, 0.10) 0%, 
+            rgba(255, 255, 255, 0.02) 30%, 
+            rgba(255, 255, 255, 0) 65%
         );
-        z-index: 1;
+        z-index: 2;
     }
 
+    /* Soft & Elegant Crest Highlight (Glass Mode Only) */
     .player-specular-rim {
         inset-inline: 24px;
         top: 0;
         height: 1px;
         opacity: 0.45;
-        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%);
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.50) 50%, transparent 100%);
+        pointer-events: none;
+        z-index: 4;
+        transition: opacity 0.3s ease, background 0.3s ease;
+    }
+
+    .player-pill-wrapper[data-state="playing"] .player-specular-rim,
+    .player-pill-wrapper[data-state="paused"] .player-specular-rim {
+        opacity: 0.65;
+        background: linear-gradient(
+            90deg, 
+            transparent 0%, 
+            rgba(255, 215, 165, 0.40) 30%, 
+            rgba(255, 235, 205, 0.65) 50%, 
+            rgba(255, 215, 165, 0.40) 70%, 
+            transparent 100%
+        );
     }
 
     /* Flanks */
@@ -785,8 +818,8 @@
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.16);
         box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(12px) saturate(180%);
-        -webkit-backdrop-filter: blur(12px) saturate(180%);
+        backdrop-filter: blur(8px) url(#glass-refraction-subtle) saturate(180%);
+        -webkit-backdrop-filter: blur(8px) url(#glass-refraction-subtle) saturate(180%);
     }
 
     .like-btn:hover {

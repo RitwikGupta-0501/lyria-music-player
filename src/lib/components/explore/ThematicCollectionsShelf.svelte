@@ -1,6 +1,9 @@
 <script lang="ts">
-    import { exploreStore, type PlaylistItem } from "$lib/stores/explore.svelte";
-    import { Headphones, CaretLeft, CaretRight, Play, Disc } from "phosphor-svelte";
+    import { exploreStore, type AlbumItem } from "$lib/stores/explore.svelte";
+    import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
+    import { getInitial } from "$lib/utils/format";
+    import { Disc, CaretLeft, CaretRight, Play, Heart } from "phosphor-svelte";
 
     let trackContainer = $state<HTMLElement | null>(null);
     let canScrollLeft = $state(false);
@@ -16,119 +19,131 @@
     }
 
     $effect(() => {
-        if (trackContainer && exploreStore.featuredPlaylists.length > 0) {
+        if (trackContainer && exploreStore.trendingAlbums.length > 0) {
             updateScrollState();
         }
     });
 
     function scrollPrev() {
         if (!trackContainer) return;
-        const cardSpan = 300 + 16;
+        const cardSpan = 176 + 20;
         trackContainer.scrollBy({ left: -cardSpan * 2, behavior: "smooth" });
     }
 
     function scrollNext() {
         if (!trackContainer) return;
-        const cardSpan = 300 + 16;
+        const cardSpan = 176 + 20;
         trackContainer.scrollBy({ left: cardSpan * 2, behavior: "smooth" });
     }
 
-    function openPlaylist(playlist: PlaylistItem) {
-        exploreStore.openPlaylist({
-            id: playlist.id,
-            title: playlist.title,
-            author: playlist.author || undefined,
-            cover_art_url: playlist.cover_art_url,
-            provider_id: playlist.provider_id,
+    function openAlbum(album: AlbumItem) {
+        exploreStore.openAlbum({
+            id: album.id,
+            title: album.title,
+            artist: album.artist,
+            year: album.year,
+            cover_art_url: album.cover_art_url,
+            provider_id: album.provider_id,
         });
     }
 </script>
 
 <svelte:window onresize={updateScrollState} />
 
-<section class="thematic-collections-section">
-    <div class="section-title-row">
-        <div class="title-group">
-            <Headphones size={20} weight="bold" class="section-icon" />
-            <h2>Curated Thematic Collections</h2>
+{#if exploreStore.trendingAlbums.length > 0}
+    <section class="thematic-collections-section">
+        <div class="section-title-row">
+            <div class="title-group">
+                <Disc size={20} weight="bold" class="section-icon" />
+                <h2>Trending Albums</h2>
+            </div>
+
+            {#if hasOverflow}
+                <div class="chevron-controls">
+                    <button 
+                        class="chevron-btn" 
+                        onclick={scrollPrev} 
+                        disabled={!canScrollLeft}
+                        title="Previous Albums"
+                        aria-label="Previous Albums"
+                    >
+                        <CaretLeft size={16} weight="bold" />
+                    </button>
+                    <button 
+                        class="chevron-btn" 
+                        onclick={scrollNext} 
+                        disabled={!canScrollRight}
+                        title="Next Albums"
+                        aria-label="Next Albums"
+                    >
+                        <CaretRight size={16} weight="bold" />
+                    </button>
+                </div>
+            {/if}
         </div>
 
-        {#if hasOverflow}
-            <div class="chevron-controls">
-                <button 
-                    class="chevron-btn" 
-                    onclick={scrollPrev} 
-                    disabled={!canScrollLeft}
-                    title="Previous Collections"
-                    aria-label="Previous Collections"
+        <div 
+            class="thematic-carousel-track" 
+            bind:this={trackContainer} 
+            onscroll={updateScrollState}
+        >
+            {#each exploreStore.trendingAlbums as album}
+                {@const albumKey = getCanonicalKey({ title: album.title, artist: album.artist })}
+                {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === albumKey.toLowerCase().trim())}
+                <div 
+                    class="discover-card"
+                    role="button"
+                    tabindex="0"
+                    onclick={() => openAlbum(album)}
+                    onkeydown={(e) => { if (e.key === "Enter") openAlbum(album); }}
                 >
-                    <CaretLeft size={16} weight="bold" />
-                </button>
-                <button 
-                    class="chevron-btn" 
-                    onclick={scrollNext} 
-                    disabled={!canScrollRight}
-                    title="Next Collections"
-                    aria-label="Next Collections"
-                >
-                    <CaretRight size={16} weight="bold" />
-                </button>
-            </div>
-        {/if}
-    </div>
-
-    <div 
-        class="thematic-carousel-track" 
-        bind:this={trackContainer} 
-        onscroll={updateScrollState}
-    >
-        {#each exploreStore.featuredPlaylists as playlist}
-            <div 
-                class="thematic-card"
-                role="button"
-                tabindex="0"
-                onclick={() => openPlaylist(playlist)}
-                onkeydown={(e) => { if (e.key === 'Enter') openPlaylist(playlist); }}
-            >
-                <div class="card-art-backdrop">
-                    {#if playlist.cover_art_url}
-                        <img src={playlist.cover_art_url} alt={playlist.title} class="backdrop-img" loading="lazy" />
-                    {/if}
-                    <div class="backdrop-gradient"></div>
-                </div>
-
-                <div class="card-content">
-                    <div class="card-top-bar">
-                        <div class="curated-pill">
-                            <Disc size={12} weight="bold" color="#D4A86E" />
-                            <span>COLLECTION</span>
-                        </div>
-                        {#if playlist.item_count}
-                            <span class="track-count-badge">{playlist.item_count} Tracks</span>
+                    <div class="card-art-wrapper">
+                        {#if album.cover_art_url}
+                            <img src={album.cover_art_url} alt={album.title} loading="lazy" />
+                        {:else}
+                            <div class="placeholder-art">
+                                <span>{getInitial(album.artist)}</span>
+                            </div>
                         {/if}
-                    </div>
 
-                    <div class="card-bottom-bar">
-                        <div class="card-meta">
-                            <h3 class="collection-title" title={playlist.title}>{playlist.title}</h3>
-                            <p class="collection-subtitle" title={playlist.author}>{playlist.author || "Curated Functional Audio"}</p>
+                        <div class="card-overlay">
+                            <div class="play-bubble">
+                                <Play size={18} weight="fill" />
+                            </div>
                         </div>
 
                         <button 
-                            type="button" 
-                            class="play-pill-btn" 
-                            onclick={(e) => { e.stopPropagation(); openPlaylist(playlist); }}
-                            title="Play Collection"
+                            type="button"
+                            class="liquid-like-btn" 
+                            class:is-glass={settingsStore.glassyPlayerBar}
+                            class:liked={isLiked}
+                            onclick={(e) => { 
+                                e.stopPropagation(); 
+                                libraryStore.toggleLike({
+                                    title: album.title,
+                                    artist: album.artist,
+                                    canonical_key: albumKey,
+                                    cover_art_url: album.cover_art_url || undefined,
+                                });
+                            }}
+                            title={isLiked ? "Liked" : "Like album"}
+                            aria-label={isLiked ? "Unlike album" : "Like album"}
                         >
-                            <Play size={13} weight="fill" />
-                            <span>Explore</span>
+                            <Heart size={16} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "#FFFFFF"} />
                         </button>
                     </div>
+
+                    <div class="card-info">
+                        <span class="card-title" title={album.title}>{album.title}</span>
+                        <span class="card-artist" title={album.artist}>
+                            {album.artist}{#if album.year} • {album.year}{/if}
+                        </span>
+                    </div>
                 </div>
-            </div>
-        {/each}
-    </div>
-</section>
+            {/each}
+        </div>
+    </section>
+{/if}
 
 <style>
     .thematic-collections-section {
@@ -141,12 +156,13 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        min-height: 36px;
     }
 
     .title-group {
         display: flex;
         align-items: center;
-        gap: 0.55rem;
+        gap: 0.65rem;
     }
 
     :global(.section-icon) {
@@ -154,10 +170,11 @@
     }
 
     h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, "Newsreader", serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
+        letter-spacing: -0.01em;
         color: #fff;
     }
 
@@ -169,6 +186,7 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 20px;
         padding: 0.2rem 0.3rem;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     }
 
     .chevron-btn {
@@ -183,13 +201,17 @@
         justify-content: center;
         cursor: pointer;
         padding: 0;
-        transition: all 0.15s ease;
+        transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.2s ease;
     }
 
     .chevron-btn:hover:not(:disabled) {
-        color: #B58E62;
+        color: var(--echo-primary, #B58E62);
         background: rgba(255, 255, 255, 0.16);
         border-color: rgba(181, 142, 98, 0.4);
+    }
+
+    .chevron-btn:active:not(:disabled) {
+        transform: scale(0.92);
     }
 
     .chevron-btn:disabled {
@@ -203,158 +225,186 @@
         gap: 1.25rem;
         overflow-x: auto;
         scroll-snap-type: x mandatory;
-        scroll-behavior: smooth;
-        padding-bottom: 0.5rem;
         scrollbar-width: none;
+        padding-bottom: 0.5rem;
     }
 
     .thematic-carousel-track::-webkit-scrollbar {
         display: none;
     }
 
-    .thematic-card {
-        flex: 0 0 310px;
-        height: 190px;
-        border-radius: 12px;
-        position: relative;
-        overflow: hidden;
-        cursor: pointer;
+    .discover-card {
+        flex: 0 0 176px;
+        width: 176px;
+        min-width: 176px;
         scroll-snap-align: start;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        cursor: pointer;
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .discover-card:hover {
+        transform: translateY(-3px);
+    }
+
+    .card-art-wrapper {
+        width: 176px;
+        height: 176px;
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
         background: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
-        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+        contain: layout paint;
+        isolation: isolate;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .thematic-card:hover {
-        transform: translateY(-3px);
-        border-color: rgba(181, 142, 98, 0.45);
-        box-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.65);
+    .discover-card:hover .card-art-wrapper {
+        border-color: rgba(181, 142, 98, 0.35);
+        box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.6);
     }
 
-    .card-art-backdrop {
-        position: absolute;
-        inset: 0;
-    }
-
-    .backdrop-img {
+    .card-art-wrapper img {
         width: 100%;
         height: 100%;
         object-fit: cover;
-        opacity: 0.45;
-        transition: opacity 0.3s ease, transform 0.4s ease;
     }
 
-    .thematic-card:hover .backdrop-img {
-        opacity: 0.65;
-        transform: scale(1.05);
-    }
-
-    .backdrop-gradient {
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, rgba(14, 14, 16, 0.4) 0%, rgba(10, 10, 12, 0.95) 100%);
-    }
-
-    .card-content {
-        position: relative;
-        z-index: 2;
-        padding: 1.15rem;
+    .placeholder-art {
+        width: 100%;
         height: 100%;
-        box-sizing: border-box;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-    }
-
-    .card-top-bar {
+        background: #18181B;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-    }
-
-    .curated-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(181, 142, 98, 0.15);
-        border: 1px solid rgba(181, 142, 98, 0.3);
-        padding: 0.18rem 0.5rem;
-        border-radius: 4px;
-    }
-
-    .curated-pill span {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.58rem;
+        justify-content: center;
+        font-family: var(--echo-font-heading, serif);
+        font-size: 2rem;
         font-weight: 700;
-        letter-spacing: 0.1em;
         color: #D4A86E;
     }
 
-    .track-count-badge {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.65rem;
-        color: rgba(255, 255, 255, 0.5);
-    }
-
-    .card-bottom-bar {
+    .card-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
         display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 0.75rem;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: opacity;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .card-meta {
-        flex: 1;
-        min-width: 0;
+    .discover-card:hover .card-overlay {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .play-bubble {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: #B58E62;
+        color: #0E0E10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        transform: scale(0.9);
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease;
+    }
+
+    .discover-card:hover .play-bubble {
+        transform: scale(1);
+    }
+
+    .play-bubble:hover {
+        transform: scale(1.08) !important;
+        background: #C9A070;
+    }
+
+    .liquid-like-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        min-height: 32px !important;
+        max-height: 32px !important;
+        border-radius: 50% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: rgba(18, 20, 26, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+        color: #ffffff;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer;
+        opacity: 0;
+        transform: scale(0.85) translateZ(0);
+        backface-visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        z-index: 5;
+    }
+
+    .liquid-like-btn.is-glass {
+        background: rgba(255, 255, 255, 0.028);
+        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: 
+            inset 0 1px 1px rgba(255, 255, 255, 0.18),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+            0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    .discover-card:hover .liquid-like-btn {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+    }
+
+    .liquid-like-btn.liked {
+        opacity: 1 !important;
+        transform: scale(1) !important;
+        pointer-events: auto !important;
+        background: rgba(45, 35, 25, 0.9) !important;
+        border-color: rgba(224, 184, 143, 0.45) !important;
+    }
+
+    .card-info {
         display: flex;
         flex-direction: column;
         gap: 0.2rem;
+        min-width: 0;
     }
 
-    .collection-title {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
-        font-size: 1.1rem;
+    .card-title {
+        font-family: var(--echo-font-body, system-ui, sans-serif);
+        font-size: 0.88rem;
         font-weight: 600;
-        margin: 0;
         color: #fff;
-        line-height: 1.25;
-        display: -webkit-box;
-        -webkit-line-clamp: 1;
-        line-clamp: 1;
-        -webkit-box-orient: vertical;
+        white-space: nowrap;
         overflow: hidden;
+        text-overflow: ellipsis;
     }
 
-    .collection-subtitle {
-        font-size: 0.74rem;
-        margin: 0;
+    .card-artist {
+        font-size: 0.76rem;
         color: rgba(255, 255, 255, 0.5);
-        display: -webkit-box;
-        -webkit-line-clamp: 1;
-        line-clamp: 1;
-        -webkit-box-orient: vertical;
+        white-space: nowrap;
         overflow: hidden;
-    }
-
-    .play-pill-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #D4A86E;
-        background: rgba(181, 142, 98, 0.14);
-        border: 1px solid rgba(181, 142, 98, 0.3);
-        padding: 0.35rem 0.65rem;
-        border-radius: 6px;
-        flex-shrink: 0;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .thematic-card:hover .play-pill-btn {
-        background: #D4A86E;
-        color: #0E0E10;
-        border-color: #D4A86E;
+        text-overflow: ellipsis;
     }
 </style>
