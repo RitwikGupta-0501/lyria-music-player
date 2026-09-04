@@ -130,7 +130,10 @@ export class AudioStore {
             this._isPlaying = payload.state === "Playing";
 
             this.playbackState = payload.state;
-            this.duration = payload.duration;
+            const fallbackDuration = this.currentQueueTrack?.source?.type === "Remote" && this.currentQueueTrack.source.duration_ms
+                ? this.currentQueueTrack.source.duration_ms / 1000
+                : 0;
+            this.duration = payload.duration > 0 ? payload.duration : (this.duration > 0 ? this.duration : fallbackDuration);
             this.currentTrack = payload.track || "None";
             this.currentTime = payload.position;
 
@@ -171,8 +174,11 @@ export class AudioStore {
 
         // Track advancement detection (for gapless playback)
         this.unlistenTrackEnded = await listen("track-advanced", async () => {
-            // Tell backend we advanced (this updates current_position, but we don't load_audio since it's already playing)
+            // Re-anchor the playback clock immediately on track transition
             this._autoAdvancing = true;
+            this.currentTime = 0;
+            this._syncPosition = 0;
+            this._syncTimestamp = performance.now();
             await invoke("skip_forward", { count: 1 });
             this.queueNextAudio();
         });
@@ -214,9 +220,18 @@ export class AudioStore {
     // ══════════════════════════════════════════
 
     private tick = () => {
-        if (this._isPlaying && this.duration > 0) {
+        if (this._isPlaying) {
             const elapsed = (performance.now() - this._syncTimestamp) / 1000;
-            this.currentTime = Math.min(this._syncPosition + elapsed, this.duration);
+            const fallbackDuration = this.currentQueueTrack?.source?.type === "Remote" && this.currentQueueTrack.source.duration_ms
+                ? this.currentQueueTrack.source.duration_ms / 1000
+                : 0;
+            const effectiveDuration = this.duration > 0 ? this.duration : fallbackDuration;
+
+            if (effectiveDuration > 0) {
+                this.currentTime = Math.min(this._syncPosition + elapsed, effectiveDuration);
+            } else {
+                this.currentTime = this._syncPosition + elapsed;
+            }
         }
         this._rafId = requestAnimationFrame(this.tick);
     };
@@ -337,14 +352,31 @@ export class AudioStore {
 
     private formatQueueTrack(t: any): QueueTrack {
         const instanceId = crypto.randomUUID();
-        const isRemote = (t.source?.type === 'Remote') ||
-                         !!(t.source?.provider_id) ||
-                         !!(t.stream_url) ||
-                         !!(t.provider_id) ||
-                         (t.type === "Remote");
+        const filePath = t.source?.file_path ?? t.file_path ?? t.filePath ?? '';
+        const isRemoteUri = typeof filePath === 'string' && filePath.startsWith('remote://');
 
+        let providerId = t.source?.provider_id ?? t.provider_id ?? t.providerId ?? '';
         let rawRemoteId = t.source?.remote_track_id ?? t.remote_track_id ?? t.remoteTrackId ?? t.id ?? null;
-        const providerId = t.source?.provider_id ?? t.provider_id ?? t.providerId ?? 'unknown';
+
+        if (isRemoteUri) {
+            // e.g. "remote://youtube-wasm/7r63lUR6Wz4"
+            const trimmed = filePath.substring('remote://'.length);
+            const slashIdx = trimmed.indexOf('/');
+            if (slashIdx !== -1) {
+                providerId = trimmed.substring(0, slashIdx);
+                rawRemoteId = trimmed.substring(slashIdx + 1);
+            }
+        }
+
+        const isRemote = (t.source?.type === 'Remote') ||
+                         !!providerId ||
+                         !!(t.stream_url) ||
+                         (t.type === "Remote") ||
+                         isRemoteUri;
+
+        if (!providerId) {
+            providerId = 'unknown';
+        }
 
         if (typeof rawRemoteId === 'string' && providerId && rawRemoteId.startsWith(`remote-${providerId}-`)) {
             rawRemoteId = rawRemoteId.substring(`remote-${providerId}-`.length);
@@ -356,16 +388,16 @@ export class AudioStore {
             ? {
                 type: 'Remote',
                 provider_id: providerId,
-                remote_track_id: rawRemoteId,
+                remote_track_id: rawRemoteId ? String(rawRemoteId) : String(t.id || ''),
                 stream_url: t.source?.stream_url ?? t.stream_url,
                 quality_hint: t.source?.quality_hint ?? t.quality_hint ?? null,
                 cover_art_url: t.source?.cover_art_url ?? t.cover_art_url ?? null,
-                duration_ms: t.source?.duration_ms ?? t.duration_ms ?? null,
+                duration_ms: t.source?.duration_ms ?? t.duration_ms ?? t.durationMs ?? (typeof t.duration === 'number' && t.duration > 0 ? (t.duration > 1000 ? Math.round(t.duration) : Math.round(t.duration * 1000)) : null) ?? null,
             }
             : {
                 type: 'Local',
                 track_id: t.source?.track_id ?? t.id ?? t.track_id ?? t.trackId ?? -1,
-                file_path: t.source?.file_path ?? t.file_path ?? t.filePath ?? '',
+                file_path: filePath,
                 album_id: t.source?.album_id ?? t.album_id ?? t.albumId ?? null,
             };
 
@@ -563,13 +595,25 @@ export class AudioStore {
     }
 
     async reorderQueue(fromIndex: number, toIndex: number) {
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= this.queue.length || toIndex >= this.queue.length) {
+            return;
+        }
+
+        // Optimistic local update
+        const previousQueue = [...this.queue];
+        const newQueue = [...this.queue];
+        const [moved] = newQueue.splice(fromIndex, 1);
+        newQueue.splice(toIndex, 0, moved);
+        this.queue = newQueue;
+
         try {
             await invoke("reorder_queue", {
                 fromIndex,
                 toIndex,
             });
         } catch (e) {
-            console.error("Reorder queue failed:", e);
+            console.error("Reorder queue failed, reverting:", e);
+            this.queue = previousQueue;
         }
     }
 
