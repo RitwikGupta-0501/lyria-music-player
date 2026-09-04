@@ -121,6 +121,66 @@ pub fn get_playlists(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<P
     Ok(playlists)
 }
 
+pub fn save_queue_as_playlist(
+    conn: &mut Connection,
+    name: &str,
+    tracks: &[crate::queue::QueueTrack],
+) -> Result<i64, String> {
+    if name.trim().is_empty() {
+        return Err("Playlist name cannot be empty".to_string());
+    }
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute("INSERT INTO playlists (name) VALUES (?1)", [name.trim()])
+        .map_err(|e| format!("Failed to create playlist: {}", e))?;
+    let playlist_id = tx.last_insert_rowid();
+
+    for (idx, track) in tracks.iter().enumerate() {
+        let position = (idx + 1) as i64;
+        let track_id = match &track.source {
+            crate::queue::TrackSourceInfo::Local { track_id, file_path, .. } => {
+                if *track_id > 0 {
+                    *track_id
+                } else {
+                    let mut stmt = tx.prepare("SELECT id FROM tracks WHERE file_path = ?1").map_err(|e| e.to_string())?;
+                    stmt.query_row([file_path], |row| row.get(0)).unwrap_or_else(|_| {
+                        let _ = tx.execute(
+                            "INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)",
+                            rusqlite::params![&track.title, &track.artist, track.track_number, file_path],
+                        );
+                        tx.last_insert_rowid()
+                    })
+                }
+            }
+            crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, .. } => {
+                let uri = format!("remote://{}/{}", provider_id, remote_track_id);
+                let existing_id: Result<i64, _> = tx.query_row("SELECT id FROM tracks WHERE file_path = ?1", [&uri], |row| row.get(0));
+                match existing_id {
+                    Ok(id) => id,
+                    Err(_) => {
+                        let _ = tx.execute(
+                            "INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)",
+                            rusqlite::params![&track.title, &track.artist, track.track_number, &uri],
+                        );
+                        tx.last_insert_rowid()
+                    }
+                }
+            }
+        };
+
+        if track_id > 0 {
+            tx.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+                rusqlite::params![&playlist_id, &track_id, &position],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(playlist_id)
+}
+
 pub fn create_playlist(conn: &Connection, name: &str) -> Result<i64, String> {
     conn.execute("INSERT INTO playlists (name) VALUES (?1)", [&name]).map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())
@@ -1105,6 +1165,31 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
     artists.sort_by(|a, b| b.total_plays.cmp(&a.total_plays).then_with(|| b.total_duration_ms.cmp(&a.total_duration_ms)));
     artists.truncate(limit);
 
+    // Hydrate official artist portraits and canonical names from cached artist_metadata
+    for item in &mut artists {
+        let key = item.artist.trim().to_lowercase();
+        if let Ok(mut stmt) = conn.prepare_cached(
+            "SELECT name, avatar_url FROM artist_metadata WHERE LOWER(id) = ?1 OR LOWER(name) = ?1 LIMIT 1"
+        ) {
+            if let Ok(mut rows) = stmt.query(rusqlite::params![key]) {
+                if let Ok(Some(row)) = rows.next() {
+                    let canon_name: Option<String> = row.get(0).ok();
+                    let canon_art: Option<String> = row.get(1).ok();
+                    if let Some(name) = canon_name {
+                        if !name.trim().is_empty() {
+                            item.artist = name;
+                        }
+                    }
+                    if let Some(art) = canon_art {
+                        if !art.trim().is_empty() {
+                            item.avatar_url = Some(art);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 2. Top Albums in last 7 days (with fallback to all-time telemetry)
     let mut album_map: HashMap<(String, String), (i64, Option<String>)> = HashMap::new();
 
@@ -1181,7 +1266,7 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
         }
     }).collect();
 
-    albums.sort_by(|a, b| b.total_plays.cmp(&a.total_plays));
+    albums.sort_by_key(|b| std::cmp::Reverse(b.total_plays));
     albums.truncate(limit);
 
     Ok(HeavyRotationShelf {
@@ -1493,6 +1578,257 @@ mod tests {
             )",
             [],
         )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS artist_metadata (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                avatar_url TEXT,
+                bio TEXT,
+                provider_id TEXT NOT NULL DEFAULT 'youtube-wasm',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
         Ok(())
     }
+}
+
+pub fn get_feed_cache(conn: &rusqlite::Connection, provider_id: &str, module_id: &str) -> Result<Option<String>, rusqlite::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    
+    let mut stmt = conn.prepare(
+        "SELECT payload_json FROM feed_cache 
+         WHERE provider_id = ?1 AND module_id = ?2 
+           AND (?3 - fetched_at) < ttl_seconds"
+    )?;
+    
+    let mut rows = stmt.query(rusqlite::params![provider_id, module_id, now])?;
+    if let Some(row) = rows.next()? {
+        let payload: String = row.get(0)?;
+        Ok(Some(payload))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_feed_cache(
+    conn: &rusqlite::Connection,
+    provider_id: &str,
+    module_id: &str,
+    payload_json: &str,
+    ttl_seconds: i64,
+) -> Result<(), rusqlite::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    
+    conn.execute(
+        "INSERT INTO feed_cache (provider_id, module_id, payload_json, fetched_at, ttl_seconds)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(provider_id, module_id) DO UPDATE SET
+            payload_json = excluded.payload_json,
+            fetched_at = excluded.fetched_at,
+            ttl_seconds = excluded.ttl_seconds",
+        rusqlite::params![provider_id, module_id, payload_json, now, ttl_seconds],
+    )?;
+
+    let _ = conn.execute(
+        "DELETE FROM feed_cache WHERE (?1 - fetched_at) >= ttl_seconds",
+        rusqlite::params![now],
+    );
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SavedAlbum {
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub provider_id: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SavedPlaylist {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub provider_id: String,
+    pub created_at: Option<String>,
+}
+
+pub fn toggle_saved_album(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    artist: Option<&str>,
+    cover_art_url: Option<&str>,
+    provider_id: &str,
+) -> Result<bool, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT id FROM saved_albums WHERE id = ?1")?;
+    let exists = stmt.exists(rusqlite::params![id])?;
+
+    if exists {
+        conn.execute("DELETE FROM saved_albums WHERE id = ?1", rusqlite::params![id])?;
+        Ok(false)
+    } else {
+        conn.execute(
+            "INSERT INTO saved_albums (id, title, artist, cover_art_url, provider_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, title, artist, cover_art_url, provider_id],
+        )?;
+        Ok(true)
+    }
+}
+
+pub fn get_saved_albums(conn: &rusqlite::Connection) -> Result<Vec<SavedAlbum>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, artist, cover_art_url, provider_id, created_at FROM saved_albums ORDER BY created_at DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SavedAlbum {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            artist: row.get(2)?,
+            cover_art_url: row.get(3)?,
+            provider_id: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+
+    let mut list = Vec::new();
+    for r in rows {
+        list.push(r?);
+    }
+    Ok(list)
+}
+
+pub fn toggle_saved_playlist(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    author: Option<&str>,
+    cover_art_url: Option<&str>,
+    provider_id: &str,
+) -> Result<bool, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT id FROM saved_playlists WHERE id = ?1")?;
+    let exists = stmt.exists(rusqlite::params![id])?;
+
+    if exists {
+        conn.execute("DELETE FROM saved_playlists WHERE id = ?1", rusqlite::params![id])?;
+        Ok(false)
+    } else {
+        conn.execute(
+            "INSERT INTO saved_playlists (id, title, author, cover_art_url, provider_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, title, author, cover_art_url, provider_id],
+        )?;
+        Ok(true)
+    }
+}
+
+pub fn get_saved_playlists(conn: &rusqlite::Connection) -> Result<Vec<SavedPlaylist>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, author, cover_art_url, provider_id, created_at FROM saved_playlists ORDER BY created_at DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SavedPlaylist {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            author: row.get(2)?,
+            cover_art_url: row.get(3)?,
+            provider_id: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+
+    let mut list = Vec::new();
+    for r in rows {
+        list.push(r?);
+    }
+    Ok(list)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtistMetadata {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub bio: Option<String>,
+    pub provider_id: String,
+    pub updated_at: Option<String>,
+}
+
+pub fn upsert_artist_metadata(
+    conn: &rusqlite::Connection,
+    id: &str,
+    name: &str,
+    avatar_url: Option<&str>,
+    bio: Option<&str>,
+    provider_id: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO artist_metadata (id, name, avatar_url, bio, provider_id, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            avatar_url = COALESCE(excluded.avatar_url, artist_metadata.avatar_url),
+            bio = COALESCE(excluded.bio, artist_metadata.bio),
+            provider_id = excluded.provider_id,
+            updated_at = CURRENT_TIMESTAMP",
+        rusqlite::params![id, name, avatar_url, bio, provider_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_artist_metadata(
+    conn: &rusqlite::Connection,
+    query: &str,
+) -> Result<Option<ArtistMetadata>, rusqlite::Error> {
+    let lower_q = query.trim().to_lowercase();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, avatar_url, bio, provider_id, updated_at
+         FROM artist_metadata
+         WHERE LOWER(id) = ?1 OR LOWER(name) = ?1
+         LIMIT 1"
+    )?;
+    let mut rows = stmt.query(rusqlite::params![lower_q])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(ArtistMetadata {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            avatar_url: row.get(2)?,
+            bio: row.get(3)?,
+            provider_id: row.get(4)?,
+            updated_at: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_feature_flag(
+    conn: &rusqlite::Connection,
+    key: &str,
+    enabled: bool,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO feature_flags (key, enabled, updated_at)
+         VALUES (?1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET
+            enabled = excluded.enabled,
+            updated_at = CURRENT_TIMESTAMP",
+        rusqlite::params![key, enabled as i64],
+    )?;
+    Ok(())
+}
+
+pub fn reset_feature_flags(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    conn.execute("DELETE FROM feature_flags", [])?;
+    Ok(())
 }

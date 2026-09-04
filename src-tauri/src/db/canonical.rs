@@ -164,7 +164,16 @@ pub fn split_artist_names(raw: &str) -> Vec<String> {
 
     let mut names = Vec::new();
     for part in normalized.split(';') {
-        let trimmed = part.trim();
+        let mut trimmed = part.trim();
+        let lower = trimmed.to_lowercase();
+        if lower.starts_with("and ") {
+            trimmed = trimmed[4..].trim();
+        } else if lower.starts_with("& ") || lower.starts_with("+ ") {
+            trimmed = trimmed[2..].trim();
+        } else if lower.starts_with("with ") {
+            trimmed = trimmed[5..].trim();
+        }
+
         if trimmed.len() > 1 && !trimmed.eq_ignore_ascii_case("the") && !trimmed.eq_ignore_ascii_case("unknown") {
             names.push(trimmed.to_string());
         }

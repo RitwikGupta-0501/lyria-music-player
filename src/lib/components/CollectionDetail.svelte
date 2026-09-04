@@ -14,9 +14,11 @@
         DotsThreeIcon,
         PlayIcon,
         PauseIcon,
+        Shuffle as ShuffleIcon,
         TrashIcon,
         PencilIcon,
         Heart as HeartIcon,
+        DotsSixVertical as GripIcon,
     } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { exploreStore, type DrawerCollection } from "$lib/stores/explore.svelte";
@@ -81,17 +83,96 @@
         (isPlaylist ? "Playlist" : "Unknown Artist")
     );
 
+    let draggedIndex = $state(-1);
+    let dragoverIndex = $state(-1);
+    let dropPosition = $state<"top" | "bottom" | null>(null);
+    let justReorderedIndex = $state(-1);
+
     let scrollContainer = $state<HTMLElement | null>(null);
     let virtStore = $derived.by(() => {
         const container = scrollContainer;
         return createVirtualizer({
             count: displayTracks.length,
             getScrollElement: () => container,
-            estimateSize: () => 52,
+            estimateSize: () => 44,
             overscan: 10,
             initialRect: { width: 400, height: 800 },
         });
     });
+
+    function handleDragStart(e: DragEvent, index: number) {
+        if (!isCustomLocalPlaylist) return;
+        draggedIndex = index;
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", index.toString());
+        }
+    }
+
+    function handleDragOver(e: DragEvent, index: number) {
+        if (!isCustomLocalPlaylist || draggedIndex === -1) return;
+        e.preventDefault();
+        if (draggedIndex === index) {
+            dragoverIndex = -1;
+            dropPosition = null;
+            return;
+        }
+
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const relY = e.clientY - rect.top;
+        dropPosition = relY < rect.height / 2 ? "top" : "bottom";
+        dragoverIndex = index;
+
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = "move";
+        }
+    }
+
+    async function handleDrop(e: DragEvent, targetIndex: number) {
+        if (!isCustomLocalPlaylist) return;
+        e.preventDefault();
+        const fromIdx = draggedIndex;
+        const pos = dropPosition;
+
+        dragoverIndex = -1;
+        dropPosition = null;
+        draggedIndex = -1;
+
+        if (fromIdx !== -1 && fromIdx !== targetIndex) {
+            let toIdx = targetIndex;
+            if (pos === "bottom" && fromIdx < targetIndex) {
+                toIdx = targetIndex;
+            } else if (pos === "top" && fromIdx > targetIndex) {
+                toIdx = targetIndex;
+            } else if (pos === "bottom" && fromIdx > targetIndex) {
+                toIdx = targetIndex + 1;
+            } else if (pos === "top" && fromIdx < targetIndex) {
+                toIdx = targetIndex - 1;
+            }
+
+            toIdx = Math.max(0, Math.min(toIdx, tracks.length - 1));
+
+            if (fromIdx !== toIdx) {
+                const newTracks = [...tracks];
+                const [moved] = newTracks.splice(fromIdx, 1);
+                newTracks.splice(toIdx, 0, moved);
+                tracks = newTracks;
+
+                justReorderedIndex = toIdx;
+                setTimeout(() => {
+                    justReorderedIndex = -1;
+                }, 400);
+
+                try {
+                    await libraryStore.reorderPlaylistTrack(Number(collection.id), fromIdx + 1, toIdx + 1);
+                } catch (err) {
+                    console.error("Failed to reorder playlist track:", err);
+                    toastStore.show("Failed to reorder track", "error");
+                    await loadData();
+                }
+            }
+        }
+    }
 
     async function loadData() {
         if (collection.id === "favorites" || collection.source === "remote") {
@@ -225,6 +306,98 @@
 
         await audioStore.setQueue(queueTracks, index);
     }
+
+    let isCollectionPlaying = $derived.by(() => {
+        if (audioStore.playbackState !== "Playing" || !audioStore.currentQueueTrack) return false;
+        const cur = audioStore.currentQueueTrack;
+        return displayTracks.some((t: any) => {
+            if (cur.source.type === "Remote") {
+                const remoteUri = `remote://${cur.source.provider_id}/${cur.source.remote_track_id}`;
+                return (t.id !== undefined && String(t.id) === String(cur.source.remote_track_id || cur.source.track_id)) ||
+                       (t.file_path && t.file_path === remoteUri) ||
+                       (t.title === cur.title && t.artist === cur.artist);
+            } else {
+                return (t.file_path && t.file_path === cur.source.file_path) ||
+                       (t.id !== undefined && t.id === cur.source.track_id);
+            }
+        });
+    });
+
+    async function togglePlayCollection() {
+        if (displayTracks.length === 0) return;
+        if (isCollectionPlaying) {
+            await audioStore.pause();
+        } else if (
+            audioStore.playbackState === "Paused" &&
+            audioStore.currentQueueTrack &&
+            displayTracks.some((t: any) => {
+                const cur = audioStore.currentQueueTrack!;
+                if (cur.source.type === "Remote") {
+                    return (t.id !== undefined && String(t.id) === String(cur.source.remote_track_id || cur.source.track_id)) ||
+                           (t.title === cur.title && t.artist === cur.artist);
+                } else {
+                    return (t.file_path && t.file_path === cur.source.file_path) ||
+                           (t.id !== undefined && t.id === cur.source.track_id);
+                }
+            })
+        ) {
+            await audioStore.play();
+        } else {
+            if (isRemote) {
+                const pId = collection.provider_id || "youtube-wasm";
+                const queueTracks = displayTracks.map((t: any) => ({
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: collection.title,
+                    remote_track_id: t.id,
+                    provider_id: t.provider_id || pId,
+                    cover_art_url: t.cover_art_url || collection.cover_art_url,
+                    duration_ms: t.duration_ms,
+                }));
+                await audioStore.setQueue(queueTracks, 0);
+            } else {
+                const queueTracks = displayTracks.map((t: any) => ({
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: collection.title,
+                    file_path: t.file_path,
+                    track_number: t.track_number,
+                }));
+                await audioStore.setQueue(queueTracks, 0);
+            }
+        }
+    }
+
+    async function shuffleCollection() {
+        if (displayTracks.length === 0) return;
+        const shuffled = [...displayTracks].sort(() => Math.random() - 0.5);
+        if (isRemote) {
+            const pId = collection.provider_id || "youtube-wasm";
+            const queueTracks = shuffled.map((t: any) => ({
+                id: t.id,
+                title: t.title,
+                artist: t.artist,
+                album: collection.title,
+                remote_track_id: t.id,
+                provider_id: t.provider_id || pId,
+                cover_art_url: t.cover_art_url || collection.cover_art_url,
+                duration_ms: t.duration_ms,
+            }));
+            await audioStore.setQueue(queueTracks, 0);
+        } else {
+            const queueTracks = shuffled.map((t: any) => ({
+                id: t.id,
+                title: t.title,
+                artist: t.artist,
+                album: collection.title,
+                file_path: t.file_path,
+                track_number: t.track_number,
+            }));
+            await audioStore.setQueue(queueTracks, 0);
+        }
+    }
 </script>
 
 <svelte:window onclick={() => activeDropdown = null} />
@@ -302,22 +475,77 @@
                 {/if}
             </p>
 
-            {#if isCustomLocalPlaylist}
-                <div class="playlist-actions-row">
+            <div class="playlist-actions-row">
+                <button 
+                    class="play-collection-btn" 
+                    onclick={togglePlayCollection}
+                    disabled={displayTracks.length === 0}
+                    title={isCollectionPlaying ? "Pause collection" : "Play collection"}
+                >
+                    {#if isCollectionPlaying}
+                        <PauseIcon size={15} weight="fill" />
+                        <span>Pause</span>
+                    {:else}
+                        <PlayIcon size={15} weight="fill" />
+                        <span>Play</span>
+                    {/if}
+                </button>
+
+                {#if displayTracks.length > 1}
+                    <button 
+                        class="shuffle-collection-btn" 
+                        onclick={shuffleCollection}
+                        title="Shuffle collection"
+                    >
+                        <ShuffleIcon size={14} weight="bold" />
+                        <span>Shuffle</span>
+                    </button>
+                {/if}
+
+                {#if isCustomLocalPlaylist}
                     <button class="action-btn" onclick={() => isEditingName = true} title="Rename playlist">
-                        <PencilIcon size={16} />
+                        <PencilIcon size={15} />
                         <span>Edit</span>
                     </button>
                     <button class="action-btn text-danger" onclick={deletePlaylist} title="Delete playlist">
-                        <TrashIcon size={16} />
+                        <TrashIcon size={15} />
                         <span>Delete</span>
                     </button>
-                </div>
-            {/if}
+                {:else if isRemote && !isFavorites}
+                    {@const isSaved = isPlaylist ? libraryStore.isPlaylistSaved(String(collection.id)) : libraryStore.isAlbumSaved(String(collection.id), collectionTitle, collectionSubtitle)}
+                    <button 
+                        class="action-btn" 
+                        class:liked={isSaved}
+                        onclick={() => {
+                            if (isPlaylist) {
+                                libraryStore.toggleSavePlaylist({
+                                    id: String(collection.id),
+                                    title: collectionTitle,
+                                    author: collectionSubtitle || null,
+                                    cover_art_url: collection.cover_art_url || null,
+                                    provider_id: collection.provider_id || "youtube-wasm",
+                                });
+                            } else {
+                                libraryStore.toggleSaveAlbum({
+                                    id: String(collection.id),
+                                    title: collectionTitle,
+                                    artist: collectionSubtitle || null,
+                                    cover_art_url: collection.cover_art_url || null,
+                                    provider_id: collection.provider_id || "youtube-wasm",
+                                });
+                            }
+                        }} 
+                        title={isSaved ? (isPlaylist ? "Unsave playlist" : "Unsave album") : (isPlaylist ? "Save playlist" : "Save album")}
+                    >
+                        <HeartIcon size={15} weight={isSaved ? "fill" : "regular"} color={isSaved ? "#ffd285" : "currentColor"} />
+                        <span>{isSaved ? "Saved" : "Save"}</span>
+                    </button>
+                {/if}
+            </div>
         </div>
     </div>
 
-    <div class="track-list" bind:this={scrollContainer}>
+    <div class="track-list" class:is-reordering={draggedIndex !== -1} bind:this={scrollContainer}>
         {#if exploreStore.isLoadingCollection && displayTracks.length === 0}
             <div class="album-tracks-loading">
                 <div class="track-skeleton-row"></div>
@@ -342,7 +570,20 @@
                     class:active={audioStore.currentTrack === track.title ||
                         audioStore.currentTrack === track.file_path}
                     class:menu-open={activeDropdown === i}
+                    class:is-dragging={draggedIndex === i}
+                    class:drag-over-top={dragoverIndex === i && dropPosition === "top" && draggedIndex !== i}
+                    class:drag-over-bottom={dragoverIndex === i && dropPosition === "bottom" && draggedIndex !== i}
+                    class:just-reordered={justReorderedIndex === i}
+                    draggable={isCustomLocalPlaylist}
                     style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start}px);"
+                    ondragstart={(e) => handleDragStart(e, i)}
+                    ondragover={(e) => handleDragOver(e, i)}
+                    ondrop={(e) => handleDrop(e, i)}
+                    ondragend={() => {
+                        dragoverIndex = -1;
+                        dropPosition = null;
+                        draggedIndex = -1;
+                    }}
                     onclick={() => playTrack(i)}
                 >
                     <div class="track-left">
@@ -379,6 +620,11 @@
                     </div>
 
                     <div class="track-right">
+                        {#if isCustomLocalPlaylist}
+                            <span class="drag-handle" title="Drag to reorder">
+                                <GripIcon size={15} weight="bold" />
+                            </span>
+                        {/if}
                         <button 
                             class="row-like-btn"
                             class:liked={isTrackLiked}
@@ -584,16 +830,108 @@
         100% { background-position: -200% 0; }
     }
 
+    .track-list.is-reordering .track-row * {
+        pointer-events: none;
+    }
+
     .track-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.75rem;
-        border-radius: 0.75rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 0.5rem;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all 0.15s ease;
         position: relative;
         border: 1px solid transparent;
+    }
+
+    .track-row.is-dragging {
+        opacity: 0.25;
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .track-row.drag-over-top::before {
+        content: '';
+        position: absolute;
+        top: -1px;
+        left: 0.75rem;
+        right: 0.75rem;
+        height: 2px;
+        background: var(--echo-primary, #B58E62);
+        box-shadow: 0 0 10px var(--echo-primary, #B58E62);
+        border-radius: 2px;
+        pointer-events: none;
+        z-index: 20;
+    }
+
+    .track-row.drag-over-top::after {
+        content: '';
+        position: absolute;
+        top: -3px;
+        left: 0.65rem;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--echo-primary, #B58E62);
+        box-shadow: 0 0 8px var(--echo-primary, #B58E62);
+        pointer-events: none;
+        z-index: 21;
+    }
+
+    .track-row.drag-over-bottom::before {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0.75rem;
+        right: 0.75rem;
+        height: 2px;
+        background: var(--echo-primary, #B58E62);
+        box-shadow: 0 0 10px var(--echo-primary, #B58E62);
+        border-radius: 2px;
+        pointer-events: none;
+        z-index: 20;
+    }
+
+    .track-row.drag-over-bottom::after {
+        content: '';
+        position: absolute;
+        bottom: -3px;
+        left: 0.65rem;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--echo-primary, #B58E62);
+        box-shadow: 0 0 8px var(--echo-primary, #B58E62);
+        pointer-events: none;
+        z-index: 21;
+    }
+
+    .drag-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--echo-text-3);
+        opacity: 0;
+        padding: 4px;
+        margin-right: 4px;
+        border-radius: 4px;
+        cursor: grab;
+        transition: opacity 0.12s ease, color 0.12s ease;
+    }
+
+    .track-row:hover .drag-handle {
+        opacity: 0.6;
+    }
+
+    .drag-handle:hover {
+        opacity: 1 !important;
+        color: var(--echo-text-1);
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .drag-handle:active {
+        cursor: grabbing;
     }
 
     .track-row:hover {
@@ -615,14 +953,14 @@
     .track-left {
         display: flex;
         align-items: center;
-        gap: 0.8rem;
+        gap: 0.5rem;
         min-width: 0;
         flex: 1;
     }
 
     .track-status {
-        width: 2rem;
-        font-size: 0.875rem;
+        width: 1.35rem;
+        font-size: 0.8rem;
         color: var(--echo-text-2);
         display: flex;
         align-items: center;
@@ -830,8 +1168,69 @@
     .playlist-actions-row {
         display: flex;
         align-items: center;
-        gap: 0.35rem;
-        margin-top: 0.25rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.4rem;
+    }
+
+    .play-collection-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: #B58E62;
+        color: #0E0E10;
+        border: none;
+        border-radius: 20px;
+        padding: 0.35rem 0.85rem;
+        font-family: var(--echo-font-body, system-ui, sans-serif);
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.1s ease, background 0.15s ease, box-shadow 0.15s ease;
+        box-shadow: 0 4px 14px rgba(181, 142, 98, 0.3);
+        user-select: none;
+    }
+
+    .play-collection-btn:hover:not(:disabled) {
+        background: #D4A86E;
+        transform: scale(1.03);
+        box-shadow: 0 6px 18px rgba(212, 168, 110, 0.4);
+    }
+
+    .play-collection-btn:active:not(:disabled) {
+        transform: scale(0.96);
+    }
+
+    .play-collection-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .shuffle-collection-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: #fff;
+        border-radius: 20px;
+        padding: 0.35rem 0.75rem;
+        font-family: var(--echo-font-body, system-ui, sans-serif);
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
+        user-select: none;
+    }
+
+    .shuffle-collection-btn:hover {
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: scale(1.03);
+    }
+
+    .shuffle-collection-btn:active {
+        transform: scale(0.96);
     }
 
     .action-btn {

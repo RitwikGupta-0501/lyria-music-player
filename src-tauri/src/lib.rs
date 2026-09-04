@@ -317,7 +317,20 @@ async fn browse_provider_artist(
     provider_id: String,
     artist_id: String,
 ) -> Result<crate::providers::ArtistDetailResult, String> {
-    state.provider_manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())
+    let res = state.provider_manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())?;
+
+    // Asynchronously persist artist portrait & canonical name to SQLite cache
+    let (tx, _rx) = oneshot::channel();
+    let _ = state.db_tx.send(crate::db::DbRequest::UpsertArtistMetadata {
+        id: artist_id.clone(),
+        name: res.name.clone(),
+        avatar_url: res.avatar_url.clone(),
+        bio: res.bio.clone(),
+        provider_id: provider_id.clone(),
+        resp: tx,
+    });
+
+    Ok(res)
 }
 
 #[tauri::command]
@@ -583,11 +596,46 @@ async fn get_provider_modules(state: State<'_, AppState>, provider_id: String) -
 }
 
 #[tauri::command]
-async fn fetch_provider_module(state: State<'_, AppState>, provider_id: String, module_id: String) -> Result<providers::ModuleData, String> {
+async fn fetch_provider_module(
+    state: State<'_, AppState>, 
+    provider_id: String, 
+    module_id: String,
+    force_refresh: Option<bool>,
+) -> Result<providers::ModuleData, String> {
+    let is_force = force_refresh.unwrap_or(false);
+
+    if !is_force {
+        let (tx, rx) = oneshot::channel();
+        if state.db_tx.send(DbRequest::GetFeedCache {
+            provider_id: provider_id.clone(),
+            module_id: module_id.clone(),
+            resp: tx,
+        }).is_ok() {
+            if let Ok(Ok(Some(json_str))) = rx.await {
+                if let Ok(data) = serde_json::from_str::<providers::ModuleData>(&json_str) {
+                    if !data.items.is_empty() {
+                        return Ok(data);
+                    }
+                }
+            }
+        }
+    }
+
     let results = state.provider_manager
         .fetch_module(&provider_id, &module_id)
         .await
         .map_err(|e| e.to_string())?;
+
+    if let Ok(json_str) = serde_json::to_string(&results) {
+        let (tx, _rx) = oneshot::channel();
+        let _ = state.db_tx.send(DbRequest::SetFeedCache {
+            provider_id,
+            module_id,
+            payload_json: json_str,
+            ttl_seconds: 86400,
+            resp: tx,
+        });
+    }
 
     Ok(results)
 }
@@ -754,6 +802,103 @@ async fn get_albums(state: State<'_, AppState>, limit: u32, offset: u32) -> Resu
 }
 
 #[tauri::command]
+async fn toggle_save_album(
+    id: String,
+    title: String,
+    artist: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let (tx, rx) = oneshot::channel();
+    let p_id = provider_id.unwrap_or_else(|| "local".to_string());
+    state.db_tx.send(crate::db::DbRequest::ToggleSavedAlbum {
+        id,
+        title,
+        artist,
+        cover_art_url,
+        provider_id: p_id,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_saved_albums(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::queries::SavedAlbum>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetSavedAlbums { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn toggle_save_playlist(
+    id: String,
+    title: String,
+    author: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let (tx, rx) = oneshot::channel();
+    let p_id = provider_id.unwrap_or_else(|| "youtube-wasm".to_string());
+    state.db_tx.send(crate::db::DbRequest::ToggleSavedPlaylist {
+        id,
+        title,
+        author,
+        cover_art_url,
+        provider_id: p_id,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_saved_playlists(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::queries::SavedPlaylist>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetSavedPlaylists { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_artist_metadata(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    avatar_url: Option<String>,
+    bio: Option<String>,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    let p_id = provider_id.unwrap_or_else(|| "youtube-wasm".to_string());
+    state.db_tx.send(crate::db::DbRequest::UpsertArtistMetadata {
+        id,
+        name,
+        avatar_url,
+        bio,
+        provider_id: p_id,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_artist_metadata(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Option<crate::db::queries::ArtistMetadata>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetArtistMetadata {
+        query,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn get_album_tracks(state: State<'_, AppState>, album_id: i64, limit: u32, offset: u32) -> Result<Vec<LocalTrack>, String> {
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::GetAlbumTracks { album_id, limit, offset, resp: tx }).map_err(|e| e.to_string())?;
@@ -764,6 +909,17 @@ async fn get_album_tracks(state: State<'_, AppState>, album_id: i64, limit: u32,
 async fn get_playlists(state: State<'_, AppState>, limit: u32, offset: u32) -> Result<Vec<Playlist>, String> {
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::GetPlaylists { limit, offset, resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_queue_as_playlist(
+    state: State<'_, AppState>,
+    name: String,
+    tracks: Vec<crate::queue::QueueTrack>,
+) -> Result<i64, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(DbRequest::SaveQueueAsPlaylist { name, tracks, resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())?
 }
 
@@ -975,37 +1131,61 @@ fn get_feature_flags() -> Vec<String> {
     feature_flags::FEATURE_FLAGS
         .get_enabled_flags()
         .iter()
-        .map(|f| format!("{:?}", f))
+        .map(|f| f.key().to_string())
         .collect()
 }
 
 #[tauri::command]
+fn get_feature_flags_detail() -> Vec<feature_flags::FlagDetail> {
+    feature_flags::FEATURE_FLAGS.get_all_details()
+}
+
+#[tauri::command]
 fn is_feature_enabled(flag: String) -> bool {
-    match flag.as_str() {
-        "ShuffleMode" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::ShuffleMode),
-        "ReorderQueue" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::ReorderQueue),
-        "VirtualScrolling" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::VirtualScrolling),
-        "PersistentQueue" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PersistentQueue),
-        _ => false,
+    if let Some(f) = feature_flags::FeatureFlag::from_key(&flag) {
+        feature_flags::FEATURE_FLAGS.is_enabled(f)
+    } else {
+        false
     }
 }
 
 #[tauri::command]
-fn set_feature_enabled(flag: String, enabled: bool) {
-    let feature = match flag.as_str() {
-        "ShuffleMode" => feature_flags::FeatureFlag::ShuffleMode,
-        "ReorderQueue" => feature_flags::FeatureFlag::ReorderQueue,
-        "VirtualScrolling" => feature_flags::FeatureFlag::VirtualScrolling,
-        "PersistentQueue" => feature_flags::FeatureFlag::PersistentQueue,
-        _ => return,
-    };
+async fn set_feature_flag(
+    state: State<'_, AppState>,
+    flag: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let feature = feature_flags::FeatureFlag::from_key(&flag)
+        .ok_or_else(|| format!("Unknown feature flag: {}", flag))?;
 
-    if enabled {
-        feature_flags::FEATURE_FLAGS.enable(feature.clone());
-        tracing::info!("Feature enabled: {:?}", feature);
-    } else {
-        feature_flags::FEATURE_FLAGS.disable(feature.clone());
-        tracing::info!("Feature disabled: {:?}", feature);
+    feature_flags::FEATURE_FLAGS.set_flag(feature, enabled);
+
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::SetFeatureFlag {
+        key: feature.key().to_string(),
+        enabled,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn reset_feature_flags(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    feature_flags::FEATURE_FLAGS.reset_defaults();
+
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::ResetFeatureFlags {
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn set_feature_enabled(flag: String, enabled: bool) {
+    if let Some(f) = feature_flags::FeatureFlag::from_key(&flag) {
+        feature_flags::FEATURE_FLAGS.set_flag(f, enabled);
     }
 }
 
@@ -1148,6 +1328,9 @@ pub fn run() {
 
             tracing::info!("Queue initialized with {} tracks", recovered_queue.tracks.len());
 
+            // Initialize Feature Flags from persistent SQLite table
+            feature_flags::FEATURE_FLAGS.init_from_db(&conn);
+
             let db_thread_handle = db::start_db_thread(conn, db_rx);
             
             #[cfg(any(debug_assertions, feature = "sync-workspace-extensions"))]
@@ -1264,9 +1447,16 @@ pub fn run() {
             get_local_tracks,
             get_albums,
             get_recent_albums,
+            toggle_save_album,
+            get_saved_albums,
+            toggle_save_playlist,
+            get_saved_playlists,
+            save_artist_metadata,
+            get_artist_metadata,
             resolve_track,
             get_album_tracks,
             get_playlists,
+            save_queue_as_playlist,
             create_playlist,
             add_to_playlist,
             get_playlist_tracks,
@@ -1304,8 +1494,11 @@ pub fn run() {
             clear_error_log,
             // Feature flag commands (Phase 7)
             get_feature_flags,
+            get_feature_flags_detail,
             is_feature_enabled,
             set_feature_enabled,
+            set_feature_flag,
+            reset_feature_flags,
             toggle_provider,
             delete_provider,
             sync_playback_state,
