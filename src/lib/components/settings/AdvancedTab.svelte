@@ -1,8 +1,9 @@
 <script lang="ts">
     import { invoke } from "@tauri-apps/api/core";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { flagsStore } from "$lib/stores/flags.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
-    import { TerminalWindow, Copy, FolderOpen, Check } from "phosphor-svelte";
+    import { TerminalWindow, Copy, FolderOpen, Check, Flask, ArrowsClockwise } from "phosphor-svelte";
 
     let isCopyLogsSuccess = $state(false);
     let copyLogsSuccessTimer: ReturnType<typeof setTimeout> | null = null;
@@ -42,6 +43,16 @@
 
     async function toggleLogCollection() {
         await settingsStore.setLogCollectionEnabled(!settingsStore.logCollectionEnabled);
+    }
+
+    async function handleFlagToggle(key: string, currentVal: boolean) {
+        await flagsStore.toggle(key, !currentVal);
+        toastStore.success(`Feature flag '${key}' updated.`);
+    }
+
+    async function handleResetFlags() {
+        await flagsStore.resetToDefaults();
+        toastStore.success("All feature flags reset to defaults.");
     }
 </script>
 
@@ -123,6 +134,50 @@
             <span>Open Log Folder</span>
         </button>
     </div>
+
+    <!-- Feature Flags & Experiments Section -->
+    <div class="experiments-header">
+        <div class="title-with-icon">
+            <Flask size={20} weight="duotone" color="#d4a86e" />
+            <h3 class="section-title no-border">Runtime Feature Flags & Experiments</h3>
+        </div>
+        <button class="reset-btn" onclick={handleResetFlags} title="Reset all flags to defaults">
+            <ArrowsClockwise size={14} weight="bold" />
+            <span>Reset Defaults</span>
+        </button>
+    </div>
+
+    <p class="experiments-desc">
+        Configure runtime capabilities and bleeding-edge audio / UI experiments. Flags can also be overridden via environment variables (e.g. <code>ECHO_FF_EXPERIMENTAL_DSP=1</code>).
+    </p>
+
+    <div class="flags-list">
+        {#each flagsStore.details as flag}
+            <div class="flag-card">
+                <div class="flag-info">
+                    <div class="flag-header-line">
+                        <span class="flag-name">{flag.name}</span>
+                        <span class="stage-badge {flag.stage}">{flag.stage}</span>
+                        {#if flag.is_overridden_by_env}
+                            <span class="env-badge" title="Overridden by system environment variable">ENV Override</span>
+                        {/if}
+                    </div>
+                    <p class="flag-desc">{flag.description}</p>
+                    <span class="flag-meta">Key: <code>{flag.key}</code> • Category: {flag.category}</span>
+                </div>
+
+                <label class="switch">
+                    <input
+                        type="checkbox"
+                        checked={flag.enabled}
+                        onchange={() => handleFlagToggle(flag.key, flag.enabled)}
+                        disabled={flag.is_overridden_by_env}
+                    />
+                    <span class="slider round"></span>
+                </label>
+            </div>
+        {/each}
+    </div>
 </section>
 
 <style>
@@ -140,6 +195,142 @@
         padding-bottom: 0.5rem;
         border-bottom: 1px solid var(--echo-border);
         margin-bottom: 0.5rem;
+    }
+    .section-title.no-border {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-bottom: 0;
+    }
+    .experiments-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--echo-border);
+    }
+    .title-with-icon {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+    .experiments-desc {
+        font-size: 0.85rem;
+        color: var(--echo-text-2);
+        line-height: 1.4;
+        margin: -0.5rem 0 0.5rem 0;
+    }
+    .experiments-desc code {
+        font-family: var(--echo-font-mono, monospace);
+        font-size: 0.78rem;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0.15rem 0.35rem;
+        border-radius: 4px;
+        color: #d4a86e;
+    }
+    .reset-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--echo-text-2);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 0.35rem 0.7rem;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .reset-btn:hover {
+        color: var(--echo-text-1);
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+    .flags-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .flag-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.25rem;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        gap: 1.5rem;
+        transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .flag-card:hover {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+    .flag-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        flex: 1;
+        min-width: 0;
+    }
+    .flag-header-line {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+    }
+    .flag-name {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--echo-text-1);
+    }
+    .stage-badge {
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+    }
+    .stage-badge.stable {
+        background: rgba(52, 211, 153, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(52, 211, 153, 0.3);
+    }
+    .stage-badge.beta {
+        background: rgba(56, 189, 248, 0.15);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .stage-badge.experimental {
+        background: rgba(251, 191, 36, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+    .env-badge {
+        font-size: 0.68rem;
+        font-weight: 600;
+        background: rgba(168, 85, 247, 0.15);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+    }
+    .flag-desc {
+        font-size: 0.82rem;
+        color: var(--echo-text-2);
+        line-height: 1.35;
+        margin: 0;
+    }
+    .flag-meta {
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.35);
+        font-family: var(--echo-font-body);
+    }
+    .flag-meta code {
+        font-family: var(--echo-font-mono, monospace);
+        color: rgba(255, 255, 255, 0.5);
     }
     .setting-row {
         display: flex;
@@ -178,9 +369,51 @@
         color: var(--echo-text-1);
     }
     .setting-desc {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         color: var(--echo-text-2);
         line-height: 1.4;
+        margin: 0;
+    }
+    .action-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6rem 1rem;
+        background: transparent;
+        border: 1px solid var(--echo-border-medium);
+        color: var(--echo-text-1);
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+    }
+    .action-btn:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: var(--echo-text-2);
+    }
+    .action-btn.primary {
+        background: var(--echo-primary);
+        border-color: var(--echo-primary);
+        color: #000;
+    }
+    .action-btn.primary:hover:not(:disabled) {
+        background: #e2ba84;
+        border-color: #e2ba84;
+    }
+    .action-btn.copy-action {
+        min-width: 110px;
+        justify-content: center;
+    }
+    .action-btn.copy-success {
+        background: rgba(74, 222, 128, 0.15);
+        border-color: #4ade80;
+        color: #4ade80;
+    }
+    .action-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
     }
     .switch {
         position: relative;
@@ -197,11 +430,13 @@
     .slider {
         position: absolute;
         cursor: pointer;
-        inset: 0;
-        background-color: var(--echo-raised);
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(255, 255, 255, 0.1);
+        transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         border: 1px solid var(--echo-border-medium);
-        transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        border-radius: 24px;
     }
     .slider:before {
         position: absolute;
@@ -211,8 +446,7 @@
         left: 3px;
         bottom: 3px;
         background-color: var(--echo-text-2);
-        transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        border-radius: 50%;
+        transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
     input:checked + .slider {
         background-color: var(--echo-primary);
@@ -220,42 +454,16 @@
     }
     input:checked + .slider:before {
         transform: translateX(20px);
-        background-color: var(--echo-void);
+        background-color: #000;
     }
-    .action-btn {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        padding: 0.45rem 0.85rem;
-        border-radius: 6px;
-        font-family: inherit;
-        font-size: 0.82rem;
-        font-weight: 500;
-        cursor: pointer;
-        background: var(--echo-surface);
-        border: 1px solid var(--echo-border-medium);
-        color: var(--echo-text-2);
-        transition: all 0.2s ease;
+    .slider.round {
+        border-radius: 24px;
     }
-    .action-btn:hover:not(:disabled) {
-        color: var(--echo-text-1);
-        border-color: var(--echo-border-strong);
+    .slider.round:before {
+        border-radius: 50%;
     }
-    .action-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-    .action-btn.primary {
-        background: var(--echo-raised);
-        border: 1px solid var(--echo-border-strong);
-        color: var(--echo-text-1);
-    }
-    .action-btn.primary:hover:not(:disabled) {
-        border-color: var(--echo-primary);
-        color: var(--echo-primary);
-    }
-    .copy-action.copy-success {
-        border-color: #22c55e;
-        color: #22c55e;
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 </style>
