@@ -220,7 +220,7 @@ impl RecommendationCompiler {
         };
 
         let top_artists = queries::get_heavy_rotation_7d(&conn, 4).unwrap_or_default();
-        let a1_raw = top_artists.artists.get(0).map(|a| a.artist.as_str()).unwrap_or("OneRepublic");
+        let a1_raw = top_artists.artists.first().map(|a| a.artist.as_str()).unwrap_or("OneRepublic");
         let a2_raw = top_artists.artists.get(1).map(|a| a.artist.as_str()).unwrap_or(a1_raw);
         let a3_raw = top_artists.artists.get(2).map(|a| a.artist.as_str()).unwrap_or(a2_raw);
 
@@ -450,7 +450,7 @@ impl RecommendationCompiler {
             genre: &'static str,
             description: &'static str,
             accent: &'static str,
-            preview_tracks: &'static [(&'static str, &'static str, &'static str, u64, &'static str)],
+            preview_tracks: &'static [(&'static str, &'static str, &'static str, u64, Option<&'static str>)],
         }
 
         let definitions = [
@@ -459,9 +459,9 @@ impl RecommendationCompiler {
                 description: "Take a detour from standard arrangements into intricate polyrhythmic brass, electric piano solos, and Tokyo city fusion.",
                 accent: "#D4A86E",
                 preview_tracks: &[
-                    ("Midnight Rendezvous", "Casiopea", "Mint Jams", 227000, "https://i.ytimg.com/vi/6ESNk_w8t54/hqdefault.jpg"),
-                    ("Early Summer", "Ryo Fukui", "Scenery", 254000, "https://i.ytimg.com/vi/Hrr3dp7zDYs/hqdefault.jpg"),
-                    ("Truth", "T-Square", "Truth", 298000, "https://i.ytimg.com/vi/e0aaq76bV0k/hqdefault.jpg"),
+                    ("Midnight Rendezvous", "Casiopea", "Mint Jams", 227000, None),
+                    ("Early Summer", "Ryo Fukui", "Scenery", 254000, None),
+                    ("Truth", "T-Square", "Truth", 298000, None),
                 ],
             },
             HorizonDef {
@@ -469,9 +469,9 @@ impl RecommendationCompiler {
                 description: "Step into lush analog sawtooth waves, gated reverb drums, and cinematic neon retro-futurism.",
                 accent: "#FF8C38",
                 preview_tracks: &[
-                    ("Nightcall", "Kavinsky", "OutRun", 259000, "https://i.ytimg.com/vi/MV_3Dpw-BRY/hqdefault.jpg"),
-                    ("Resonance", "HOME", "Odyssey", 212000, "https://i.ytimg.com/vi/8GW6sLrK40k/hqdefault.jpg"),
-                    ("Days of Thunder", "The Midnight", "Days of Thunder", 328000, "https://i.ytimg.com/vi/v5u7XwR6r9w/hqdefault.jpg"),
+                    ("Nightcall", "Kavinsky", "OutRun", 259000, Some("https://i.ytimg.com/vi/MV_3Dpw-BRY/hqdefault.jpg")),
+                    ("Resonance", "HOME", "Odyssey", 212000, Some("https://i.ytimg.com/vi/8GW6sLrK40k/hqdefault.jpg")),
+                    ("Days of Thunder", "The Midnight", "Days of Thunder", 328000, None),
                 ],
             },
             HorizonDef {
@@ -479,9 +479,9 @@ impl RecommendationCompiler {
                 description: "Clear your auditory palette with minimalist acoustic piano motifs and contemplative, breathing string quartets.",
                 accent: "#38BDF8",
                 preview_tracks: &[
-                    ("Divenire", "Ludovico Einaudi", "Divenire", 402000, "https://i.ytimg.com/vi/1_A_B6u8-7E/hqdefault.jpg"),
-                    ("On The Nature of Daylight", "Max Richter", "The Blue Notebooks", 371000, "https://i.ytimg.com/vi/rVN1B-tUYA8/hqdefault.jpg"),
-                    ("Written on the Sky", "Max Richter", "The Blue Notebooks", 99000, "https://i.ytimg.com/vi/qY_Uu_n89eU/hqdefault.jpg"),
+                    ("Divenire", "Ludovico Einaudi", "Divenire", 402000, None),
+                    ("On The Nature of Daylight", "Max Richter", "The Blue Notebooks", 371000, None),
+                    ("Written on the Sky", "Max Richter", "The Blue Notebooks", 99000, None),
                 ],
             },
             HorizonDef {
@@ -489,9 +489,9 @@ impl RecommendationCompiler {
                 description: "Bridge rhythmic grooves into organic percussion, montuno piano riffs, brass polyrhythms, and vintage soul.",
                 accent: "#E76F51",
                 preview_tracks: &[
-                    ("Water No Get Enemy", "Fela Kuti", "Expensive Shit", 590000, "https://i.ytimg.com/vi/IQBC5URoF0s/hqdefault.jpg"),
-                    ("Afrodisia", "Mongo Santamaria", "Afro-Roots", 242000, "https://i.ytimg.com/vi/g-nU8bI0W2w/hqdefault.jpg"),
-                    ("Chameleon", "Herbie Hancock", "Head Hunters", 941000, "https://i.ytimg.com/vi/UbkqE4fpvdI/hqdefault.jpg"),
+                    ("Water No Get Enemy", "Fela Kuti", "Expensive Shit", 590000, Some("https://i.ytimg.com/vi/IQBC5URoF0s/hqdefault.jpg")),
+                    ("Afrodisia", "Mongo Santamaria", "Afro-Roots", 242000, None),
+                    ("Chameleon", "Herbie Hancock", "Head Hunters", 941000, Some("https://i.ytimg.com/vi/UbkqE4fpvdI/hqdefault.jpg")),
                 ],
             },
             HorizonDef {
@@ -499,9 +499,9 @@ impl RecommendationCompiler {
                 description: "Immerse in glacial harmonic textures, subdued acoustic strums, and expansive Scandinavian soundscapes.",
                 accent: "#A78BFA",
                 preview_tracks: &[
-                    ("A Walk", "Tycho", "Dive", 317000, "https://i.ytimg.com/vi/mehLx_Fjv_c/hqdefault.jpg"),
-                    ("Cirrus", "Bonobo", "The North Borders", 352000, "https://i.ytimg.com/vi/WF34N4U3GM8/hqdefault.jpg"),
-                    ("Svefn-g-englar", "Sigur Rós", "Ágætis byrjun", 604000, "https://i.ytimg.com/vi/84i7zQ_ACnU/hqdefault.jpg"),
+                    ("A Walk", "Tycho", "Dive", 317000, Some("https://i.ytimg.com/vi/mehLx_Fjv_c/hqdefault.jpg")),
+                    ("Cirrus", "Bonobo", "The North Borders", 352000, None),
+                    ("Svefn-g-englar", "Sigur Rós", "Ágætis byrjun", 604000, None),
                 ],
             },
         ];
@@ -534,7 +534,7 @@ impl RecommendationCompiler {
                     artist: a.to_string(),
                     album: Some(alb.to_string()),
                     isrc: None,
-                    cover_art_url: Some(art.to_string()),
+                    cover_art_url: art.map(|s| s.to_string()),
                     duration_ms: Some(*dur),
                     play_count: 0,
                     seed_provenance: Some(def.genre.to_string()),
@@ -544,7 +544,7 @@ impl RecommendationCompiler {
                             remote_track_id: key,
                             stream_url: None,
                             quality_hint: None,
-                            cover_art_url: Some(art.to_string()),
+                            cover_art_url: art.map(|s| s.to_string()),
                             duration_ms: Some(*dur),
                         }
                     ],
@@ -635,7 +635,7 @@ impl RecommendationCompiler {
         }
 
         // 3. Fallback: fill remaining slots up to 10 from all candidate pools
-        for s in recent_candidates.into_iter().chain(favorite_candidates.into_iter()) {
+        for s in recent_candidates.into_iter().chain(favorite_candidates) {
             if diverse_seeds.len() >= 10 {
                 break;
             }
@@ -1064,7 +1064,7 @@ mod tests {
         };
 
         // Cache valid with 3600s TTL
-        compiler.save_cache("seed::1", "test-provider", "daily_discover", &[track.clone()], 3600);
+        compiler.save_cache("seed::1", "test-provider", "daily_discover", std::slice::from_ref(&track), 3600);
         let cached = compiler.get_valid_cache("seed::1", "test-provider", "daily_discover");
         assert!(cached.is_some());
         assert_eq!(cached.unwrap().len(), 1);

@@ -2,6 +2,7 @@
     import { audioStore } from "$lib/stores/audio.svelte";
     import { libraryStore } from "$lib/stores/library.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { flagsStore } from "$lib/stores/flags.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
 
     import Sidebar from "$lib/components/Sidebar.svelte";
@@ -52,8 +53,11 @@
         (async () => {
             await audioStore.init();
             await libraryStore.fetchAlbums();
+            await libraryStore.fetchSavedAlbums();
             await libraryStore.fetchPlaylists();
+            await libraryStore.fetchSavedPlaylists();
             await settingsStore.init();
+            await flagsStore.init();
             exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
         })();
 
@@ -79,6 +83,20 @@
             document.removeEventListener('echo:navigate-artist', handleNavigateArtist);
             document.removeEventListener('echo:escape', handleEscape);
         };
+    });
+
+    // When a collection is opened, close the queue so the drawer shows collection details
+    $effect(() => {
+        if (exploreStore.activeDrawerCollection !== null) {
+            queueOpen = false;
+        }
+    });
+
+    // When queue is opened, clear any active drawer collection
+    $effect(() => {
+        if (queueOpen) {
+            exploreStore.closeDrawerCollection();
+        }
     });
 
     // Reactive: update the CSS variable whenever drawer state changes.

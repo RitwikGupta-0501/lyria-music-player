@@ -1,5 +1,6 @@
 <script lang="ts">
     import { exploreStore, type ArtistDetailResult } from "$lib/stores/explore.svelte";
+    import PlaylistCard from "$lib/components/PlaylistCard.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import {
@@ -371,36 +372,10 @@
                 </div>
                 <div class="artist-albums-grid">
                     {#each (showAllFeatured ? artist.featured_on : artist.featured_on.slice(0, 6)) as playlist}
-                        <div 
-                            class="album-card"
-                            role="button"
-                            tabindex="0"
+                        <PlaylistCard 
+                            playlist={playlist}
                             onclick={() => exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined })}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined }); }}
-                        >
-                            <div class="album-art-wrapper">
-                                {#if playlist.cover_art_url}
-                                    <img src={playlist.cover_art_url} alt={playlist.title} class="album-art" loading="lazy" />
-                                {:else}
-                                    <div class="typographic-art-squircle large">
-                                        <Playlist size={28} />
-                                    </div>
-                                {/if}
-                                <button 
-                                    class="album-play-btn" 
-                                    onclick={(e) => { 
-                                        e.stopPropagation(); 
-                                        exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined }); 
-                                    }}
-                                >
-                                    <Play size={16} weight="fill" />
-                                </button>
-                            </div>
-                            <div class="album-info">
-                                <span class="album-title" title={playlist.title}>{playlist.title}</span>
-                                <span class="album-year">{playlist.author || "Curated Playlist"}</span>
-                            </div>
-                        </div>
+                        />
                     {/each}
                 </div>
             </section>

@@ -192,6 +192,12 @@ pub struct EditorialSpotlight {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CategoryShelf {
+    pub title: String,
+    pub items: Vec<PlaylistItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "data")]
 pub enum ModuleItem {
     Track(TrackResult),
@@ -200,6 +206,7 @@ pub enum ModuleItem {
     Genre(GenreItem),
     Artist(ArtistItem),
     Spotlight(EditorialSpotlight),
+    Shelf(CategoryShelf),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -701,6 +708,9 @@ impl ProviderManager {
                 }
                 ModuleItem::Playlist(p) => {
                     !p.id.trim().is_empty() && !p.title.trim().is_empty() && seen.insert(p.id.clone())
+                }
+                ModuleItem::Shelf(s) => {
+                    !s.title.trim().is_empty() && !s.items.is_empty()
                 }
             }
         });
