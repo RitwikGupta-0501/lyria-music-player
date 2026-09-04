@@ -58,7 +58,9 @@
             await libraryStore.fetchSavedPlaylists();
             await settingsStore.init();
             await flagsStore.init();
-            exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
+            if (flagsStore.isEnabled("page_explore")) {
+                exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
+            }
         })();
 
         const handleSearch = () => { globalSearchOpen = true; };
@@ -89,6 +91,15 @@
     $effect(() => {
         if (exploreStore.activeDrawerCollection !== null) {
             queueOpen = false;
+        }
+    });
+
+    // Fallback activeView if current page is disabled by feature flags
+    $effect(() => {
+        if (activeView === "home" && flagsStore.loaded && !flagsStore.isEnabled("page_home")) {
+            activeView = flagsStore.isEnabled("page_explore") ? "explore" : "albums";
+        } else if (activeView === "explore" && flagsStore.loaded && !flagsStore.isEnabled("page_explore")) {
+            activeView = flagsStore.isEnabled("page_home") ? "home" : "albums";
         }
     });
 

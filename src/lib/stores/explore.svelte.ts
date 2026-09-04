@@ -98,6 +98,7 @@ import { audioStore } from "./audio.svelte";
 import { libraryStore } from "./library.svelte";
 import { toastStore } from "./toast.svelte";
 import { settingsStore } from "./settings.svelte";
+import { flagsStore } from "./flags.svelte";
 import type { AdjacentHorizonPayload, RadioMixCard } from "./home.svelte";
 
 export interface TrackResult {
@@ -1359,6 +1360,7 @@ export class ExploreStore {
     }
 
     async loadExplore(force = false) {
+        if (!flagsStore.isEnabled("page_explore")) return;
         if (this.isLoading) return;
         if (!this.isLoaded) {
             this.isLoading = true;

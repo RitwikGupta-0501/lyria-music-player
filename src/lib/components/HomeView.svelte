@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { homeStore } from "$lib/stores/home.svelte";
+    import { flagsStore } from "$lib/stores/flags.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { ArrowClockwise, Sparkle, Compass, FolderOpen, Play } from "phosphor-svelte";
 
@@ -132,37 +133,37 @@
         <!-- Active Cockpit: 7 Ego Shelves -->
 
         <!-- 1. ⚡ Quick Picks Grid -->
-        {#if homeStore.quickPicks.length > 0}
+        {#if flagsStore.isEnabled("home_quick_picks") && homeStore.quickPicks.length > 0}
             <QuickPicksGrid />
         {/if}
 
         <!-- 2. 🔄 Jump Back In -->
-        {#if homeStore.jumpBackIn.length > 0}
+        {#if flagsStore.isEnabled("home_jump_back_in") && homeStore.jumpBackIn.length > 0}
             <JumpBackInShelf />
         {/if}
 
         <!-- 3. ✨ Daily Discover -->
-        {#if homeStore.isLoadingRemote || homeStore.dailyDiscover.length > 0}
+        {#if flagsStore.isEnabled("home_daily_discover") && (homeStore.isLoadingRemote || homeStore.dailyDiscover.length > 0)}
             <DailyDiscoverCarousel />
         {/if}
 
         <!-- 4. 📻 Algorithmic Radios -->
-        {#if homeStore.radioMixes.length > 0}
+        {#if flagsStore.isEnabled("home_radio_mix") && homeStore.radioMixes.length > 0}
             <RadioMixCarousel />
         {/if}
 
         <!-- 5. 🎲 Adjacent Horizons -->
-        {#if homeStore.adjacentHorizon}
+        {#if flagsStore.isEnabled("home_adjacent_horizons") && homeStore.adjacentHorizon}
             <AdjacentHorizonsCard />
         {/if}
 
         <!-- 6. ☕ Heavy Rotation (7-Day Top Artists & Albums) -->
-        {#if homeStore.heavyRotation.artists.length > 0 || homeStore.heavyRotation.albums.length > 0}
+        {#if flagsStore.isEnabled("home_heavy_rotation") && (homeStore.heavyRotation.artists.length > 0 || homeStore.heavyRotation.albums.length > 0)}
             <HeavyRotationShelf />
         {/if}
 
         <!-- 7. 📦 Forgotten Favorites -->
-        {#if homeStore.forgottenFavorites.length > 0}
+        {#if flagsStore.isEnabled("home_forgotten_favorites") && homeStore.forgottenFavorites.length > 0}
             <ForgottenFavoritesShelf />
         {/if}
     {/if}

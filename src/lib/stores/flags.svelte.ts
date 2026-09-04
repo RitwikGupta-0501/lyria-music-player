@@ -1,14 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type FeatureFlagKey = 
-    | "shuffle_mode"
-    | "reorder_queue"
-    | "virtual_scrolling"
-    | "persistent_queue"
-    | "glassy_player_bar"
-    | "experimental_dsp"
+    // Pages
+    | "page_home"
+    | "page_explore"
+    // Home Sections
+    | "home_quick_picks"
+    | "home_daily_discover"
+    | "home_heavy_rotation"
+    | "home_adjacent_horizons"
+    | "home_radio_mix"
+    | "home_jump_back_in"
+    | "home_forgotten_favorites"
+    // Explore Sections
     | "explore_spotlight_carousel"
-    | "offline_artwork_caching";
+    | "explore_category_grid"
+    | "explore_new_releases"
+    | "explore_top_charts"
+    | "explore_thematic_collections";
 
 export type FlagStage = "stable" | "beta" | "experimental";
 
@@ -25,14 +34,20 @@ export interface FlagDetail {
 export class FeatureFlagsStore {
     loaded = $state(false);
     flags = $state<Record<string, boolean>>({
-        shuffle_mode: true,
-        reorder_queue: true,
-        virtual_scrolling: true,
-        persistent_queue: true,
-        glassy_player_bar: true,
-        experimental_dsp: false,
+        page_home: true,
+        page_explore: true,
+        home_quick_picks: true,
+        home_daily_discover: true,
+        home_heavy_rotation: true,
+        home_adjacent_horizons: true,
+        home_radio_mix: true,
+        home_jump_back_in: true,
+        home_forgotten_favorites: true,
         explore_spotlight_carousel: true,
-        offline_artwork_caching: true,
+        explore_category_grid: true,
+        explore_new_releases: true,
+        explore_top_charts: true,
+        explore_thematic_collections: true,
     });
     details = $state<FlagDetail[]>([]);
 
@@ -55,7 +70,7 @@ export class FeatureFlagsStore {
     }
 
     isEnabled(key: FeatureFlagKey | string): boolean {
-        return this.flags[key] ?? false;
+        return this.flags[key] ?? true;
     }
 
     async toggle(key: FeatureFlagKey | string, enabled: boolean) {

@@ -3,6 +3,7 @@ import { audioStore } from "./audio.svelte";
 import { toastStore } from "./toast.svelte";
 import { libraryStore } from "./library.svelte";
 import { settingsStore } from "./settings.svelte";
+import { flagsStore } from "./flags.svelte";
 
 export interface TrackSourceInfo {
     type: "Local" | "Remote";
@@ -181,6 +182,7 @@ class HomeStore {
     );
 
     async init() {
+        if (!flagsStore.isEnabled("page_home")) return;
         if (!this.phase1Loaded || (!this.phase2Loaded && !this.isLoadingRemote)) {
             await this.loadHome();
         }
@@ -193,6 +195,7 @@ class HomeStore {
     }
 
     async loadHome(force = false) {
+        if (!flagsStore.isEnabled("page_home")) return;
         const fetchId = ++this.currentFetchId;
         const moodParam = this.currentMood === "All" ? null : this.currentMood;
 

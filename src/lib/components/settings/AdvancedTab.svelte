@@ -54,6 +54,41 @@
         await flagsStore.resetToDefaults();
         toastStore.success("All feature flags reset to defaults.");
     }
+
+    let flagGroups = $derived.by(() => {
+        const homePage = flagsStore.details.find(f => f.key === "page_home");
+        const homeSections = flagsStore.details.filter(f => f.key.startsWith("home_"));
+
+        const explorePage = flagsStore.details.find(f => f.key === "page_explore");
+        const exploreSections = flagsStore.details.filter(f => f.key.startsWith("explore_"));
+
+        const otherFlags = flagsStore.details.filter(
+            f => f.key !== "page_home" && 
+                 f.key !== "page_explore" && 
+                 !f.key.startsWith("home_") && 
+                 !f.key.startsWith("explore_")
+        );
+
+        return {
+            groups: [
+                {
+                    id: "home",
+                    title: "Home Page",
+                    description: "Main algorithmic cockpit, dynamic discovery carousels, and listening history shelves.",
+                    pageFlag: homePage,
+                    sections: homeSections,
+                },
+                {
+                    id: "explore",
+                    title: "Explore Page",
+                    description: "Global music catalog, editorial spotlights, top charts, and genre category hub.",
+                    pageFlag: explorePage,
+                    sections: exploreSections,
+                },
+            ],
+            others: otherFlags,
+        };
+    });
 </script>
 
 <section class="settings-section">
@@ -151,32 +186,113 @@
         Configure runtime capabilities and bleeding-edge audio / UI experiments. Flags can also be overridden via environment variables (e.g. <code>ECHO_FF_EXPERIMENTAL_DSP=1</code>).
     </p>
 
-    <div class="flags-list">
-        {#each flagsStore.details as flag}
-            <div class="flag-card">
-                <div class="flag-info">
-                    <div class="flag-header-line">
-                        <span class="flag-name">{flag.name}</span>
-                        <span class="stage-badge {flag.stage}">{flag.stage}</span>
-                        {#if flag.is_overridden_by_env}
-                            <span class="env-badge" title="Overridden by system environment variable">ENV Override</span>
-                        {/if}
-                    </div>
-                    <p class="flag-desc">{flag.description}</p>
-                    <span class="flag-meta">Key: <code>{flag.key}</code> • Category: {flag.category}</span>
-                </div>
+    <div class="flag-groups-container">
+        {#each flagGroups.groups as group}
+            <div class="page-flag-group" class:is-disabled={group.pageFlag && !group.pageFlag.enabled}>
+                <!-- Master Page Toggle Header -->
+                {#if group.pageFlag}
+                    <div class="master-flag-card">
+                        <div class="flag-info">
+                            <div class="flag-header-line">
+                                <span class="master-page-name">{group.title}</span>
+                                <span class="group-badge">Page Master</span>
+                                <span class="stage-badge {group.pageFlag.stage}">{group.pageFlag.stage}</span>
+                                {#if group.pageFlag.is_overridden_by_env}
+                                    <span class="env-badge" title="Overridden by system environment variable">ENV Override</span>
+                                {/if}
+                            </div>
+                            <p class="master-flag-desc">{group.pageFlag.description || group.description}</p>
+                            <span class="flag-meta">Key: <code>{group.pageFlag.key}</code></span>
+                        </div>
 
-                <label class="switch">
-                    <input
-                        type="checkbox"
-                        checked={flag.enabled}
-                        onchange={() => handleFlagToggle(flag.key, flag.enabled)}
-                        disabled={flag.is_overridden_by_env}
-                    />
-                    <span class="slider round"></span>
-                </label>
+                        <label class="switch master-switch">
+                            <input
+                                type="checkbox"
+                                checked={group.pageFlag.enabled}
+                                onchange={() => handleFlagToggle(group.pageFlag!.key, group.pageFlag!.enabled)}
+                                disabled={group.pageFlag.is_overridden_by_env}
+                            />
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                {/if}
+
+                <!-- Sub-sections List -->
+                {#if group.sections.length > 0}
+                    <div class="sub-sections-container">
+                        <div class="sub-sections-header">
+                            <span class="sub-sections-title">Individual Sections ({group.sections.length})</span>
+                            {#if group.pageFlag && !group.pageFlag.enabled}
+                                <span class="sub-disabled-notice">Inactive while {group.title} is turned off</span>
+                            {/if}
+                        </div>
+
+                        <div class="sub-sections-list">
+                            {#each group.sections as section}
+                                <div class="sub-flag-card">
+                                    <div class="flag-info">
+                                        <div class="flag-header-line">
+                                            <span class="sub-flag-name">{section.name}</span>
+                                            {#if section.is_overridden_by_env}
+                                                <span class="env-badge" title="Overridden by system environment variable">ENV Override</span>
+                                            {/if}
+                                        </div>
+                                        <p class="sub-flag-desc">{section.description}</p>
+                                        <span class="flag-meta">Key: <code>{section.key}</code></span>
+                                    </div>
+
+                                    <label class="switch sub-switch">
+                                        <input
+                                            type="checkbox"
+                                            checked={section.enabled}
+                                            onchange={() => handleFlagToggle(section.key, section.enabled)}
+                                            disabled={section.is_overridden_by_env || (group.pageFlag && !group.pageFlag.enabled)}
+                                        />
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
             </div>
         {/each}
+
+        <!-- Other System & Engine Flags if any -->
+        {#if flagGroups.others.length > 0}
+            <div class="page-flag-group other-flags-group">
+                <div class="sub-sections-header">
+                    <span class="sub-sections-title">Other Capabilities & Experiments</span>
+                </div>
+                <div class="sub-sections-list no-indent">
+                    {#each flagGroups.others as flag}
+                        <div class="flag-card">
+                            <div class="flag-info">
+                                <div class="flag-header-line">
+                                    <span class="flag-name">{flag.name}</span>
+                                    <span class="stage-badge {flag.stage}">{flag.stage}</span>
+                                    {#if flag.is_overridden_by_env}
+                                        <span class="env-badge">ENV Override</span>
+                                    {/if}
+                                </div>
+                                <p class="flag-desc">{flag.description}</p>
+                                <span class="flag-meta">Key: <code>{flag.key}</code> • Category: {flag.category}</span>
+                            </div>
+
+                            <label class="switch">
+                                <input
+                                    type="checkbox"
+                                    checked={flag.enabled}
+                                    onchange={() => handleFlagToggle(flag.key, flag.enabled)}
+                                    disabled={flag.is_overridden_by_env}
+                                />
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    {/each}
+                </div>
+            </div>
+        {/if}
     </div>
 </section>
 
@@ -247,6 +363,148 @@
         background: rgba(255, 255, 255, 0.1);
         border-color: rgba(255, 255, 255, 0.2);
     }
+    
+    .flag-groups-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .page-flag-group {
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 12px;
+        overflow: hidden;
+        transition: all 0.25s ease;
+    }
+
+    .page-flag-group:hover {
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .page-flag-group.is-disabled {
+        border-color: rgba(255, 255, 255, 0.04);
+        background: rgba(255, 255, 255, 0.01);
+    }
+
+    .master-flag-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.25rem 1.5rem;
+        background: rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        gap: 1.5rem;
+    }
+
+    .master-page-name {
+        font-family: var(--echo-font-heading);
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: var(--echo-text-1);
+    }
+
+    .group-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        background: rgba(212, 168, 110, 0.15);
+        color: #d4a86e;
+        border: 1px solid rgba(212, 168, 110, 0.3);
+    }
+
+    .master-flag-desc {
+        font-size: 0.85rem;
+        color: var(--echo-text-2);
+        margin: 0.15rem 0 0.25rem 0;
+        line-height: 1.4;
+    }
+
+    .sub-sections-container {
+        display: flex;
+        flex-direction: column;
+        padding: 1.25rem 1.5rem;
+        gap: 0.85rem;
+        transition: opacity 0.25s ease;
+    }
+
+    .is-disabled .sub-sections-container {
+        opacity: 0.4;
+    }
+
+    .sub-sections-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.25rem;
+    }
+
+    .sub-sections-title {
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--echo-text-3);
+    }
+
+    .sub-disabled-notice {
+        font-size: 0.75rem;
+        font-style: italic;
+        color: #f87171;
+    }
+
+    .sub-sections-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        padding-left: 1rem;
+        border-left: 2px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .sub-sections-list.no-indent {
+        padding-left: 0;
+        border-left: none;
+    }
+
+    .sub-flag-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 8px;
+        gap: 1.25rem;
+        transition: all 0.2s ease;
+    }
+
+    .sub-flag-card:hover {
+        background: rgba(255, 255, 255, 0.035);
+        border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .sub-flag-name {
+        font-size: 0.88rem;
+        font-weight: 500;
+        color: var(--echo-text-1);
+    }
+
+    .sub-flag-desc {
+        font-size: 0.78rem;
+        color: var(--echo-text-2);
+        margin: 0.1rem 0;
+        line-height: 1.35;
+    }
+
+    .other-flags-group {
+        padding: 1.25rem 1.5rem;
+    }
+
     .flags-list {
         display: flex;
         flex-direction: column;

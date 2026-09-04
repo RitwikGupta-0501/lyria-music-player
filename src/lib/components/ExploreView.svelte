@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
+    import { flagsStore } from "$lib/stores/flags.svelte";
     import { MagnifyingGlass, ArrowClockwise, X } from "phosphor-svelte";
 
     import SpotlightCarousel from "./explore/SpotlightCarousel.svelte";
@@ -79,34 +80,42 @@
     <!-- 3. General Curated Explore Canvas -->
     {:else}
         <!-- 4.1. Featured Editorial Spotlight -->
-        <SpotlightCarousel />
+        {#if flagsStore.isEnabled("explore_spotlight_carousel")}
+            <SpotlightCarousel />
+        {/if}
 
         <!-- 4.3 & 4.4. Discovery Split: Top Charts (58%) & New Release Radar (42%) -->
-        <section class="discovery-split-section">
-            {#if exploreStore.isLoadingChartTab || exploreStore.isLoading || exploreStore.currentChartTracks.length > 0}
-                <div 
-                    class="split-column left-ledger-column"
-                    style={(exploreStore.isLoading || exploreStore.filteredNewReleases.length > 0) && radarHeight > 0 ? `max-height: ${radarHeight}px; height: ${radarHeight}px;` : ""}
-                >
-                    <TopChartsLedger />
-                </div>
-            {/if}
+        {#if flagsStore.isEnabled("explore_top_charts") || flagsStore.isEnabled("explore_new_releases")}
+            <section class="discovery-split-section">
+                {#if flagsStore.isEnabled("explore_top_charts") && (exploreStore.isLoadingChartTab || exploreStore.isLoading || exploreStore.currentChartTracks.length > 0)}
+                    <div 
+                        class="split-column left-ledger-column"
+                        style={(exploreStore.isLoading || exploreStore.filteredNewReleases.length > 0) && radarHeight > 0 ? `max-height: ${radarHeight}px; height: ${radarHeight}px;` : ""}
+                    >
+                        <TopChartsLedger />
+                    </div>
+                {/if}
 
-            {#if exploreStore.isLoading || exploreStore.filteredNewReleases.length > 0}
-                <div 
-                    class="split-column right-albums-column"
-                    bind:clientHeight={radarHeight}
-                >
-                    <NewReleaseRadar />
-                </div>
-            {/if}
-        </section>
+                {#if flagsStore.isEnabled("explore_new_releases") && (exploreStore.isLoading || exploreStore.filteredNewReleases.length > 0)}
+                    <div 
+                        class="split-column right-albums-column"
+                        bind:clientHeight={radarHeight}
+                    >
+                        <NewReleaseRadar />
+                    </div>
+                {/if}
+            </section>
+        {/if}
 
         <!-- 4.2. Mood & Genre Matrix -->
-        <CategoryGrid />
+        {#if flagsStore.isEnabled("explore_category_grid")}
+            <CategoryGrid />
+        {/if}
 
         <!-- 4.6. Curated Thematic Collections Carousel -->
-        <ThematicCollectionsShelf />
+        {#if flagsStore.isEnabled("explore_thematic_collections")}
+            <ThematicCollectionsShelf />
+        {/if}
     {/if}
 </div>
 

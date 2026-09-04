@@ -400,6 +400,16 @@ async fn get_home_local_shelves(
     state: State<'_, AppState>,
     mood: Option<String>,
 ) -> Result<providers::recommendations::HomeLocalShelves, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome) {
+        return Ok(providers::recommendations::HomeLocalShelves {
+            quick_picks: Vec::new(),
+            keep_listening: Vec::new(),
+            jump_back_in: Vec::new(),
+            heavy_rotation: crate::db::queries::HeavyRotationShelf { artists: Vec::new(), albums: Vec::new() },
+            forgotten_favorites: Vec::new(),
+            cold_start_seeds: Vec::new(),
+        });
+    }
     let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
     state.recommendation_compiler.get_local_shelves(mood_filter)
 }
@@ -409,6 +419,11 @@ async fn get_home_remote_shelves(
     state: State<'_, AppState>,
     mood: Option<String>,
 ) -> Result<providers::recommendations::FederatedShelfResult, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome)
+        || !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::HomeDailyDiscover)
+    {
+        return Ok(providers::recommendations::FederatedShelfResult::empty());
+    }
     let new_token = tokio_util::sync::CancellationToken::new();
     {
         let mut lock = state.in_flight_recommendation_cancel.lock().unwrap();
@@ -429,6 +444,11 @@ async fn get_home_radios(
     state: State<'_, AppState>,
     mood: Option<String>,
 ) -> Result<Vec<providers::recommendations::RadioMixCard>, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome)
+        || !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::HomeRadioMix)
+    {
+        return Ok(Vec::new());
+    }
     let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
     state.recommendation_compiler.compile_algorithmic_radios(mood_filter)
 }
@@ -437,6 +457,11 @@ async fn get_home_radios(
 async fn get_home_adjacent_horizons(
     state: State<'_, AppState>,
 ) -> Result<Vec<providers::recommendations::AdjacentHorizonPayload>, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome)
+        || !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::HomeAdjacentHorizons)
+    {
+        return Ok(Vec::new());
+    }
     state.recommendation_compiler.compute_adjacent_horizons()
 }
 
@@ -582,6 +607,9 @@ async fn get_extension_metrics(
 
 #[tauri::command]
 async fn get_explore_feed(state: State<'_, AppState>) -> Result<Vec<crate::providers::AggregatedModule>, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageExplore) {
+        return Ok(Vec::new());
+    }
     Ok(state.provider_manager.get_all_explore_modules().await)
 }
 
@@ -602,6 +630,9 @@ async fn fetch_provider_module(
     module_id: String,
     force_refresh: Option<bool>,
 ) -> Result<providers::ModuleData, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageExplore) {
+        return Ok(providers::ModuleData { items: Vec::new() });
+    }
     let is_force = force_refresh.unwrap_or(false);
 
     if !is_force {

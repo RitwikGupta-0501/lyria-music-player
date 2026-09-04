@@ -1,5 +1,6 @@
 <script lang="ts">
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { flagsStore } from "$lib/stores/flags.svelte";
     import { List, House, Disc, PuzzlePiece, Gear, Compass } from "phosphor-svelte";
     
     let { activeView = $bindable("albums") } = $props<{ activeView?: string }>();
@@ -12,23 +13,28 @@
         sidebarOpen = !sidebarOpen;
     }
 
-    const primaryNav = [
-        { id: "home", label: "Home", icon: House },
-        { id: "explore", label: "Explore", icon: Compass },
-        { id: "library", label: "Library", icon: Disc },
-        { id: "providers", label: "Extensions", icon: PuzzlePiece },
-    ];
+    let primaryNav = $derived.by(() => {
+        const items = [];
+        if (flagsStore.isEnabled("page_home")) {
+            items.push({ id: "home", label: "Home", icon: House });
+        }
+        if (flagsStore.isEnabled("page_explore")) {
+            items.push({ id: "explore", label: "Explore", icon: Compass });
+        }
+        items.push({ id: "library", label: "Library", icon: Disc });
+        items.push({ id: "providers", label: "Extensions", icon: PuzzlePiece });
+        return items;
+    });
 
     let navButtonRefs: HTMLElement[] = $state([]);
     let pillTop = $state(0);
     let prevIndex = $state(2);
 
     let activeIndex = $derived.by(() => {
-        if (activeView === "home") return 0;
-        if (activeView === "explore") return 1;
-        if (activeView === "albums" || activeView === "playlists") return 2;
-        if (activeView === "providers") return 3;
-        return -1;
+        return primaryNav.findIndex(item => {
+            if (item.id === "library") return activeView === "albums" || activeView === "playlists";
+            return activeView === item.id;
+        });
     });
 
     function triggerMove() {

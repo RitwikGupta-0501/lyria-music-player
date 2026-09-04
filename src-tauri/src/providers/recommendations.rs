@@ -152,11 +152,32 @@ impl RecommendationCompiler {
     pub fn get_local_shelves(&self, mood: Option<&str>) -> Result<HomeLocalShelves, String> {
         let conn = self.open_read_conn()?;
 
-        let quick_picks_raw = queries::get_canonical_quick_picks(&conn, mood, 20).unwrap_or_default();
+        let quick_picks_raw = if crate::feature_flags::FEATURE_FLAGS.is_enabled(crate::feature_flags::FeatureFlag::HomeQuickPicks) {
+            queries::get_canonical_quick_picks(&conn, mood, 20).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         let keep_listening_raw = queries::get_canonical_keep_listening(&conn, mood, 20).unwrap_or_default();
-        let jump_back_in = queries::get_incomplete_playback_sessions(&conn, 8).unwrap_or_default();
-        let heavy_rotation = queries::get_heavy_rotation_7d(&conn, 6).unwrap_or_default();
-        let forgotten_favorites_raw = queries::get_canonical_forgotten_favorites(&conn, mood, 20).unwrap_or_default();
+
+        let jump_back_in = if crate::feature_flags::FEATURE_FLAGS.is_enabled(crate::feature_flags::FeatureFlag::HomeJumpBackIn) {
+            queries::get_incomplete_playback_sessions(&conn, 8).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let heavy_rotation = if crate::feature_flags::FEATURE_FLAGS.is_enabled(crate::feature_flags::FeatureFlag::HomeHeavyRotation) {
+            queries::get_heavy_rotation_7d(&conn, 6).unwrap_or_default()
+        } else {
+            crate::db::queries::HeavyRotationShelf { artists: Vec::new(), albums: Vec::new() }
+        };
+
+        let forgotten_favorites_raw = if crate::feature_flags::FEATURE_FLAGS.is_enabled(crate::feature_flags::FeatureFlag::HomeForgottenFavorites) {
+            queries::get_canonical_forgotten_favorites(&conn, mood, 20).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         let cold_start_seeds = queries::get_cold_start_local_artists(&conn, 6).unwrap_or_default();
 
         Ok(HomeLocalShelves {
