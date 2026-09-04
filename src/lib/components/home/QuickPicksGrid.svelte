@@ -128,6 +128,9 @@
         position: relative;
         overflow: hidden;
         min-height: 60px;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: transform;
         transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
 

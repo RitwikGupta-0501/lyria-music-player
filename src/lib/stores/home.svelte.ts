@@ -281,6 +281,26 @@ class HomeStore {
         updateList(this.dailyDiscover);
     }
 
+    updateArtistMetadata(lookupKey: string, canonicalName: string, avatarUrl: string | null) {
+        if (!lookupKey) return;
+        const lower = lookupKey.trim().toLowerCase();
+        let changed = false;
+        for (const item of this.heavyRotation.artists) {
+            if (item.artist.toLowerCase() === lower || lower.includes(item.artist.toLowerCase()) || item.artist.toLowerCase().includes(lower)) {
+                if (canonicalName && canonicalName.trim().length > 0) {
+                    item.artist = canonicalName.trim();
+                }
+                if (avatarUrl) {
+                    item.avatar_url = avatarUrl;
+                }
+                changed = true;
+            }
+        }
+        if (changed) {
+            this.heavyRotation = { ...this.heavyRotation };
+        }
+    }
+
     async toggleLike(track: FederatedTrack) {
         try {
             const newLiked = await invoke<boolean>("toggle_track_like", {

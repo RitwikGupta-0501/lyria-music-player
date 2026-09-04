@@ -8,6 +8,7 @@
         type PlaylistItem, 
         type TopResultItem 
     } from "$lib/stores/explore.svelte";
+    import PlaylistCard from "$lib/components/PlaylistCard.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { formatDuration, getInitial, isCurrentTrack } from "$lib/utils/format";
@@ -464,21 +465,16 @@
                             <div class="albums-search-grid">
                                 {#each section.items as item}
                                     {#if item.type === "Playlist"}
-                                        <div class="echo-album-card">
-                                            <div class="echo-album-art-container">
-                                                {#if item.data.cover_art_url}
-                                                    <img src={item.data.cover_art_url} alt={item.data.title} class="echo-album-img" />
-                                                {:else}
-                                                    <div class="typographic-art-squircle large">
-                                                        <Playlist size={32} />
-                                                    </div>
-                                                {/if}
-                                            </div>
-                                            <div class="echo-album-meta">
-                                                <span class="echo-album-title" title={item.data.title}>{item.data.title}</span>
-                                                <span class="echo-album-artist" title={item.data.author || "Curated Playlist"}>{item.data.author || "Curated Playlist"}</span>
-                                            </div>
-                                        </div>
+                                        <PlaylistCard 
+                                            playlist={item.data} 
+                                            onclick={() => exploreStore.openPlaylist({
+                                                id: item.data.id,
+                                                title: item.data.title,
+                                                author: item.data.author || undefined,
+                                                cover_art_url: item.data.cover_art_url,
+                                                provider_id: item.data.provider_id,
+                                            })}
+                                        />
                                     {/if}
                                 {/each}
                             </div>

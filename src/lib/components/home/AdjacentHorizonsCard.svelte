@@ -3,7 +3,8 @@
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { resolveCoverArt } from "$lib/utils/media";
-    import { Compass, Play, Pause, CaretLeft, CaretRight } from "phosphor-svelte";
+    import { Compass, Play, Pause } from "phosphor-svelte";
+    import CarouselControls from "$lib/components/common/CarouselControls.svelte";
 
     let payload = $derived(homeStore.adjacentHorizon);
     let totalHorizons = $derived(homeStore.adjacentHorizons.length);
@@ -30,7 +31,7 @@
         <!-- Section Header & Deck Stepper Controls -->
         <div class="section-title-row">
             <div class="title-group">
-                <Compass size={20} weight="fill" class="horizon-header-icon" />
+                <Compass size={20} weight="bold" color="#B58E62" />
                 <h2>Adjacent Horizons</h2>
             </div>
 
@@ -49,25 +50,15 @@
                         {/each}
                     </div>
 
-                    <!-- Prev/Next Chevrons (Consistent with Daily Discover) -->
-                    <div class="chevron-controls">
-                        <button 
-                            class="chevron-btn" 
-                            onclick={() => homeStore.prevHorizon()} 
-                            title="Previous Horizon"
-                            aria-label="Previous Horizon"
-                        >
-                            <CaretLeft size={16} weight="bold" />
-                        </button>
-                        <button 
-                            class="chevron-btn" 
-                            onclick={() => homeStore.nextHorizon()} 
-                            title="Next Horizon"
-                            aria-label="Next Horizon"
-                        >
-                            <CaretRight size={16} weight="bold" />
-                        </button>
-                    </div>
+                    <!-- Prev/Next Chevrons -->
+                    <CarouselControls 
+                        canPrev={true} 
+                        canNext={true} 
+                        onPrev={() => homeStore.prevHorizon()} 
+                        onNext={() => homeStore.nextHorizon()} 
+                        prevLabel="Previous Horizon"
+                        nextLabel="Next Horizon"
+                    />
                 </div>
             {/if}
         </div>
@@ -125,7 +116,7 @@
                             >
                                 <div class="ledger-art">
                                     {#if resolveCoverArt(track.cover_art_url)}
-                                        <img src={resolveCoverArt(track.cover_art_url)} alt={track.title} loading="lazy" />
+                                        <img src={resolveCoverArt(track.cover_art_url)} alt={track.title} loading="lazy" onerror={(e) => { (e.currentTarget as HTMLElement).style.display = "none"; }} />
                                     {:else}
                                         <div class="placeholder-art">
                                             <span>{track.title.charAt(0).toUpperCase()}</span>
@@ -161,7 +152,7 @@
     .adjacent-horizons-section {
         display: flex;
         flex-direction: column;
-        gap: 1.25rem;
+        gap: 1.5rem;
         width: 100%;
     }
 
@@ -225,56 +216,11 @@
         background: #B58E62;
     }
 
-    .chevron-controls {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(18, 18, 22, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 0.2rem 0.3rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-    }
 
-    .chevron-btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: #FFFFFF;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        padding: 0;
-        transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.2s ease;
-    }
-
-    .chevron-btn :global(svg) {
-        display: block;
-        flex-shrink: 0;
-        fill: currentColor;
-    }
-
-    .chevron-btn:hover:not(:disabled) {
-        color: #B58E62;
-        background: rgba(255, 255, 255, 0.16);
-        border-color: rgba(181, 142, 98, 0.4);
-    }
-
-    .chevron-btn:active:not(:disabled) {
-        transform: scale(0.92);
-    }
-
-    .chevron-btn:disabled {
-        opacity: 0.25;
-        pointer-events: none;
-        cursor: default;
-    }
 
     .horizon-card {
         position: relative;
+        margin-top: 0.25rem;
         background: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 14px;

@@ -2,7 +2,8 @@
     import { onMount, onDestroy } from "svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { Play, Sparkle, CaretLeft, CaretRight, Disc } from "phosphor-svelte";
+    import { Play, Sparkle, Disc } from "phosphor-svelte";
+    import CarouselControls from "$lib/components/common/CarouselControls.svelte";
 
     let autoScrollInterval: ReturnType<typeof setInterval> | null = null;
     let isHoveringHero = $state(false);
@@ -32,7 +33,25 @@
     });
 </script>
 
-{#if exploreStore.spotlights.length > 0}
+{#if exploreStore.isLoading && exploreStore.spotlights.length === 0}
+    <section class="hero-spotlight-card skeleton-hero" aria-hidden="true">
+        <div class="hero-content">
+            <div class="hero-left">
+                <div class="skeleton-pill eyebrow-skeleton"></div>
+                <div class="skeleton-line xl title-skeleton"></div>
+                <div class="skeleton-line md artist-skeleton"></div>
+                <div class="skeleton-line sm desc-skeleton"></div>
+                <div class="hero-actions-skeleton">
+                    <div class="skeleton-pill action-pill"></div>
+                    <div class="skeleton-pill action-pill-sec"></div>
+                </div>
+            </div>
+            <div class="hero-right">
+                <div class="skeleton-box hero-art-skeleton"></div>
+            </div>
+        </div>
+    </section>
+{:else if exploreStore.spotlights.length > 0}
     {@const spot = exploreStore.spotlights[exploreStore.activeSpotlightIndex]}
     {#if spot}
         <section 
@@ -91,25 +110,31 @@
                 </div>
             </div>
 
-            <!-- Carousel Controls -->
+                        <!-- Carousel Controls -->
             {#if exploreStore.spotlights.length > 1}
-                <div class="hero-carousel-controls" class:is-glass={settingsStore.glassyPlayerBar}>
-                    <button class="hero-nav-arrow" onclick={() => exploreStore.prevSpotlight()} title="Previous spotlight">
-                        <CaretLeft size={14} weight="bold" />
-                    </button>
-                    <div class="hero-pills">
-                        {#each exploreStore.spotlights as _, idx}
-                            <button 
-                                class="hero-pill" 
-                                class:active={exploreStore.activeSpotlightIndex === idx}
-                                onclick={() => exploreStore.setSpotlightIndex(idx)}
-                                title="Go to slide {idx + 1}"
-                            ></button>
-                        {/each}
-                    </div>
-                    <button class="hero-nav-arrow" onclick={() => exploreStore.nextSpotlight()} title="Next spotlight">
-                        <CaretRight size={14} weight="bold" />
-                    </button>
+                <div class="hero-controls-wrap">
+                    <CarouselControls
+                        canPrev={true}
+                        canNext={true}
+                        isGlass={settingsStore.glassyPlayerBar}
+                        onPrev={() => exploreStore.prevSpotlight()}
+                        onNext={() => exploreStore.nextSpotlight()}
+                        prevLabel="Previous spotlight"
+                        nextLabel="Next spotlight"
+                    >
+                        {#snippet children()}
+                            <div class="hero-pills">
+                                {#each exploreStore.spotlights as _, idx}
+                                    <button 
+                                        class="hero-pill" 
+                                        class:active={exploreStore.activeSpotlightIndex === idx}
+                                        onclick={() => exploreStore.setSpotlightIndex(idx)}
+                                        title="Go to slide {idx + 1}"
+                                    ></button>
+                                {/each}
+                            </div>
+                        {/snippet}
+                    </CarouselControls>
                 </div>
             {/if}
         </section>
@@ -252,43 +277,11 @@
         justify-content: center;
         color: rgba(255, 255, 255, 0.2);
     }
-    .hero-carousel-controls {
+    .hero-controls-wrap {
         position: absolute;
         bottom: 1.2rem;
         right: 1.5rem;
         z-index: 3;
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(18, 18, 22, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 0.25rem 0.4rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-    }
-    .hero-carousel-controls.is-glass {
-        backdrop-filter: blur(12px);
-        background: rgba(25, 25, 32, 0.45);
-        border-color: rgba(255, 255, 255, 0.12);
-    }
-    .hero-nav-arrow {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: #FFFFFF;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        padding: 0;
-        transition: all 0.15s ease;
-    }
-    .hero-nav-arrow:hover {
-        color: #B58E62;
-        background: rgba(255, 255, 255, 0.16);
-        border-color: rgba(181, 142, 98, 0.4);
     }
     .hero-pills {
         display: flex;
@@ -310,4 +303,53 @@
         width: 18px;
         background: #B58E62;
     }
+
+    /* Hero Skeleton Loader */
+    .skeleton-hero {
+        background: #141417;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .eyebrow-skeleton {
+        width: 140px;
+        height: 22px;
+        margin-bottom: 0.5rem;
+    }
+
+    .title-skeleton {
+        width: 80%;
+        margin-bottom: 0.5rem;
+    }
+
+    .artist-skeleton {
+        width: 50%;
+        margin-bottom: 0.75rem;
+    }
+
+    .desc-skeleton {
+        width: 65%;
+        margin-bottom: 1.25rem;
+    }
+
+    .hero-actions-skeleton {
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    .action-pill {
+        width: 130px;
+        height: 38px;
+    }
+
+    .action-pill-sec {
+        width: 150px;
+        height: 38px;
+    }
+
+    .hero-art-skeleton {
+        width: 170px;
+        height: 170px;
+        border-radius: 12px;
+    }
+
 </style>

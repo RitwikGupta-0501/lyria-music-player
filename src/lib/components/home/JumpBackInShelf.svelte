@@ -90,7 +90,10 @@
         gap: 1.25rem;
         overflow-x: auto;
         scroll-snap-type: x mandatory;
-        padding-bottom: 0.5rem;
+        padding-top: 8px;
+        margin-top: -8px;
+        padding-bottom: 0.75rem;
+        margin-bottom: -0.25rem;
         scrollbar-width: none;
     }
 

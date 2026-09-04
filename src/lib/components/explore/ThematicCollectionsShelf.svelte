@@ -4,6 +4,7 @@
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { getInitial } from "$lib/utils/format";
     import { Disc, CaretLeft, CaretRight, Play, Heart } from "phosphor-svelte";
+    import SectionHeaderSkeleton from "$lib/components/common/SectionHeaderSkeleton.svelte";
 
     let trackContainer = $state<HTMLElement | null>(null);
     let canScrollLeft = $state(false);
@@ -50,7 +51,20 @@
 
 <svelte:window onresize={updateScrollState} />
 
-{#if exploreStore.trendingAlbums.length > 0}
+{#if exploreStore.isLoading && exploreStore.trendingAlbums.length === 0}
+    <section class="thematic-collections-section">
+        <SectionHeaderSkeleton hasControls={true} titleWidth="150px" />
+        <div class="thematic-carousel-track">
+            {#each Array(6) as _}
+                <div class="discover-card skeleton">
+                    <div class="card-art-wrapper skeleton-box"></div>
+                    <div class="skeleton-line title-skeleton"></div>
+                    <div class="skeleton-line artist-skeleton"></div>
+                </div>
+            {/each}
+        </div>
+    </section>
+{:else if exploreStore.trendingAlbums.length > 0}
     <section class="thematic-collections-section">
         <div class="section-title-row">
             <div class="title-group">
@@ -88,8 +102,7 @@
             onscroll={updateScrollState}
         >
             {#each exploreStore.trendingAlbums as album}
-                {@const albumKey = getCanonicalKey({ title: album.title, artist: album.artist })}
-                {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === albumKey.toLowerCase().trim())}
+                {@const isSaved = libraryStore.isAlbumSaved(album.id, album.title, album.artist)}
                 <div 
                     class="discover-card"
                     role="button"
@@ -107,29 +120,39 @@
                         {/if}
 
                         <div class="card-overlay">
-                            <div class="play-bubble">
+                            <button 
+                                type="button"
+                                class="play-bubble"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    exploreStore.playAlbum(album);
+                                }}
+                                title="Play album"
+                                aria-label="Play album"
+                            >
                                 <Play size={18} weight="fill" />
-                            </div>
+                            </button>
                         </div>
 
                         <button 
                             type="button"
                             class="liquid-like-btn" 
                             class:is-glass={settingsStore.glassyPlayerBar}
-                            class:liked={isLiked}
+                            class:liked={isSaved}
                             onclick={(e) => { 
                                 e.stopPropagation(); 
-                                libraryStore.toggleLike({
+                                libraryStore.toggleSaveAlbum({
+                                    id: album.id,
                                     title: album.title,
                                     artist: album.artist,
-                                    canonical_key: albumKey,
-                                    cover_art_url: album.cover_art_url || undefined,
+                                    cover_art_url: album.cover_art_url,
+                                    provider_id: album.provider_id || "youtube-wasm",
                                 });
                             }}
-                            title={isLiked ? "Liked" : "Like album"}
-                            aria-label={isLiked ? "Unlike album" : "Like album"}
+                            title={isSaved ? "Saved" : "Save album"}
+                            aria-label={isSaved ? "Unsave album" : "Save album"}
                         >
-                            <Heart size={16} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "#FFFFFF"} />
+                            <Heart size={16} weight={isSaved ? "fill" : "bold"} color={isSaved ? "#ffd285" : "#FFFFFF"} />
                         </button>
                     </div>
 
@@ -226,7 +249,10 @@
         overflow-x: auto;
         scroll-snap-type: x mandatory;
         scrollbar-width: none;
-        padding-bottom: 0.5rem;
+        padding-top: 8px;
+        margin-top: -8px;
+        padding-bottom: 0.75rem;
+        margin-bottom: -0.25rem;
     }
 
     .thematic-carousel-track::-webkit-scrollbar {
@@ -407,4 +433,23 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
+
+    /* Skeleton Card */
+    .discover-card.skeleton {
+        pointer-events: none;
+    }
+    .skeleton-box {
+        width: 176px;
+        height: 176px;
+        border-radius: 12px;
+    }
+    .title-skeleton {
+        width: 75%;
+        margin-top: 4px;
+    }
+    .artist-skeleton {
+        width: 50%;
+        margin-top: 2px;
+    }
+
 </style>

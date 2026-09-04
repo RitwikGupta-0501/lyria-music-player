@@ -12,6 +12,7 @@
     import SearchResultsFeed from "./explore/SearchResultsFeed.svelte";
 
     let { activeView = $bindable("explore") } = $props<{ activeView?: string }>();
+    let radarHeight = $state<number>(0);
 
     onMount(() => {
         exploreStore.init();
@@ -82,13 +83,23 @@
 
         <!-- 4.3 & 4.4. Discovery Split: Top Charts (58%) & New Release Radar (42%) -->
         <section class="discovery-split-section">
-            <div class="split-column left-ledger-column">
-                <TopChartsLedger />
-            </div>
+            {#if exploreStore.isLoadingChartTab || exploreStore.isLoading || exploreStore.currentChartTracks.length > 0}
+                <div 
+                    class="split-column left-ledger-column"
+                    style={(exploreStore.isLoading || exploreStore.filteredNewReleases.length > 0) && radarHeight > 0 ? `max-height: ${radarHeight}px; height: ${radarHeight}px;` : ""}
+                >
+                    <TopChartsLedger />
+                </div>
+            {/if}
 
-            <div class="split-column right-albums-column">
-                <NewReleaseRadar />
-            </div>
+            {#if exploreStore.isLoading || exploreStore.filteredNewReleases.length > 0}
+                <div 
+                    class="split-column right-albums-column"
+                    bind:clientHeight={radarHeight}
+                >
+                    <NewReleaseRadar />
+                </div>
+            {/if}
         </section>
 
         <!-- 4.2. Mood & Genre Matrix -->
@@ -189,27 +200,24 @@
 
     .discovery-split-section {
         display: flex;
+        flex-wrap: wrap;
         gap: 1.5rem;
-        align-items: stretch;
-    }
-
-    @media (max-width: 1024px) {
-        .discovery-split-section {
-            flex-direction: column;
-        }
+        align-items: flex-start;
+        width: 100%;
     }
 
     .split-column {
         display: flex;
         flex-direction: column;
         min-width: 0;
+        min-height: 0;
     }
 
     .left-ledger-column {
-        flex: 58;
+        flex: 58 1 440px;
     }
 
     .right-albums-column {
-        flex: 42;
+        flex: 42 1 340px;
     }
 </style>

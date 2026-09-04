@@ -10,6 +10,8 @@ This document outlines the priority workstreams, architectural design requiremen
   - [x] Modular aggregated Explore feed (Editorial Spotlight, Dynamic Categories, Trending, New Releases).
   - [x] Full categorized search (`Song`, `Album`, `Playlist`, `Artist`).
   - [x] YouTube Music `WEB_REMIX` provider integration with cached visitor tokens and BotGuard attestation.
+  - [x] Generic output sanitization in WASM extension and host daemon to filter spam/ringtones and guarantee authentic studio releases.
+  - [x] Centralized skeleton primitives and zero-CLS header placeholders across all Explore sections.
 - [x] **Phase 2: Unified Collection Architecture & Liked Songs**
   - [x] Unified virtualized right drawer (`CollectionDetail.svelte`) replacing separate album/playlist views.
   - [x] Rich Artist profile pages (`ArtistDetail.svelte`) with top tracks, discography carousels, and subscriber stats.
@@ -22,27 +24,52 @@ This document outlines the priority workstreams, architectural design requiremen
 
 ```mermaid
 graph TD
-    A[Milestone Complete: Explore & Collections] --> B[Priority 1: Algorithmic Radio & Infinite Queue]
-    A --> C[Priority 2: Native OS Desktop Media Controls]
-    A --> D[Priority 3: Synced Lyrics System]
-    B --> E[Priority 4: Infinite Scroll Pagination]
-    C --> F[Priority 5: Global Quick Search Cmd+K]
+    A[Milestone Complete: Explore & Skeletons] --> B[Priority 1: Dual-Mode Infinite Core Loop Local + Federated]
+    A --> C[Priority 2: Dynamic Adjacent Horizons & Search Provider]
+    A --> D[Priority 3: Native OS Desktop Media Controls]
+    B --> E[Priority 4: Synced Lyrics System]
+    C --> F[Priority 5: Infinite Scroll Pagination]
+    D --> G[Priority 6: Global Quick Search Cmd+K]
 ```
 
 ---
 
-## 1. 📻 Priority 1: Algorithmic Radio & Infinite Queue Continuation (Core Loop)
-> **Goal:** Complete Echo’s primary identity — *“Play a seed track → Sandboxed WASM dynamically resolves the next track.”*
+## 1. 📻 Priority 1: Dual-Mode Infinite Core Loop (Local Offline + Federated)
+> **Goal:** Complete Echo’s core identity — *“Play any track → Queue automatically generates the next contextual track without interruption.”*
 
 ### Implementation Tasks
-- [ ] **Daemon Queue End Detection:** Hook into audio thread queue exhaustion events to trigger continuation when queue reaches final track.
-- [ ] **WASM `get_radio` / `get_related` Host Call:** Pass the current playing seed (artist, title, source ID) to the active WASM provider.
-- [ ] **Seamless Track Enqueueing:** Automatically append resolved recommendations to `audioStore.queue` without audio buffer interruption.
-- [ ] **Autoplay Toggle in UI:** Add a subtle toggle on the Player Bar and Queue Drawer (`Autoplay Radio: On / Off`).
+- [ ] **Local Markov Random Walk (Offline / Zero-Internet Mode):**
+  - Query SQLite index for currently playing track's artist, album, genre, and duration tags.
+  - Select next track using harmonic distance + strict **recency penalty** (exclude songs played in last 2 hours).
+  - Works 100% offline out-of-the-box with any local library.
+- [ ] **Daemon Queue Exhaustion Watcher:**
+  - Hook into the dedicated audio thread's queue state to detect when the queue is 1 track away from empty.
+- [ ] **WASM Federated Radio Dispatch (Online Mode):**
+  - Pass the current seed (`artist`, `title`, `source_id`) to active sandboxed WASM provider (`get_radio` / `get_related`).
+  - Seamlessly append resolved tracks to `audioStore.queue` without audio buffer glitching.
+- [ ] **Autoplay Toggle in UI:**
+  - Add explicit toggle in Player Bar and Queue Drawer (`Autoplay Radio: Local / Remote / Off`).
 
 ---
 
-## 2. 🎛️ Priority 2: Native Desktop Media Controls (MPRIS / SMTC / Souvlaki)
+## 2. 🌌 Priority 2: Dynamic Adjacent Horizons & Default Search Provider
+> **Goal:** Replace static mock horizons with a dynamic discovery engine powered by a default recommendation/search provider.
+
+### Implementation Tasks
+- [ ] **Default Recommendation/Search Provider:**
+  - Ship a lightweight, clean recommendation provider to supply live, changing musical frontiers and genre tokens.
+- [ ] **Dynamic Frontier Inversion:**
+  - Inspect the user's dominant 7-day SQLite listening habits and dynamically pair them with distant, unlistened genres.
+  - Fetch 3 real, live preview tracks dynamically (artwork, duration, IDs) instead of hardcoded structs.
+- [ ] **Stream Resolution Bridge:**
+  - When user clicks *"Play"* on a preview track or *"Explore Horizon"*:
+    - If a streaming extension (`youtube-wasm`, etc.) is active $\rightarrow$ stream audio dynamically.
+    - If a matching local file exists $\rightarrow$ play local lossless copy.
+    - If offline with no extension $\rightarrow$ offer local style search or save discovery token.
+
+---
+
+## 3. 🎛️ Priority 3: Native Desktop Media Controls (MPRIS / SMTC / Souvlaki)
 > **Goal:** Complete native desktop OS integration across Linux, Windows, and macOS.
 
 ### Implementation Tasks
@@ -52,7 +79,7 @@ graph TD
 
 ---
 
-## 3. 🎤 Priority 3: Synchronized / Timed Lyrics Experience
+## 4. 🎤 Priority 4: Synchronized / Timed Lyrics Experience
 > **Goal:** High-fidelity, real-time lyrics synchronized with audio playback.
 
 ### Implementation Tasks
@@ -65,7 +92,7 @@ graph TD
 
 ---
 
-## 4. 📜 Priority 4: Infinite Scroll Pagination (Explore & Search)
+## 5. 📜 Priority 5: Infinite Scroll Pagination (Explore & Search)
 > **Goal:** Seamless catalog browsing depth without artificial limits.
 
 ### Implementation Tasks
@@ -75,7 +102,7 @@ graph TD
 
 ---
 
-## 5. ⚡ Priority 5: Quick Command Palette (`Cmd+K` / `Ctrl+K`)
+## 6. ⚡ Priority 6: Quick Command Palette (`Cmd+K` / `Ctrl+K`)
 > **Goal:** Instant, keyboard-first navigation and player remote control.
 
 ### Implementation Tasks

@@ -171,8 +171,6 @@
 <style>
     .home-view {
         padding: 2.5rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
-        height: 100%;
-        overflow-y: auto;
         scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         display: flex;
         flex-direction: column;
@@ -192,6 +190,11 @@
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
+        position: relative;
+        z-index: 2;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        isolation: isolate;
     }
 
     .header-top {
@@ -280,6 +283,8 @@
         letter-spacing: -0.02em;
         margin: 0 0 0.25rem 0;
         color: #fff;
+        transform: translateZ(0);
+        backface-visibility: hidden;
     }
 
     

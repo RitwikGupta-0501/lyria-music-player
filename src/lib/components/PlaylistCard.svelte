@@ -1,73 +1,101 @@
 <script lang="ts">
-    import { libraryStore, type Album, type SavedAlbum } from "$lib/stores/library.svelte";
+    import {
+        libraryStore,
+        type Playlist,
+        type SavedPlaylist,
+    } from "$lib/stores/library.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
-    import { convertFileSrc } from "@tauri-apps/api/core";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { Disc, Play, Heart } from "phosphor-svelte";
+    import { Play, Playlist as PlaylistIcon, Heart } from "phosphor-svelte";
 
-    let { 
-        album, 
-        selected = false, 
-        onclick 
-    } = $props<{ 
-        album: Album | SavedAlbum | any; 
-        selected?: boolean; 
-        onclick: () => void 
+    let {
+        playlist,
+        mosaicUrls = [],
+        trackCount,
+        selected = false,
+        onclick,
+    } = $props<{
+        playlist: Playlist | SavedPlaylist | any;
+        mosaicUrls?: string[];
+        trackCount?: number;
+        selected?: boolean;
+        onclick: () => void;
     }>();
 
-    let isSaved = $derived(libraryStore.isAlbumSaved(String(album.id), album.title, album.artist));
+    let title = $derived(
+        playlist.name || playlist.title || "Untitled Playlist",
+    );
+    let author = $derived(playlist.author || playlist.subtitle || undefined);
+    let isSaved = $derived(
+        libraryStore.isPlaylistSaved(String(playlist.id), title, author),
+    );
 
-    let artUrl = $derived.by(() => {
-        if (album.cover_art_url) {
-            return album.cover_art_url;
+    let subtitle = $derived.by(() => {
+        if (author) {
+            return author;
         }
-        if (album.cover_art_path) {
-            return convertFileSrc(album.cover_art_path);
+        if (trackCount !== undefined) {
+            return `${trackCount} ${trackCount === 1 ? "track" : "tracks"}`;
         }
-        return null;
+        if (playlist.track_count !== undefined) {
+            return `${playlist.track_count} ${playlist.track_count === 1 ? "track" : "tracks"}`;
+        }
+        if (playlist.isRemote) {
+            return "YouTube Playlist";
+        }
+        return "Playlist";
     });
 
     function handlePlayClick(e: MouseEvent) {
         e.stopPropagation();
-        if (album.provider_id && album.provider_id !== "local") {
-            exploreStore.playAlbum({
-                id: String(album.id),
-                title: album.title,
-                artist: album.artist || "Unknown Artist",
-                cover_art_url: album.cover_art_url,
-                provider_id: album.provider_id,
+        if (playlist.isRemote || playlist.provider_id) {
+            exploreStore.playPlaylist({
+                id: String(playlist.id),
+                title: title,
+                author: author,
+                cover_art_url: playlist.cover_art_url,
+                provider_id: playlist.provider_id || "youtube-wasm",
             });
-        } else if (typeof album.id === "number") {
-            libraryStore.playAlbum(album.id);
+        } else if (typeof playlist.id === "number") {
+            libraryStore.playPlaylist(playlist.id);
         }
     }
 
     function handleLikeClick(e: MouseEvent) {
         e.stopPropagation();
-        libraryStore.toggleSaveAlbum({
-            id: String(album.id),
-            title: album.title,
-            artist: album.artist,
-            cover_art_url: album.cover_art_url || artUrl,
-            provider_id: album.provider_id || "local",
+        libraryStore.toggleSavePlaylist({
+            id: String(playlist.id),
+            title: title,
+            author: author || null,
+            cover_art_url: playlist.cover_art_url || null,
+            provider_id: playlist.provider_id || "youtube-wasm",
         });
     }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="album-card group {selected ? 'selected' : ''}" {onclick}>
+<div class="playlist-card group {selected ? 'selected' : ''}" {onclick}>
     <div class="art-container">
-        {#if artUrl}
+        {#if playlist.cover_art_url}
             <img
-                src={artUrl}
-                alt={album.title}
+                src={playlist.cover_art_url}
+                alt={title}
                 class="art-img"
                 loading="lazy"
             />
+        {:else if mosaicUrls && mosaicUrls.length >= 4}
+            <div class="mosaic-grid">
+                <img src={mosaicUrls[0]} alt="Cover" class="mosaic-img" />
+                <img src={mosaicUrls[1]} alt="Cover" class="mosaic-img" />
+                <img src={mosaicUrls[2]} alt="Cover" class="mosaic-img" />
+                <img src={mosaicUrls[3]} alt="Cover" class="mosaic-img" />
+            </div>
+        {:else if mosaicUrls && mosaicUrls.length > 0}
+            <img src={mosaicUrls[0]} alt={title} class="art-img" />
         {:else}
             <div class="art-placeholder">
-                <Disc
+                <PlaylistIcon
                     size={48}
                     weight="thin"
                     color="rgba(255, 255, 255, 0.35)"
@@ -80,8 +108,8 @@
                 type="button"
                 class="play-btn"
                 onclick={handlePlayClick}
-                title="Play album"
-                aria-label="Play album"
+                title="Play playlist"
+                aria-label="Play playlist"
             >
                 <Play weight="fill" size={18} />
             </button>
@@ -93,8 +121,8 @@
             class:is-glass={settingsStore.glassyPlayerBar}
             class:liked={isSaved}
             onclick={handleLikeClick}
-            title={isSaved ? "Saved" : "Save album"}
-            aria-label={isSaved ? "Unsave album" : "Save album"}
+            title={isSaved ? "Saved" : "Save playlist"}
+            aria-label={isSaved ? "Unsave playlist" : "Save playlist"}
         >
             <Heart
                 size={16}
@@ -103,19 +131,19 @@
             />
         </button>
 
-        {#if album.provider_id && album.provider_id !== "local"}
+        {#if playlist.provider_id && playlist.provider_id !== "local"}
             <span class="provider-badge">YouTube</span>
         {/if}
     </div>
 
     <div class="card-info">
-        <span class="card-title" title={album.title}>{album.title}</span>
-        <span class="card-artist" title={album.artist}>{album.artist || "Unknown Artist"}</span>
+        <span class="card-title" title={title}>{title}</span>
+        <span class="card-artist" title={subtitle}>{subtitle}</span>
     </div>
 </div>
 
 <style>
-    .album-card {
+    .playlist-card {
         cursor: pointer;
         display: flex;
         flex-direction: column;
@@ -130,7 +158,7 @@
         padding: 0;
     }
 
-    .album-card.selected .art-container {
+    .playlist-card.selected .art-container {
         border-color: var(--echo-primary);
         box-shadow:
             0 0 0 2px var(--echo-primary),
@@ -152,7 +180,7 @@
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .album-card:hover .art-container {
+    .playlist-card:hover .art-container {
         border-color: rgba(181, 142, 98, 0.35);
         box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.6);
     }
@@ -168,8 +196,33 @@
         transition: transform 0.55s cubic-bezier(0.05, 0.75, 0.15, 1);
     }
 
-    .album-card:hover .art-img {
+    .playlist-card:hover .art-img {
         transform: scale(1.05);
+    }
+
+    .mosaic-grid {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: 1px;
+        background: rgba(0, 0, 0, 0.4);
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: transform;
+        transition: transform 0.55s cubic-bezier(0.05, 0.75, 0.15, 1);
+    }
+
+    .playlist-card:hover .mosaic-grid {
+        transform: scale(1.05);
+    }
+
+    .mosaic-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
     }
 
     .art-placeholder {
@@ -197,7 +250,7 @@
         transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .album-card:hover .play-overlay {
+    .playlist-card:hover .play-overlay {
         opacity: 1;
         pointer-events: auto;
     }
@@ -220,7 +273,7 @@
         transition: transform 0.2s ease, background-color 0.2s ease;
     }
 
-    .album-card:hover .play-btn {
+    .playlist-card:hover .play-btn {
         transform: scale(1);
     }
 
@@ -279,7 +332,7 @@
             0 4px 12px rgba(0, 0, 0, 0.35);
     }
 
-    .album-card:hover .liquid-like-btn,
+    .playlist-card:hover .liquid-like-btn,
     .liquid-like-btn.liked {
         opacity: 1;
         transform: scale(1);

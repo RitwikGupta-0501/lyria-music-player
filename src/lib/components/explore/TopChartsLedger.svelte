@@ -2,7 +2,15 @@
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { formatDuration, getInitial, isCurrentTrack } from "$lib/utils/format";
-    import { Play, Pause, ChartLineUp, Flame, GlobeHemisphereWest } from "phosphor-svelte";
+    import { Play, Pause, ChartLineUp, Flame, GlobeHemisphereWest, MapPin } from "phosphor-svelte";
+    import SectionHeaderSkeleton from "$lib/components/common/SectionHeaderSkeleton.svelte";
+    import TabPills, { type TabItem } from "$lib/components/common/TabPills.svelte";
+
+    const chartTabs = $derived<TabItem<"global" | "viral" | "regional">[]>([
+        { id: "global", label: "Global Top 50", icon: GlobeHemisphereWest },
+        { id: "viral", label: "Trending Viral", icon: Flame },
+        { id: "regional", label: `Regional (${exploreStore.userRegion.countryName})`, icon: MapPin },
+    ]);
 </script>
 
 {#if exploreStore.isLoadingChartTab || exploreStore.isLoading || exploreStore.currentChartTracks.length > 0}
@@ -13,31 +21,12 @@
             <h2>Top Charts</h2>
         </div>
 
-        <div class="chart-tab-pills">
-            <button 
-                class="chart-pill" 
-                class:active={exploreStore.activeChartTab === 'global'}
-                onclick={() => exploreStore.setChartTab('global')}
-            >
-                <GlobeHemisphereWest size={13} weight="bold" />
-                <span>Global Top 50</span>
-            </button>
-            <button 
-                class="chart-pill" 
-                class:active={exploreStore.activeChartTab === 'viral'}
-                onclick={() => exploreStore.setChartTab('viral')}
-            >
-                <Flame size={13} weight="bold" />
-                <span>Trending Viral</span>
-            </button>
-            <button 
-                class="chart-pill" 
-                class:active={exploreStore.activeChartTab === 'regional'}
-                onclick={() => exploreStore.setChartTab('regional')}
-            >
-                <span>Regional ({exploreStore.userRegion.countryName})</span>
-            </button>
-        </div>
+        <TabPills
+            tabs={chartTabs}
+            activeTab={exploreStore.activeChartTab}
+            onchange={(tab) => exploreStore.setChartTab(tab)}
+            ariaLabel="Top Charts tabs"
+        />
     </div>
 
     <div class="ledger-container">
@@ -49,7 +38,7 @@
             </div>
         {:else if exploreStore.currentChartTracks.length > 0}
             <div class="ledger-rows-stack">
-                {#each exploreStore.currentChartTracks.slice(0, 10) as track, i (track.id || i)}
+                {#each exploreStore.currentChartTracks.slice(0, 20) as track, i (track.id || i)}
                     {@const isPlaying = isCurrentTrack(track, audioStore.currentQueueTrack) && audioStore.playbackState === "Playing"}
                     {@const isActive = isCurrentTrack(track, audioStore.currentQueueTrack)}
                     <div 
@@ -143,50 +132,19 @@
         color: #fff;
     }
 
-    .chart-tab-pills {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(18, 18, 22, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 0.2rem 0.3rem;
-    }
 
-    .chart-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.55);
-        background: transparent;
-        border: none;
-        padding: 0.25rem 0.6rem;
-        border-radius: 14px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
-
-    .chart-pill:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.06);
-    }
-
-    .chart-pill.active {
-        color: #0E0E10;
-        background: #D4A86E;
-    }
 
     .ledger-container {
-        height: 380px;
-        max-height: 380px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
         overflow-y: auto;
         background: rgba(18, 18, 22, 0.55);
         border: 1px solid rgba(255, 255, 255, 0.07);
         border-radius: 12px;
         padding: 0.6rem;
         box-sizing: border-box;
+        min-height: 0;
     }
 
     .ledger-container::-webkit-scrollbar {
@@ -210,6 +168,7 @@
         display: flex;
         flex-direction: column;
         gap: 0.35rem;
+        flex: 1;
     }
 
     .ledger-loading-skeleton {

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { SquaresFour, CaretDown, CaretUp } from "phosphor-svelte";
+    import SectionHeaderSkeleton from "$lib/components/common/SectionHeaderSkeleton.svelte";
 
     const CATEGORY_COLORS = [
         "#D4A86E", // Echo Brass
@@ -14,7 +15,16 @@
     ];
 </script>
 
-{#if exploreStore.categoryGrid.length > 0}
+{#if exploreStore.isLoading && exploreStore.categoryGrid.length === 0}
+    <section class="explore-category-section">
+        <SectionHeaderSkeleton hasControls={true} titleWidth="180px" />
+        <div class="category-grid">
+            {#each Array(8) as _}
+                <div class="category-tile skeleton skeleton-box"></div>
+            {/each}
+        </div>
+    </section>
+{:else if exploreStore.categoryGrid.length > 0}
     <section class="explore-category-section">
         <div class="section-header">
             <div class="title-group">
@@ -182,4 +192,12 @@
         opacity: 0.9;
         height: 3px;
     }
+
+    .category-tile.skeleton {
+        height: 76px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        pointer-events: none;
+    }
+
 </style>

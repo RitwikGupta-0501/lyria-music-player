@@ -4,6 +4,7 @@
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { getInitial } from "$lib/utils/format";
     import { Sparkle, Play, Heart, CaretLeft, CaretRight } from "phosphor-svelte";
+    import SectionHeaderSkeleton from "$lib/components/common/SectionHeaderSkeleton.svelte";
 
     let currentPage = $state(0);
     const PAGE_SIZE = 4;
@@ -21,39 +22,9 @@
     }
 </script>
 
-<div class="new-release-radar">
-    <div class="section-header">
-        <div class="header-title-group">
-            <Sparkle size={20} weight="bold" class="section-icon" />
-            <h2>New Releases</h2>
-        </div>
-        {#if totalPages > 1}
-            <div class="chevron-controls">
-                <button 
-                    type="button"
-                    class="chevron-btn" 
-                    onclick={prevPage} 
-                    disabled={currentPage === 0}
-                    title="Previous releases"
-                    aria-label="Previous releases"
-                >
-                    <CaretLeft size={16} weight="bold" />
-                </button>
-                <button 
-                    type="button"
-                    class="chevron-btn" 
-                    onclick={nextPage} 
-                    disabled={currentPage >= totalPages - 1}
-                    title="Next releases"
-                    aria-label="Next releases"
-                >
-                    <CaretRight size={16} weight="bold" />
-                </button>
-            </div>
-        {/if}
-    </div>
-
-    {#if exploreStore.isLoading && exploreStore.filteredNewReleases.length === 0}
+{#if exploreStore.isLoading && exploreStore.filteredNewReleases.length === 0}
+    <div class="new-release-radar">
+        <SectionHeaderSkeleton hasControls={true} titleWidth="140px" />
         <div class="albums-2x2-grid">
             {#each Array(4) as _}
                 <div class="discover-card skeleton">
@@ -63,11 +34,43 @@
                 </div>
             {/each}
         </div>
-    {:else}
+    </div>
+{:else if exploreStore.filteredNewReleases.length > 0}
+    <div class="new-release-radar">
+        <div class="section-header">
+            <div class="header-title-group">
+                <Sparkle size={20} weight="bold" class="section-icon" />
+                <h2>New Releases</h2>
+            </div>
+            {#if totalPages > 1}
+                <div class="chevron-controls">
+                    <button 
+                        type="button"
+                        class="chevron-btn" 
+                        onclick={prevPage} 
+                        disabled={currentPage === 0}
+                        title="Previous releases"
+                        aria-label="Previous releases"
+                    >
+                        <CaretLeft size={16} weight="bold" />
+                    </button>
+                    <button 
+                        type="button"
+                        class="chevron-btn" 
+                        onclick={nextPage} 
+                        disabled={currentPage >= totalPages - 1}
+                        title="Next releases"
+                        aria-label="Next releases"
+                    >
+                        <CaretRight size={16} weight="bold" />
+                    </button>
+                </div>
+            {/if}
+        </div>
+
         <div class="albums-2x2-grid">
             {#each displayedAlbums as album}
-                {@const albumKey = getCanonicalKey({ title: album.title, artist: album.artist })}
-                {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === albumKey.toLowerCase().trim())}
+                {@const isSaved = libraryStore.isAlbumSaved(album.id, album.title, album.artist)}
                 <div 
                     class="discover-card"
                     role="button"
@@ -85,29 +88,39 @@
                         {/if}
 
                         <div class="card-overlay">
-                            <div class="play-bubble">
+                            <button 
+                                type="button"
+                                class="play-bubble"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    exploreStore.playAlbum(album);
+                                }}
+                                title="Play release"
+                                aria-label="Play release"
+                            >
                                 <Play size={18} weight="fill" />
-                            </div>
+                            </button>
                         </div>
 
                         <button 
                             type="button"
                             class="liquid-like-btn" 
                             class:is-glass={settingsStore.glassyPlayerBar}
-                            class:liked={isLiked}
+                            class:liked={isSaved}
                             onclick={(e) => { 
                                 e.stopPropagation(); 
-                                libraryStore.toggleLike({
+                                libraryStore.toggleSaveAlbum({
+                                    id: album.id,
                                     title: album.title,
                                     artist: album.artist,
-                                    canonical_key: albumKey,
-                                    cover_art_url: album.cover_art_url || undefined,
+                                    cover_art_url: album.cover_art_url,
+                                    provider_id: album.provider_id || "youtube-wasm",
                                 });
                             }}
-                            title={isLiked ? "Liked" : "Like release"}
-                            aria-label={isLiked ? "Unlike release" : "Like release"}
+                            title={isSaved ? "Saved" : "Save release"}
+                            aria-label={isSaved ? "Unsave release" : "Save release"}
                         >
-                            <Heart size={16} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "#FFFFFF"} />
+                            <Heart size={16} weight={isSaved ? "fill" : "bold"} color={isSaved ? "#ffd285" : "#FFFFFF"} />
                         </button>
                     </div>
 
@@ -118,8 +131,8 @@
                 </div>
             {/each}
         </div>
-    {/if}
-</div>
+    </div>
+{/if}
 
 <style>
     .new-release-radar {

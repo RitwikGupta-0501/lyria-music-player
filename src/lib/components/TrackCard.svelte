@@ -1,145 +1,139 @@
 <script lang="ts">
-    import { libraryStore, type Album, type SavedAlbum } from "$lib/stores/library.svelte";
-    import { exploreStore } from "$lib/stores/explore.svelte";
-    import { convertFileSrc } from "@tauri-apps/api/core";
+    import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
+    import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { Disc, Play, Heart } from "phosphor-svelte";
+    import { resolveCoverArt } from "$lib/utils/media";
+    import { Play, Heart, MusicNotes } from "phosphor-svelte";
 
-    let { 
-        album, 
-        selected = false, 
-        onclick 
-    } = $props<{ 
-        album: Album | SavedAlbum | any; 
-        selected?: boolean; 
-        onclick: () => void 
+    let {
+        track,
+        selected = false,
+        onclick,
+        onplay
+    } = $props<{
+        track: FederatedTrack | any;
+        selected?: boolean;
+        onclick: () => void;
+        onplay?: () => void;
     }>();
 
-    let isSaved = $derived(libraryStore.isAlbumSaved(String(album.id), album.title, album.artist));
-
-    let artUrl = $derived.by(() => {
-        if (album.cover_art_url) {
-            return album.cover_art_url;
-        }
-        if (album.cover_art_path) {
-            return convertFileSrc(album.cover_art_path);
-        }
-        return null;
-    });
+    let title = $derived(track.title || "Unknown Track");
+    let artist = $derived(track.artist || "Unknown Artist");
+    let artUrl = $derived(resolveCoverArt(track.cover_art_url || track.cover_art_path));
+    let isLiked = $derived(
+        track.liked !== undefined 
+            ? track.liked 
+            : libraryStore.isLikedSong(track.canonical_key || getCanonicalKey(track))
+    );
 
     function handlePlayClick(e: MouseEvent) {
         e.stopPropagation();
-        if (album.provider_id && album.provider_id !== "local") {
-            exploreStore.playAlbum({
-                id: String(album.id),
-                title: album.title,
-                artist: album.artist || "Unknown Artist",
-                cover_art_url: album.cover_art_url,
-                provider_id: album.provider_id,
-            });
-        } else if (typeof album.id === "number") {
-            libraryStore.playAlbum(album.id);
+        if (onplay) {
+            onplay();
+        } else {
+            onclick();
         }
     }
 
     function handleLikeClick(e: MouseEvent) {
         e.stopPropagation();
-        libraryStore.toggleSaveAlbum({
-            id: String(album.id),
-            title: album.title,
-            artist: album.artist,
-            cover_art_url: album.cover_art_url || artUrl,
-            provider_id: album.provider_id || "local",
-        });
+        if (typeof homeStore.toggleLike === "function" && track.canonical_key) {
+            homeStore.toggleLike(track);
+        } else {
+            libraryStore.toggleLike({
+                canonical_key: track.canonical_key || getCanonicalKey(track),
+                title: track.title,
+                artist: track.artist || undefined,
+                album: track.album || undefined,
+                cover_art_url: track.cover_art_url || undefined,
+                provider_id: track.last_provider_id || track.provider_id || "youtube-wasm",
+                id: track.last_source_id || track.id || undefined,
+                duration_ms: track.duration_ms || undefined,
+            });
+        }
     }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="album-card group {selected ? 'selected' : ''}" {onclick}>
+<div 
+    class="track-card group {selected ? 'selected' : ''}" 
+    {onclick}
+>
     <div class="art-container">
         {#if artUrl}
-            <img
-                src={artUrl}
-                alt={album.title}
-                class="art-img"
-                loading="lazy"
+            <img 
+                src={artUrl} 
+                alt={title} 
+                class="art-img" 
+                loading="lazy" 
             />
         {:else}
             <div class="art-placeholder">
-                <Disc
-                    size={48}
-                    weight="thin"
-                    color="rgba(255, 255, 255, 0.35)"
-                />
+                <MusicNotes size={56} weight="thin" color="rgba(255, 255, 255, 0.35)" />
             </div>
         {/if}
 
         <div class="play-overlay">
-            <button
+            <button 
                 type="button"
                 class="play-btn"
                 onclick={handlePlayClick}
-                title="Play album"
-                aria-label="Play album"
+                title="Play track"
+                aria-label="Play track"
             >
                 <Play weight="fill" size={18} />
             </button>
         </div>
 
-        <button
+        <button 
             type="button"
-            class="liquid-like-btn"
+            class="liquid-like-btn" 
             class:is-glass={settingsStore.glassyPlayerBar}
-            class:liked={isSaved}
+            class:liked={isLiked}
             onclick={handleLikeClick}
-            title={isSaved ? "Saved" : "Save album"}
-            aria-label={isSaved ? "Unsave album" : "Save album"}
+            title={isLiked ? "Liked" : "Like track"}
+            aria-label={isLiked ? "Unlike track" : "Like track"}
         >
-            <Heart
-                size={16}
-                weight={isSaved ? "fill" : "bold"}
-                color={isSaved ? "#ffd285" : "#FFFFFF"}
-            />
+            <Heart size={16} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "#FFFFFF"} />
         </button>
 
-        {#if album.provider_id && album.provider_id !== "local"}
+        {#if track.last_provider_id && track.last_provider_id !== "local"}
             <span class="provider-badge">YouTube</span>
         {/if}
     </div>
 
     <div class="card-info">
-        <span class="card-title" title={album.title}>{album.title}</span>
-        <span class="card-artist" title={album.artist}>{album.artist || "Unknown Artist"}</span>
+        <span class="card-title" title={title}>{title}</span>
+        <span class="card-artist" title={artist}>{artist}</span>
     </div>
 </div>
 
 <style>
-    .album-card {
+    .track-card {
         cursor: pointer;
         display: flex;
         flex-direction: column;
         align-items: flex-start;
         justify-content: flex-start;
         align-self: flex-start;
-        width: 100%;
-        min-width: 0;
+        width: 176px;
+        min-width: 176px;
+        flex: 0 0 176px;
         gap: 0.6rem;
         text-align: left;
         margin: 0;
         padding: 0;
     }
 
-    .album-card.selected .art-container {
+    .track-card.selected .art-container {
         border-color: var(--echo-primary);
-        box-shadow:
-            0 0 0 2px var(--echo-primary),
-            0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 0 0 2px var(--echo-primary), 0 10px 15px -3px rgba(0, 0, 0, 0.5);
     }
 
     .art-container {
-        width: 100%;
-        aspect-ratio: 1;
+        width: 176px;
+        height: 176px;
         border-radius: 12px;
         background-color: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -152,7 +146,7 @@
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .album-card:hover .art-container {
+    .track-card:hover .art-container {
         border-color: rgba(181, 142, 98, 0.35);
         box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.6);
     }
@@ -168,7 +162,7 @@
         transition: transform 0.55s cubic-bezier(0.05, 0.75, 0.15, 1);
     }
 
-    .album-card:hover .art-img {
+    .track-card:hover .art-img {
         transform: scale(1.05);
     }
 
@@ -197,7 +191,7 @@
         transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .album-card:hover .play-overlay {
+    .track-card:hover .play-overlay {
         opacity: 1;
         pointer-events: auto;
     }
@@ -220,7 +214,7 @@
         transition: transform 0.2s ease, background-color 0.2s ease;
     }
 
-    .album-card:hover .play-btn {
+    .track-card:hover .play-btn {
         transform: scale(1);
     }
 
@@ -259,12 +253,7 @@
         transform: scale(0.85) translateZ(0);
         backface-visibility: hidden;
         pointer-events: none;
-        transition:
-            opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-            transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-            background 0.2s ease,
-            border-color 0.2s ease,
-            box-shadow 0.2s ease;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         z-index: 20;
     }
 
@@ -279,7 +268,7 @@
             0 4px 12px rgba(0, 0, 0, 0.35);
     }
 
-    .album-card:hover .liquid-like-btn,
+    .track-card:hover .liquid-like-btn,
     .liquid-like-btn.liked {
         opacity: 1;
         transform: scale(1);

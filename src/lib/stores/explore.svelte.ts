@@ -1,3 +1,4 @@
+import { homeStore } from "$lib/stores/home.svelte";
 
 export interface UserRegionInfo {
     countryCode: string;
@@ -237,13 +238,19 @@ export const AVAILABLE_SOURCES: SourceOption[] = [
     { id: "youtube-wasm", name: "YouTube Music", badge: "WASM" },
 ];
 
+export interface CategoryShelf {
+    title: string;
+    items: PlaylistItem[];
+}
+
 export type ModuleItem =
     | { type: "Track"; data: TrackResult }
     | { type: "Album"; data: AlbumItem }
     | { type: "Playlist"; data: PlaylistItem }
     | { type: "Genre"; data: GenreItem }
     | { type: "Artist"; data: ArtistItem }
-    | { type: "Spotlight"; data: EditorialSpotlight };
+    | { type: "Spotlight"; data: EditorialSpotlight }
+    | { type: "Shelf"; data: CategoryShelf };
 
 export interface ModuleData {
     items: ModuleItem[];
@@ -303,6 +310,7 @@ const DEFAULT_REGIONAL_CHARTS: TrackResult[] = [
 
 export class ExploreStore {
     userRegion = $state<UserRegionInfo>(getUserRegionInfo());
+    spotlightPool = $state<EditorialSpotlight[]>([]);
     spotlights = $state<EditorialSpotlight[]>([]);
     activeSpotlightIndex = $state<number>(0);
     categoryGrid = $state<GenreItem[]>([]);
@@ -316,6 +324,9 @@ export class ExploreStore {
 
     activeCategory = $state<GenreItem | null>(null);
     categoryTracks = $state<TrackResult[]>([]);
+    categoryPlaylists = $state<PlaylistItem[]>([]);
+    categoryAlbums = $state<AlbumItem[]>([]);
+    categoryShelves = $state<CategoryShelf[]>([]);
 
     searchQuery = $state("");
     activeSearchFilter = $state<string>("all"); // "all", "songs", "albums", "artists", "playlists"
@@ -790,10 +801,21 @@ export class ExploreStore {
                 ? settingsStore.defaultRemoteProvider
                 : "youtube-wasm");
 
+        if ((artist as any).avatar_url && artistName) {
+            invoke("save_artist_metadata", {
+                id: artist.id || artistName,
+                name: artistName,
+                avatarUrl: (artist as any).avatar_url,
+                bio: null,
+                providerId: pId,
+            }).catch(() => {});
+        }
+
         // Immediately navigate with provisional state
         this.selectedArtist = {
             id: artist.id,
             name: artistName,
+            avatar_url: (artist as any).avatar_url,
             top_tracks: [],
             albums: [],
             singles: [],
@@ -884,6 +906,34 @@ export class ExploreStore {
 
             if (res) {
                 this.selectedArtist = res;
+                const canonicalName = res.name || artistName;
+                const portrait = res.avatar_url || (artist as any).avatar_url || null;
+
+                // 1. In-memory real-time reactivity for Home shelves
+                homeStore.updateArtistMetadata(artistName, canonicalName, portrait);
+
+                // 2. Persist canonical record & query alias to SQLite
+                if (portrait || canonicalName) {
+                    // Canonical ID record
+                    invoke("save_artist_metadata", {
+                        id: res.id || canonicalName,
+                        name: canonicalName,
+                        avatarUrl: portrait,
+                        bio: res.bio || null,
+                        providerId: pId,
+                    }).catch(() => {});
+
+                    // Query alias record (e.g. "and Shekhar Ravjian" -> "Shekhar Ravjiani")
+                    if (artistName.toLowerCase() !== canonicalName.toLowerCase()) {
+                        invoke("save_artist_metadata", {
+                            id: artistName,
+                            name: canonicalName,
+                            avatarUrl: portrait,
+                            bio: res.bio || null,
+                            providerId: pId,
+                        }).catch(() => {});
+                    }
+                }
             }
         } catch (e) {
             console.error("Failed to browse artist:", e);
@@ -994,10 +1044,13 @@ export class ExploreStore {
     }
 
     async init(force = false) {
-        if (this.isLoaded && !force && this.lastFetchedAt && (Date.now() - this.lastFetchedAt < this.CACHE_TTL_MS) && this.rankedTracks.length > 0) {
-            return;
+        const hasWarmCache = !force && this.loadFeedFromStorage();
+        if (hasWarmCache) {
+            this.isLoading = false;
         }
-        await this.loadExplore(force);
+        if (!this.isLoaded || !hasWarmCache || force) {
+            await this.loadExplore(force);
+        }
     }
 
     setSearchQuery(query: string) {
@@ -1126,6 +1179,21 @@ export class ExploreStore {
                     }
                 }));
 
+            // Cache any resolved artist portraits in background
+            for (const rSec of remoteSectionsRaw) {
+                for (const item of rSec.items) {
+                    if (item.type === "Artist" && item.data.name && item.data.avatar_url) {
+                        invoke("save_artist_metadata", {
+                            id: item.data.id || item.data.name,
+                            name: item.data.name,
+                            avatarUrl: item.data.avatar_url,
+                            bio: null,
+                            providerId: "youtube-wasm",
+                        }).catch(() => {});
+                    }
+                }
+            }
+
             // 4. Merge Sections: Prepend local items to Songs & Albums shelves
             const combinedSections: SearchCategorySection[] = [];
             let songsAdded = false;
@@ -1216,6 +1284,80 @@ export class ExploreStore {
         }
     }
 
+    private computeSpotlightDeck(pool: EditorialSpotlight[], forceAdvance = false) {
+        if (!pool || pool.length === 0) {
+            this.spotlights = [];
+            return;
+        }
+        if (pool.length <= 6) {
+            this.spotlights = pool;
+            return;
+        }
+
+        const now = Date.now();
+        const ONE_HOUR = 60 * 60 * 1000;
+        let lastVisit = 0;
+        let offset = 0;
+
+        try {
+            lastVisit = parseInt(localStorage.getItem("echo_spotlight_last_visit") || "0", 10);
+            offset = parseInt(localStorage.getItem("echo_spotlight_offset") || "0", 10);
+        } catch (_) {}
+
+        if (forceAdvance || (now - lastVisit > ONE_HOUR)) {
+            offset = (offset + 6) % pool.length;
+            try {
+                localStorage.setItem("echo_spotlight_offset", offset.toString());
+                localStorage.setItem("echo_spotlight_last_visit", now.toString());
+            } catch (_) {}
+        }
+
+        const deck: EditorialSpotlight[] = [];
+        const count = Math.min(6, pool.length);
+        for (let i = 0; i < count; i++) {
+            deck.push(pool[(offset + i) % pool.length]);
+        }
+        this.spotlights = deck;
+    }
+
+    private saveFeedToStorage() {
+        try {
+            const feedPayload = {
+                timestamp: Date.now(),
+                spotlightPool: this.spotlightPool,
+                categoryGrid: this.categoryGrid,
+                newReleases2x2: this.newReleases2x2,
+                trendingAlbums: this.trendingAlbums,
+                rankedTracks: this.rankedTracks,
+            };
+            localStorage.setItem("echo_explore_feed_cache", JSON.stringify(feedPayload));
+        } catch (_) {}
+    }
+
+    private loadFeedFromStorage(): boolean {
+        try {
+            const raw = localStorage.getItem("echo_explore_feed_cache");
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            const now = Date.now();
+            const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+            if (data && data.timestamp && (now - data.timestamp < TWENTY_FOUR_HOURS)) {
+                if (data.spotlightPool && data.spotlightPool.length > 0) {
+                    this.spotlightPool = data.spotlightPool;
+                    this.computeSpotlightDeck(this.spotlightPool, false);
+                }
+                if (data.categoryGrid) this.categoryGrid = data.categoryGrid;
+                if (data.newReleases2x2) this.newReleases2x2 = data.newReleases2x2;
+                if (data.trendingAlbums) this.trendingAlbums = data.trendingAlbums;
+                if (data.rankedTracks) this.rankedTracks = data.rankedTracks;
+                this.isLoaded = true;
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
     async loadExplore(force = false) {
         if (this.isLoading) return;
         if (!this.isLoaded) {
@@ -1236,6 +1378,7 @@ export class ExploreStore {
                     const data = await invoke<ModuleData>("fetch_provider_module", {
                         providerId: agg.provider_id,
                         moduleId: agg.module.id,
+                        forceRefresh: force,
                     });
 
                     if (data && data.items) {
@@ -1281,8 +1424,9 @@ export class ExploreStore {
                 }
             }
 
-            this.spotlights = allSpotlights;
-            if (this.spotlights.length > 0) {
+            this.spotlightPool = allSpotlights;
+            this.computeSpotlightDeck(this.spotlightPool, force);
+            if (this.spotlights.length > 0 && this.activeSpotlightIndex >= this.spotlights.length) {
                 this.activeSpotlightIndex = 0;
             }
 
@@ -1306,8 +1450,9 @@ export class ExploreStore {
                 : allAlbums.filter(a => !this.newReleases2x2.some(nr => nr.id === a.id));
             this.isLoaded = true;
             this.lastFetchedAt = Date.now();
+            this.saveFeedToStorage();
         } catch (e) {
-            console.error("Failed to load explore feed:", e);
+            console.error("Failed to load explore feed:", e instanceof Error ? e.message : (typeof e === "object" ? JSON.stringify(e) : String(e)));
         } finally {
             this.isLoading = false;
         }
@@ -1397,23 +1542,69 @@ export class ExploreStore {
 
         try {
             const pId = category.provider_id || "youtube-wasm";
-            const endpoint = category.endpoint_params || category.id;
+            const moduleId = category.id || `FEmusic_moods_and_genres_category:${category.endpoint_params || category.title}`;
             
             const data = await invoke<ModuleData>("fetch_provider_module", {
                 providerId: pId,
-                moduleId: endpoint,
+                moduleId: moduleId,
             });
 
-            if (data && data.items) {
+            if (data && data.items && data.items.length > 0) {
                 this.categoryTracks = data.items
                     .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
                     .map(i => ({
                         ...i.data,
                         provider_id: pId,
                     }));
+
+                this.categoryPlaylists = data.items
+                    .filter((i): i is { type: "Playlist"; data: PlaylistItem } => i.type === "Playlist")
+                    .map(i => ({
+                        ...i.data,
+                        provider_id: pId,
+                    }));
+
+                this.categoryAlbums = data.items
+                    .filter((i): i is { type: "Album"; data: AlbumItem } => i.type === "Album")
+                    .map(i => ({
+                        ...i.data,
+                        provider_id: pId,
+                    }));
+
+                this.categoryShelves = data.items
+                    .filter((i): i is { type: "Shelf"; data: CategoryShelf } => i.type === "Shelf")
+                    .map(i => ({
+                        title: i.data.title,
+                        items: i.data.items.map(pl => ({ ...pl, provider_id: pId })),
+                    }));
+            } else {
+                const fallbackTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: pId,
+                    query: `Top ${category.title} Songs`,
+                });
+                if (fallbackTracks) {
+                    this.categoryTracks = fallbackTracks.map(t => ({
+                        ...t,
+                        provider_id: pId,
+                    }));
+                }
             }
         } catch (e) {
-            console.error(`Failed to load tracks for category ${category.title}:`, e);
+            console.error(`Failed to load category via endpoint: ${category.title}:`, e);
+            try {
+                const fallbackTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: category.provider_id || "youtube-wasm",
+                    query: `Top ${category.title} Songs`,
+                });
+                if (fallbackTracks) {
+                    this.categoryTracks = fallbackTracks.map(t => ({
+                        ...t,
+                        provider_id: category.provider_id || "youtube-wasm",
+                    }));
+                }
+            } catch (err) {
+                console.error("Fallback search failed:", err);
+            }
         } finally {
             this.isCategoryLoading = false;
         }
@@ -1422,6 +1613,9 @@ export class ExploreStore {
     closeCategory() {
         this.activeCategory = null;
         this.categoryTracks = [];
+        this.categoryPlaylists = [];
+        this.categoryAlbums = [];
+        this.categoryShelves = [];
     }
 
     async playTrack(track: TrackResult, providerId?: string) {
@@ -1481,19 +1675,71 @@ export class ExploreStore {
         }
     }
 
-    async playAlbum(album: AlbumItem) {
+    async playAlbum(album: { id: string; title?: string; artist?: string; cover_art_url?: string | null; provider_id?: string }) {
         const pId = album.provider_id || "youtube-wasm";
+        const albumTitle = album.title || "Album";
+        const albumArtist = album.artist || "Unknown Artist";
+
         try {
-            const tracks = await invoke<TrackResult[]>("search_provider", {
-                providerId: pId,
-                query: `${album.title} ${album.artist}`,
-            });
-            if (tracks && tracks.length > 0) {
+            let res: AlbumDetailResult | null = null;
+            if (album.id && (album.id.startsWith("MPRE") || album.id.startsWith("OLAK") || album.id.startsWith("VL") || album.id.startsWith("FE"))) {
+                res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                    providerId: pId,
+                    albumId: album.id,
+                }).catch(() => null);
+            }
+
+            if (!res || !res.tracks || res.tracks.length === 0) {
+                const searchQuery = `${albumArtist} ${albumTitle}`.trim();
+                const searchRes = await invoke<CategorizedSearchResult>("search_provider_categorized", {
+                    providerId: pId,
+                    query: searchQuery,
+                    filter: "albums",
+                }).catch(() => null);
+
+                let remoteAlbumId: string | null = null;
+                if (searchRes && searchRes.sections) {
+                    for (const sec of searchRes.sections) {
+                        for (const item of sec.items) {
+                            if (item.type === "Album" && item.data.id) {
+                                remoteAlbumId = item.data.id;
+                                break;
+                            }
+                            if (item.type === "TopResult" && item.data.item_type === "album" && item.data.id) {
+                                remoteAlbumId = item.data.id;
+                                break;
+                            }
+                        }
+                        if (remoteAlbumId) break;
+                    }
+                }
+
+                if (remoteAlbumId) {
+                    res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                        providerId: pId,
+                        albumId: remoteAlbumId,
+                    }).catch(() => null);
+                }
+            }
+
+            let tracks: TrackResult[] = [];
+            if (res && res.tracks && res.tracks.length > 0) {
+                tracks = res.tracks;
+            } else {
+                const searchTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: pId,
+                    query: `${albumTitle} ${albumArtist}`,
+                }).catch(() => []);
+                tracks = searchTracks || [];
+            }
+
+            if (tracks.length > 0) {
                 const canonicalTracks = tracks.map(t => ({
                     id: t.id,
+                    remote_track_id: t.id,
                     title: t.title,
-                    artist: t.artist || album.artist,
-                    album: t.album || album.title,
+                    artist: t.artist || albumArtist,
+                    album: t.album || albumTitle,
                     duration_ms: t.duration_ms || 210000,
                     cover_art_url: t.cover_art_url || album.cover_art_url || undefined,
                     provider_id: pId,
@@ -1501,7 +1747,50 @@ export class ExploreStore {
                 await audioStore.setQueue(canonicalTracks, 0);
             }
         } catch (e) {
-            console.error("Failed to play album:", e);
+            console.error("Failed to play album immediately:", e);
+        }
+    }
+
+    async playPlaylist(playlist: { id: string; title?: string; author?: string; cover_art_url?: string | null; provider_id?: string }) {
+        const pId = playlist.provider_id || "youtube-wasm";
+        const playlistTitle = playlist.title || "Playlist";
+        const playlistAuthor = playlist.author || "Curated Playlist";
+
+        try {
+            let res: AlbumDetailResult | null = null;
+            if (playlist.id) {
+                res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                    providerId: pId,
+                    albumId: playlist.id,
+                }).catch(() => null);
+            }
+
+            let tracks: TrackResult[] = [];
+            if (res && res.tracks && res.tracks.length > 0) {
+                tracks = res.tracks;
+            } else {
+                const searchTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: pId,
+                    query: `${playlistTitle} playlist`,
+                }).catch(() => []);
+                tracks = searchTracks || [];
+            }
+
+            if (tracks.length > 0) {
+                const canonicalTracks = tracks.map(t => ({
+                    id: t.id,
+                    remote_track_id: t.id,
+                    title: t.title,
+                    artist: t.artist || playlistAuthor,
+                    album: t.album || playlistTitle,
+                    duration_ms: t.duration_ms || 210000,
+                    cover_art_url: t.cover_art_url || playlist.cover_art_url || undefined,
+                    provider_id: pId,
+                }));
+                await audioStore.setQueue(canonicalTracks, 0);
+            }
+        } catch (e) {
+            console.error("Failed to play playlist immediately:", e);
         }
     }
 }
