@@ -977,16 +977,60 @@ impl RecommendationCompiler {
             }
 
             let source = if let Some(local_id) = s.local_track_id {
-                TrackSourceInfo::Local {
-                    track_id: local_id,
-                    file_path: s.local_file_path.unwrap_or_default(),
-                    album_id: None,
+                if let Some(ref fp) = s.local_file_path {
+                    if !fp.is_empty() {
+                        TrackSourceInfo::Local {
+                            track_id: local_id,
+                            file_path: fp.clone(),
+                            album_id: None,
+                        }
+                    } else {
+                        TrackSourceInfo::Remote {
+                            provider_id: if s.last_provider_id == "local" || s.last_provider_id.is_empty() { "youtube-wasm".to_string() } else { s.last_provider_id },
+                            remote_track_id: s.last_source_id,
+                            stream_url: None,
+                            quality_hint: None,
+                            cover_art_url: resolved_cover.clone(),
+                            duration_ms: s.duration_ms,
+                        }
+                    }
+                } else {
+                    TrackSourceInfo::Remote {
+                        provider_id: if s.last_provider_id == "local" || s.last_provider_id.is_empty() { "youtube-wasm".to_string() } else { s.last_provider_id },
+                        remote_track_id: s.last_source_id,
+                        stream_url: None,
+                        quality_hint: None,
+                        cover_art_url: resolved_cover.clone(),
+                        duration_ms: s.duration_ms,
+                    }
                 }
             } else if s.last_provider_id == "local" || s.last_provider_id.is_empty() {
-                TrackSourceInfo::Local {
-                    track_id: 0,
-                    file_path: s.local_file_path.unwrap_or_default(),
-                    album_id: None,
+                if let Some(ref fp) = s.local_file_path {
+                    if !fp.is_empty() {
+                        TrackSourceInfo::Local {
+                            track_id: 0,
+                            file_path: fp.clone(),
+                            album_id: None,
+                        }
+                    } else {
+                        TrackSourceInfo::Remote {
+                            provider_id: "youtube-wasm".to_string(),
+                            remote_track_id: s.last_source_id,
+                            stream_url: None,
+                            quality_hint: None,
+                            cover_art_url: resolved_cover.clone(),
+                            duration_ms: s.duration_ms,
+                        }
+                    }
+                } else {
+                    TrackSourceInfo::Remote {
+                        provider_id: "youtube-wasm".to_string(),
+                        remote_track_id: s.last_source_id,
+                        stream_url: None,
+                        quality_hint: None,
+                        cover_art_url: resolved_cover.clone(),
+                        duration_ms: s.duration_ms,
+                    }
                 }
             } else {
                 TrackSourceInfo::Remote {
@@ -1082,6 +1126,7 @@ mod tests {
             stream_url: None,
             quality_hint: None,
             duration_ms: None,
+            plays: None,
         };
 
         // Cache valid with 3600s TTL

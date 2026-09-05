@@ -732,7 +732,7 @@ pub fn get_canonical_quick_picks(conn: &Connection, mood: Option<&str>, limit: u
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE 1=1 {}
          ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0) - (COALESCE(julianday('now') - julianday(st.last_played_at), 0.0) * 0.2)) DESC, st.last_played_at DESC
          LIMIT ?1",
@@ -834,7 +834,7 @@ pub fn get_canonical_keep_listening(conn: &Connection, mood: Option<&str>, limit
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE st.last_played_at >= datetime('now', '-14 days') {}
          ORDER BY st.last_played_at DESC
          LIMIT ?1",
@@ -855,7 +855,7 @@ pub fn get_canonical_forgotten_favorites(conn: &Connection, mood: Option<&str>, 
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE (st.play_count >= 2 OR st.liked = 1)
            AND (st.last_played_at IS NULL OR st.last_played_at <= datetime('now', '-30 days')) {}
          ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0)) DESC
@@ -876,7 +876,7 @@ pub fn get_canonical_liked_songs(conn: &Connection, limit: usize) -> SqlResult<V
     let mut stmt = conn.prepare(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE st.liked = 1
          ORDER BY st.last_played_at DESC
          LIMIT ?1"
@@ -895,7 +895,7 @@ pub fn get_canonical_discover_seeds(conn: &Connection, mood: Option<&str>, limit
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE (st.liked = 1 OR st.play_count >= 1) {}
          ORDER BY (
              (st.liked * 4.0) +
@@ -1831,4 +1831,212 @@ pub fn set_feature_flag(
 pub fn reset_feature_flags(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
     conn.execute("DELETE FROM feature_flags", [])?;
     Ok(())
+}
+
+
+pub fn get_markov_autoplay_candidate(
+    conn: &rusqlite::Connection,
+    seed_artist: Option<&str>,
+    seed_album_id: Option<i64>,
+    seed_track_id: Option<i64>,
+    seed_file_path: Option<&str>,
+    seed_duration_ms: Option<u64>,
+) -> Result<Option<LocalTrack>, rusqlite::Error> {
+    use rand::Rng;
+
+    let mut stmt = conn.prepare(
+        "SELECT 
+            t.id, 
+            t.title, 
+            t.artist, 
+            t.album_id, 
+            t.track_number, 
+            t.file_path,
+            a.title as album_title,
+            COALESCE(st.play_count, 0) as play_count,
+            st.last_played_at,
+            COALESCE(st.liked, 0) as liked,
+            COALESCE(st.duration_ms, 0) as duration_ms,
+            CASE 
+                WHEN st.last_played_at IS NOT NULL AND st.last_played_at >= datetime('now', '-120 minutes') THEN 1 
+                ELSE 0 
+            END as recently_played_120m,
+            CASE 
+                WHEN st.last_played_at IS NOT NULL THEN (julianday('now') - julianday(st.last_played_at)) * 24.0
+                ELSE 999.0
+            END as hours_since_played
+        FROM tracks t
+        LEFT JOIN albums a ON t.album_id = a.id
+        LEFT JOIN song_telemetry st ON (st.local_track_id = t.id OR st.canonical_key = (LOWER(TRIM(COALESCE(t.artist, ''))) || '::' || LOWER(TRIM(t.title))))"
+    )?;
+
+    struct InternalMarkovCandidate {
+        track: LocalTrack,
+        #[allow(dead_code)]
+        album_title: Option<String>,
+        play_count: i64,
+        liked: bool,
+        duration_ms: u64,
+        recently_played_120m: bool,
+        hours_since_played: f64,
+    }
+
+    let rows = stmt.query_map([], |row| {
+        Ok(InternalMarkovCandidate {
+            track: LocalTrack {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album_id: row.get(3)?,
+                track_number: row.get(4)?,
+                file_path: row.get(5)?,
+            },
+            album_title: row.get(6)?,
+            play_count: row.get(7)?,
+            liked: row.get::<_, i64>(9)? == 1,
+            duration_ms: row.get::<_, i64>(10)? as u64,
+            recently_played_120m: row.get::<_, i64>(11)? == 1,
+            hours_since_played: row.get::<_, f64>(12)?,
+        })
+    })?;
+
+    let mut pool: Vec<InternalMarkovCandidate> = Vec::new();
+    for r in rows {
+        let cand = r?;
+        if let Some(s_id) = seed_track_id {
+            if cand.track.id == s_id {
+                continue;
+            }
+        }
+        if let Some(s_fp) = seed_file_path {
+            if cand.track.file_path == s_fp {
+                continue;
+            }
+        }
+        pool.push(cand);
+    }
+
+    if pool.is_empty() {
+        return Ok(None);
+    }
+
+    let filtered_pool: Vec<InternalMarkovCandidate> = pool
+        .iter()
+        .filter(|c| !c.recently_played_120m)
+        .map(|c| InternalMarkovCandidate {
+            track: c.track.clone(),
+            album_title: c.album_title.clone(),
+            play_count: c.play_count,
+            liked: c.liked,
+            duration_ms: c.duration_ms,
+            recently_played_120m: c.recently_played_120m,
+            hours_since_played: c.hours_since_played,
+        })
+        .collect();
+
+    let candidate_pool = if filtered_pool.len() >= 3 {
+        filtered_pool
+    } else {
+        pool
+    };
+
+    let s_artist_lower = seed_artist.map(|a| a.trim().to_lowercase()).unwrap_or_default();
+    let mut rng = rand::thread_rng();
+
+    let mut scored: Vec<(LocalTrack, f64)> = candidate_pool
+        .into_iter()
+        .map(|c| {
+            let mut score: f64 = 0.0;
+
+            // 1. Artist Affinity (weight 40)
+            if let Some(cand_artist) = &c.track.artist {
+                let cand_artist_lower = cand_artist.trim().to_lowercase();
+                if !s_artist_lower.is_empty() && cand_artist_lower == s_artist_lower {
+                    score += 40.0;
+                } else if !s_artist_lower.is_empty() && (cand_artist_lower.contains(&s_artist_lower) || s_artist_lower.contains(&cand_artist_lower)) {
+                    score += 20.0;
+                }
+            }
+
+            // 2. Album Affinity (weight 20)
+            if seed_album_id.is_some() && seed_album_id == c.track.album_id {
+                score += 20.0;
+            }
+
+            // 3. Genre / Lexical Affinity (weight 30)
+            if let Some(cand_artist) = &c.track.artist {
+                if !s_artist_lower.is_empty() {
+                    let first_s = s_artist_lower.split_whitespace().next().unwrap_or("");
+                    let first_c = cand_artist.trim().to_lowercase();
+                    if !first_s.is_empty() && first_c.contains(first_s) {
+                        score += 15.0;
+                    }
+                }
+            }
+
+            // 4. Duration Affinity (weight 10)
+            if let Some(s_dur) = seed_duration_ms {
+                if s_dur > 0 && c.duration_ms > 0 {
+                    let diff = (s_dur as f64 - c.duration_ms as f64).abs();
+                    let ratio = (1.0 - (diff / 180000.0)).clamp(0.0, 1.0);
+                    score += 10.0 * ratio;
+                } else {
+                    score += 5.0;
+                }
+            } else {
+                score += 5.0;
+            }
+
+            // 5. Liked Bonus (+15)
+            if c.liked {
+                score += 15.0;
+            }
+
+            // 6. Play Count Bonus (+ up to 15)
+            let play_count_bonus = ((c.play_count as f64 + 1.0).ln() * 3.75).min(15.0);
+            score += play_count_bonus;
+
+            // 7. Recency Penalty (subtraction up to 20 if played in last 24h)
+            if c.hours_since_played < 24.0 {
+                let recency_penalty = 20.0 * (1.0 - (c.hours_since_played / 24.0));
+                score -= recency_penalty;
+            }
+
+            // 8. Exploration Jitter / Noise (0.0..5.0)
+            let noise: f64 = rng.gen_range(0.0..5.0);
+            score += noise;
+
+            let final_score = score.max(0.1);
+            (c.track, final_score)
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(15);
+
+    if scored.is_empty() {
+        return Ok(None);
+    }
+
+    let max_score = scored[0].1;
+    let temp = 0.7 * 20.0;
+    let weights: Vec<f64> = scored
+        .iter()
+        .map(|(_, s)| ((s - max_score) / temp).exp())
+        .collect();
+
+    let total_weight: f64 = weights.iter().sum();
+    if total_weight <= 0.0 {
+        return Ok(Some(scored[0].0.clone()));
+    }
+
+    let mut sample_target = rng.gen_range(0.0..total_weight);
+    for (i, w) in weights.iter().enumerate() {
+        if sample_target <= *w {
+            return Ok(Some(scored[i].0.clone()));
+        }
+        sample_target -= *w;
+    }
+
+    Ok(Some(scored.last().unwrap().0.clone()))
 }

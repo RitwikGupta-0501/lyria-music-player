@@ -97,6 +97,7 @@ commands.allow = [
     "get_home_adjacent_horizons",
     "get_home_adjacent_horizon",
     "get_radio_stream",
+    "resolve_autoplay_next_track",
     "clear_recommendations_cache",
     "get_explore_feed",
     "resolve_stream_url",

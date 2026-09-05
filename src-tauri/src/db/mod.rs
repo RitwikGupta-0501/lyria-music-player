@@ -159,6 +159,14 @@ pub enum DbRequest {
     ResetFeatureFlags {
         resp: oneshot::Sender<Result<(), String>>,
     },
+    GetMarkovAutoplayCandidate {
+        seed_artist: Option<String>,
+        seed_album_id: Option<i64>,
+        seed_track_id: Option<i64>,
+        seed_file_path: Option<String>,
+        seed_duration_ms: Option<u64>,
+        resp: oneshot::Sender<Result<Option<LocalTrack>, String>>,
+    },
     Quit,
 }
 
@@ -362,6 +370,17 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::ResetFeatureFlags { resp } => {
                     let res = queries::reset_feature_flags(&conn).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetMarkovAutoplayCandidate { seed_artist, seed_album_id, seed_track_id, seed_file_path, seed_duration_ms, resp } => {
+                    let res = queries::get_markov_autoplay_candidate(
+                        &conn,
+                        seed_artist.as_deref(),
+                        seed_album_id,
+                        seed_track_id,
+                        seed_file_path.as_deref(),
+                        seed_duration_ms,
+                    ).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
                 DbRequest::Quit => {

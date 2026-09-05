@@ -473,6 +473,14 @@ async fn get_home_adjacent_horizon(
 }
 
 #[tauri::command]
+async fn resolve_autoplay_next_track(
+    state: State<'_, AppState>,
+    seed: queue::QueueTrack,
+) -> Result<Option<queue::QueueTrack>, String> {
+    queue::autoplay::resolve_autoplay_next_track(&state, &seed).await
+}
+
+#[tauri::command]
 async fn get_radio_stream(
     state: State<'_, AppState>,
     #[allow(unused_variables)] provider_id: String,
@@ -1467,6 +1475,7 @@ pub fn run() {
             get_home_adjacent_horizons,
             get_home_adjacent_horizon,
             get_radio_stream,
+            resolve_autoplay_next_track,
             clear_recommendations_cache,
             record_track_play,
             toggle_track_like,

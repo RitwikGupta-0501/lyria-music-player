@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -168,7 +169,7 @@ pub struct ArtistDetailResult {
     pub provider_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CategorizedSearchResult {
     pub sections: Vec<SearchCategorySection>,
     pub continuation_token: Option<String>,
@@ -233,6 +234,8 @@ pub struct TrackResult {
     pub duration_ms: Option<u64>,
     #[serde(default)]
     pub isrc: Option<String>,
+    #[serde(default)]
+    pub plays: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -259,6 +262,8 @@ pub struct ProviderManager {
     pub search_semaphore: Arc<Semaphore>,
     pub explore_semaphore: Arc<Semaphore>,
     plugin_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<Plugin>>>>>,
+    search_epoch: Arc<AtomicU64>,
+    active_search_canceller: Arc<std::sync::Mutex<Option<extism::CancelHandle>>>,
 }
 
 impl ProviderManager {
@@ -271,6 +276,8 @@ impl ProviderManager {
             search_semaphore: Arc::new(Semaphore::new(4)),
             explore_semaphore: Arc::new(Semaphore::new(4)),
             plugin_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            search_epoch: Arc::new(AtomicU64::new(0)),
+            active_search_canceller: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -450,26 +457,76 @@ impl ProviderManager {
         tracing::info!("Evicted all active plugin instances from cache");
     }
 
-        pub async fn search_categorized(&self, provider_id: &str, input: &SearchQueryInput) -> Result<CategorizedSearchResult, SandboxError> {
+    pub async fn search_categorized(&self, provider_id: &str, input: &SearchQueryInput) -> Result<CategorizedSearchResult, SandboxError> {
         let provider_id = provider_id.to_string();
         let input_clone = input.clone();
         
-        tracing::info!("Categorized search for query '{}' (filter: {:?}) in {}", input.query, input.filter, provider_id);
+        let my_epoch = self.search_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        tracing::info!("Categorized search [epoch {}] for query '{}' (filter: {:?}) in {}", my_epoch, input.query, input.filter, provider_id);
+
+        // Cancel any currently in-flight WASM execution from an older search epoch
+        {
+            let mut canceller = self.active_search_canceller.lock().unwrap();
+            if let Some(handle) = canceller.take() {
+                let _ = handle.cancel();
+            }
+        }
         
         let _permit = self.search_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
             script: provider_id.clone(),
             message: "Semaphore closed".into(),
         })?;
 
+        // Fast-path bailout if superseded while acquiring semaphore
+        if self.search_epoch.load(Ordering::Relaxed) > my_epoch {
+            tracing::debug!("Search [epoch {}] superseded before semaphore acquisition, cancelling in 0ms", my_epoch);
+            return Ok(CategorizedSearchResult::default());
+        }
+
         let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
+        let search_epoch = self.search_epoch.clone();
+        let active_canceller = self.active_search_canceller.clone();
         
         let res_bytes = match spawn_blocking(move || {
+            // 1. Pre-lock epoch check
+            if search_epoch.load(Ordering::Relaxed) > my_epoch {
+                tracing::debug!("Search [epoch {}] superseded before lock, cancelling in 0ms", my_epoch);
+                return Ok(Vec::new());
+            }
+
             let mut plugin = plugin_arc.lock().unwrap();
+
+            // 2. Post-lock epoch check (after waiting for prior queued searches)
+            if search_epoch.load(Ordering::Relaxed) > my_epoch {
+                tracing::debug!("Search [epoch {}] superseded after acquiring lock, cancelling in 0ms", my_epoch);
+                return Ok(Vec::new());
+            }
+
+            // 3. Register cancel handle for the active execution
+            {
+                let cancel_handle = plugin.cancel_handle();
+                let mut guard = active_canceller.lock().unwrap();
+                *guard = Some(cancel_handle);
+            }
+
             let json_input = serde_json::to_vec(&input_clone).unwrap_or_default();
-            plugin.call::<&[u8], &[u8]>("search_categorized", &json_input).map(|res| res.to_vec())
+            let call_res = plugin.call::<&[u8], &[u8]>("search_categorized", &json_input).map(|res| res.to_vec());
+
+            // Clear cancel handle
+            {
+                let mut guard = active_canceller.lock().unwrap();
+                *guard = None;
+            }
+
+            call_res
         }).await {
             Ok(Ok(res)) => res,
             Ok(Err(e)) => {
+                // If cancelled by another thread, exit cleanly
+                if self.search_epoch.load(Ordering::Relaxed) > my_epoch {
+                    tracing::debug!("Search [epoch {}] cancelled mid-execution, bailing out cleanly", my_epoch);
+                    return Ok(CategorizedSearchResult::default());
+                }
                 tracing::error!("search_categorized plugin call failed for provider '{}': {}", provider_id, e);
                 self.invalidate_plugin_cache(&provider_id);
                 return Err(SandboxError::ScriptError {
@@ -486,6 +543,10 @@ impl ProviderManager {
                 });
             }
         };
+
+        if res_bytes.is_empty() {
+            return Ok(CategorizedSearchResult::default());
+        }
 
         let result: CategorizedSearchResult = serde_json::from_slice(&res_bytes).map_err(|e| {
             tracing::error!("Failed to parse categorized search results from provider '{}': {}", provider_id, e);
@@ -511,9 +572,10 @@ impl ProviderManager {
 
         let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
         
+        let query_for_search = query.clone();
         let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
-            let json_input = serde_json::to_vec(&query).unwrap_or_default();
+            let json_input = serde_json::to_vec(&query_for_search).unwrap_or_default();
             plugin.call::<&[u8], &[u8]>("search", &json_input).map(|res| res.to_vec())
         }).await {
             Ok(Ok(res)) => res,
@@ -535,15 +597,43 @@ impl ProviderManager {
             }
         };
 
-        let results: Vec<TrackResult> = serde_json::from_slice(&res_bytes).map_err(|e| {
-            tracing::error!("Failed to parse search results from provider '{}': {}", provider_id, e);
-            self.invalidate_plugin_cache(&provider_id);
-            SandboxError::ScriptError {
-                script: provider_id,
-                message: e.to_string(),
-            }
-        })?;
+        let mut results: Vec<TrackResult> = serde_json::from_slice(&res_bytes).unwrap_or_default();
         
+        // Fallback: If flat search returned 0 items, use search_categorized to extract items (including Top Result hero card)
+        if results.is_empty() {
+            if let Ok(categorized) = self.search_categorized(&provider_id, &SearchQueryInput {
+                query: query.clone(),
+                filter: None,
+            }).await {
+                for section in categorized.sections {
+                    for item in section.items {
+                        match item {
+                            SearchItem::TopResult(top) => {
+                                if top.item_type == "song" || top.item_type == "video" || top.item_type.is_empty() {
+                                    results.push(TrackResult {
+                                        id: top.id,
+                                        title: top.title,
+                                        artist: top.subtitle,
+                                        album: None,
+                                        cover_art_url: top.cover_art_url,
+                                        stream_url: None,
+                                        quality_hint: None,
+                                        duration_ms: None,
+                                        isrc: None,
+                                        plays: None,
+                                    });
+                                }
+                            }
+                            SearchItem::Track(t) => {
+                                results.push(t);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(results)
     }
 
@@ -933,6 +1023,7 @@ mod provider_unit_tests {
             quality_hint: Some("#1".to_string()),
             duration_ms: Some(180000),
             isrc: None,
+            plays: None,
         });
 
         let json_track = serde_json::to_string(&track_item).unwrap();
