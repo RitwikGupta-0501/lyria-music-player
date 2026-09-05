@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "echo-desktop",
+  "productName": "Echo",
   "version": "0.1.0",
   "identifier": "com.ritwik.echo-desktop",
   "build": {
@@ -13,13 +13,15 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "echo-desktop",
-        "width": 800,
-        "height": 600
+        "title": "Echo",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost https://*.ytimg.com https://*.googleusercontent.com https: data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' https: http: asset: blob:;",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -38,8 +40,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../extensions/*"
-    ]
+    "resources": []
   }
 }
