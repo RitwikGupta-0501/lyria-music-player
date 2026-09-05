@@ -2,6 +2,7 @@
     import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
     import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import CardPlayButton from "$lib/components/common/CardPlayButton.svelte";
     import { resolveCoverArt } from "$lib/utils/media";
     import { Play, Heart, MusicNotes } from "phosphor-svelte";
 
@@ -75,15 +76,10 @@
         {/if}
 
         <div class="play-overlay">
-            <button 
-                type="button"
-                class="play-btn"
+            <CardPlayButton 
                 onclick={handlePlayClick}
                 title="Play track"
-                aria-label="Play track"
-            >
-                <Play weight="fill" size={18} />
-            </button>
+            />
         </div>
 
         <button 
@@ -194,38 +190,6 @@
     .track-card:hover .play-overlay {
         opacity: 1;
         pointer-events: auto;
-    }
-
-    .play-btn {
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
-        background-color: #B58E62;
-        color: #0E0E10;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-        transform: scale(0.9);
-        cursor: pointer;
-        padding: 0;
-        pointer-events: auto;
-        transition: transform 0.2s ease, background-color 0.2s ease;
-    }
-
-    .track-card:hover .play-btn {
-        transform: scale(1);
-    }
-
-    .play-btn:hover {
-        background-color: #D4A86E;
-        color: #0E0E10;
-    }
-
-    .play-btn :global(svg) {
-        color: #0E0E10 !important;
-        fill: currentColor;
     }
 
     .liquid-like-btn {

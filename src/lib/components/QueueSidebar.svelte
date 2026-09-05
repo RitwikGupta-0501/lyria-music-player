@@ -5,6 +5,7 @@
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { X, Trash, Pause, Play, BookmarkSimple, DotsSixVertical } from "phosphor-svelte";
     import PromptModal from "$lib/components/PromptModal.svelte";
+    import EqualizerWave from "$lib/components/common/EqualizerWave.svelte";
     let { open = $bindable(false) } = $props<{ open?: boolean }>();
 
     let draggedIndex = $state(-1);
@@ -211,12 +212,7 @@
                                 {#if isPlaying}
                                     <span class="playing-indicator">
                                         {#if audioStore.playbackState === "Playing"}
-                                            <div class="playing-visualizer">
-                                                <div class="bar"></div>
-                                                <div class="bar"></div>
-                                                <div class="bar"></div>
-                                                <div class="bar"></div>
-                                            </div>
+                                            <EqualizerWave />
                                         {:else}
                                             <Pause size={18} weight="bold" color="var(--echo-primary)" />
                                         {/if}
@@ -461,90 +457,6 @@
         display: flex;
         align-items: center;
         justify-content: flex-end;
-    }
-
-    .playing-visualizer {
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        gap: 2px;
-        height: 14px;
-        width: 18px;
-    }
-
-    .playing-visualizer .bar {
-        width: 3px;
-        background-color: var(--echo-primary);
-        border-radius: 2px;
-        transform-origin: bottom;
-    }
-
-    .playing-visualizer .bar:nth-child(1) { height: 100%; animation: eq-bar-1 1.2s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(2) { height: 100%; animation: eq-bar-2 1.5s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(3) { height: 100%; animation: eq-bar-3 1.1s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(4) { height: 100%; animation: eq-bar-4 1.4s ease-in-out infinite; }
-
-    @keyframes eq-bar-1 {
-        0%, 100% { transform: scaleY(0.3); }
-        25% { transform: scaleY(0.9); }
-        50% { transform: scaleY(0.5); }
-        75% { transform: scaleY(1.0); }
-    }
-
-    @keyframes eq-bar-2 {
-        0%, 100% { transform: scaleY(0.6); }
-        25% { transform: scaleY(0.2); }
-        50% { transform: scaleY(1.0); }
-        75% { transform: scaleY(0.4); }
-    }
-
-    @keyframes eq-bar-3 {
-        0%, 100% { transform: scaleY(0.8); }
-        25% { transform: scaleY(0.4); }
-        50% { transform: scaleY(0.9); }
-        75% { transform: scaleY(0.3); }
-    }
-
-    @keyframes eq-bar-4 {
-        0%, 100% { transform: scaleY(0.4); }
-        25% { transform: scaleY(1.0); }
-        50% { transform: scaleY(0.3); }
-        75% { transform: scaleY(0.8); }
-    }
-
-    .row-info {
-        min-width: 0;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .row-title {
-        font-size: 0.8rem;
-        font-weight: 450;
-        color: var(--echo-text-1);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .queue-row.playing .row-title {
-        color: var(--echo-silver);
-    }
-
-    .row-artist {
-        font-size: 0.7rem;
-        color: var(--echo-text-3);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .row-actions {
-        display: flex;
-        align-items: center;
-        gap: 4px;
     }
 
     .drag-handle {

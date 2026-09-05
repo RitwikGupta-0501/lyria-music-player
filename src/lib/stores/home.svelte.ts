@@ -363,7 +363,12 @@ class HomeStore {
             return;
         }
 
-        // 3. Fallback resolution via configured defaultRemoteProvider
+        // 3. Fallback resolution via configured defaultRemoteProvider (gated by settings toggle)
+        if (!settingsStore.remoteStreamingFallback) {
+            toastStore.show(`Local track file not found for ${track.title}`, "error");
+            return;
+        }
+
         const fallbackProvider = settingsStore.defaultRemoteProvider;
         if (!fallbackProvider || fallbackProvider === "local") {
             toastStore.show(`Local track file not found for ${track.title}`, "error");
@@ -390,10 +395,10 @@ class HomeStore {
                 ? cleanTit
                 : `${cleanArt} ${cleanTit}`;
 
-            let searchResults = await invoke<any[]>("search_provider", {
+            let searchResults: any[] = await invoke<any[]>("search_provider", {
                 providerId: fallbackProvider,
                 query: queryStr,
-            });
+            }).catch(() => []);
 
             if (!searchResults || searchResults.length === 0) {
                 // Secondary fallback: search just the cleaned title
@@ -401,7 +406,34 @@ class HomeStore {
                     searchResults = await invoke<any[]>("search_provider", {
                         providerId: fallbackProvider,
                         query: cleanTit,
-                    });
+                    }).catch(() => []);
+                }
+            }
+
+            // Tertiary fallback: search categorized if flat search failed
+            if (!searchResults || searchResults.length === 0) {
+                const catRes = await invoke<any>("search_provider_categorized", {
+                    providerId: fallbackProvider,
+                    query: queryStr,
+                    filter: "songs",
+                }).catch(() => null);
+
+                if (catRes && catRes.sections) {
+                    searchResults = [];
+                    for (const sec of catRes.sections) {
+                        for (const item of (sec.items || [])) {
+                            if (item.type === "Track" && item.data) {
+                                searchResults.push(item.data);
+                            } else if (item.type === "TopResult" && item.data) {
+                                searchResults.push({
+                                    id: item.data.id,
+                                    title: item.data.title,
+                                    artist: item.data.subtitle,
+                                    cover_art_url: item.data.cover_art_url,
+                                });
+                            }
+                        }
+                    }
                 }
             }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import { 
         exploreStore, 
         AVAILABLE_SOURCES,
@@ -8,10 +9,14 @@
         type PlaylistItem, 
         type TopResultItem 
     } from "$lib/stores/explore.svelte";
+    import AlbumCard from "$lib/components/AlbumCard.svelte";
     import PlaylistCard from "$lib/components/PlaylistCard.svelte";
+    import VideoCard from "$lib/components/VideoCard.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { formatDuration, getInitial, isCurrentTrack } from "$lib/utils/format";
+    import TrackRow from "$lib/components/TrackRow.svelte";
+    import ArtistCard from "$lib/components/ArtistCard.svelte";
+    import { formatDuration, getInitial, isCurrentTrack, getTrackDisplayMetric, sanitizeAlbumName } from "$lib/utils/format";
     import { 
         Play, 
         Pause, 
@@ -42,6 +47,12 @@
         { id: "artists", label: "Artists" },
         { id: "playlists", label: "Playlists" },
     ];
+    onMount(() => {
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.scrollTop = 0;
+        }
+    });
 </script>
 
 <div class="search-controls-row">
@@ -282,97 +293,38 @@
                                             </div>
                                         </div>
                                     {:else if item.type === "Track"}
-                                        <div 
-                                            class="ledger-row sub-track-row"
-                                            class:active-track={isCurrentTrack(item.data, audioStore.currentQueueTrack)}
-                                            role="button"
-                                            tabindex="0"
-                                            ondblclick={() => exploreStore.playTrack(item.data, item.data.provider_id)}
-                                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.playTrack(item.data, item.data.provider_id); }}
-                                        >
-                                            <div class="track-art-wrapper">
-                                                {#if item.data.cover_art_url}
-                                                    <img src={item.data.cover_art_url} alt={item.data.title} class="track-squircle" />
-                                                {:else}
-                                                    <div class="typographic-art-squircle">
-                                                        <span>{getInitial(item.data.artist)}</span>
-                                                    </div>
-                                                {/if}
-                                                <button class="play-overlay-btn" onclick={() => exploreStore.playTrack(item.data, item.data.provider_id)}>
-                                                    {#if isCurrentTrack(item.data, audioStore.currentQueueTrack) && audioStore.playbackState === "Playing"}
-                                                        <Pause size={14} weight="fill" />
-                                                    {:else}
-                                                        <Play size={14} weight="fill" />
-                                                    {/if}
-                                                </button>
-                                            </div>
-
-                                            <div class="track-meta">
-                                                <span class="track-title">{item.data.title}</span>
-                                                <div class="track-subline">
-                                                    <span class="track-artist">{item.data.artist}</span>
-                                                    {#if item.data.album}
-                                                        <span class="track-dot">•</span>
-                                                        <span class="track-album">{item.data.album}</span>
-                                                    {/if}
-                                                </div>
-                                            </div>
-
-                                            <span class="track-duration">{formatDuration(item.data.duration_ms)}</span>
-                                        </div>
+                                        <TrackRow 
+                                            track={item.data}
+                                            showProviderTag={true}
+                                        />
                                     {/if}
                                 {/each}
                             </div>
 
-                        <!-- B. Songs / Videos Shelf -->
-                        {:else if section.category === "Songs" || section.category === "Videos"}
+                        <!-- B. Videos Shelf (16:9 VideoCard grid) -->
+                        {:else if section.category === "Videos"}
+                            <div class="videos-search-grid">
+                                {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 4) : section.items) as item}
+                                    {#if item.type === "Track"}
+                                        <VideoCard 
+                                            video={item.data}
+                                            onclick={() => exploreStore.playTrack(item.data, item.data.provider_id)}
+                                            onplay={() => exploreStore.playTrack(item.data, item.data.provider_id)}
+                                        />
+                                    {/if}
+                                {/each}
+                            </div>
+
+                        <!-- C. Songs Shelf -->
+                        {:else if section.category === "Songs"}
                             <div class="search-tracks-ledger">
                                 {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 8) : section.items) as item, index}
                                     {#if item.type === "Track"}
-                                        <div 
-                                            class="ledger-row"
-                                            class:active-track={isCurrentTrack(item.data, audioStore.currentQueueTrack)}
-                                            role="button"
-                                            tabindex="0"
-                                            ondblclick={() => exploreStore.playTrack(item.data, item.data.provider_id)}
-                                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.playTrack(item.data, item.data.provider_id); }}
-                                        >
-                                            <span class="ledger-num">{(index + 1).toString().padStart(2, '0')}</span>
-                                            
-                                            <div class="track-art-wrapper">
-                                                {#if item.data.cover_art_url}
-                                                    <img src={item.data.cover_art_url} alt={item.data.title} class="track-squircle" />
-                                                {:else}
-                                                    <div class="typographic-art-squircle">
-                                                        <span>{getInitial(item.data.artist)}</span>
-                                                    </div>
-                                                {/if}
-                                                <button class="play-overlay-btn" onclick={() => exploreStore.playTrack(item.data, item.data.provider_id)}>
-                                                    {#if isCurrentTrack(item.data, audioStore.currentQueueTrack) && audioStore.playbackState === "Playing"}
-                                                        <Pause size={14} weight="fill" />
-                                                    {:else}
-                                                        <Play size={14} weight="fill" />
-                                                    {/if}
-                                                </button>
-                                            </div>
-
-                                            <div class="track-meta">
-                                                <span class="track-title">{item.data.title}</span>
-                                                <div class="track-subline">
-                                                    <span class="track-artist">{item.data.artist}</span>
-                                                    {#if item.data.album}
-                                                        <span class="track-dot">•</span>
-                                                        <span class="track-album">{item.data.album}</span>
-                                                    {/if}
-                                                </div>
-                                            </div>
-
-                                            {#if item.data.provider_name}
-                                                <span class="provider-tag">{item.data.provider_name}</span>
-                                            {/if}
-
-                                            <span class="track-duration">{formatDuration(item.data.duration_ms)}</span>
-                                        </div>
+                                        <TrackRow 
+                                            track={item.data}
+                                            index={index + 1}
+                                            showProviderTag={true}
+                                        />
                                     {/if}
                                 {/each}
                             </div>
@@ -380,54 +332,12 @@
                         <!-- C. Albums Shelf -->
                         {:else if section.category === "Albums"}
                             <div class="albums-search-grid">
-                                {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 5) : section.items) as item}
+                                {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 6) : section.items) as item}
                                     {#if item.type === "Album"}
-                                        <div 
-                                            class="echo-album-card"
-                                            role="button"
-                                            tabindex="0"
+                                        <AlbumCard 
+                                            album={item.data}
                                             onclick={() => exploreStore.openAlbum(item.data)}
-                                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openAlbum(item.data); }}
-                                        >
-                                            <div class="echo-album-art-container">
-                                                {#if item.data.cover_art_url}
-                                                    <img src={item.data.cover_art_url} alt={item.data.title} class="echo-album-img" />
-                                                {:else}
-                                                    <div class="typographic-art-squircle large">
-                                                        <span>{getInitial(item.data.artist)}</span>
-                                                    </div>
-                                                {/if}
-                                                <div class="echo-album-overlay">
-                                                    <button 
-                                                        class="echo-play-btn"
-                                                        onclick={(e) => {
-                                                            e.stopPropagation();
-                                                            exploreStore.playAlbum(item.data);
-                                                        }}
-                                                    >
-                                                        <Play size={24} weight="fill" />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="echo-album-meta">
-                                                <span class="echo-album-title" title={item.data.title}>{item.data.title}</span>
-                                                <span class="echo-album-artist" title={item.data.artist}>
-                                                    <button 
-                                                        class="artist-inline-btn"
-                                                        onclick={(e) => {
-                                                            e.stopPropagation();
-                                                            exploreStore.openArtist({
-                                                                id: item.data.artist,
-                                                                name: item.data.artist,
-                                                            });
-                                                        }}
-                                                    >
-                                                        {item.data.artist}
-                                                    </button>
-                                                    {#if item.data.year} • {item.data.year}{/if}
-                                                </span>
-                                            </div>
-                                        </div>
+                                        />
                                     {/if}
                                 {/each}
                             </div>
@@ -437,32 +347,18 @@
                             <div class="artists-search-grid">
                                 {#each (exploreStore.activeSearchFilter === "all" ? section.items.slice(0, 6) : section.items) as item}
                                     {#if item.type === "Artist"}
-                                        <div 
-                                            class="artist-card interactive-artist-card"
-                                            role="button"
-                                            tabindex="0"
+                                        <ArtistCard 
+                                            artist={item.data}
                                             onclick={() => exploreStore.openArtist(item.data)}
-                                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openArtist(item.data); }}
-                                        >
-                                            <div class="artist-avatar-wrapper">
-                                                {#if item.data.avatar_url}
-                                                    <img src={item.data.avatar_url} alt={item.data.name} class="artist-avatar" />
-                                                {:else}
-                                                    <div class="artist-avatar-fallback">
-                                                        <span>{getInitial(item.data.name)}</span>
-                                                    </div>
-                                                {/if}
-                                            </div>
-                                            <span class="artist-name">{item.data.name}</span>
-                                            <span class="artist-sub">{item.data.subscribers || "Artist"}</span>
-                                        </div>
+                                            fluid
+                                        />
                                     {/if}
                                 {/each}
                             </div>
 
                         <!-- E. Playlists Shelf -->
                         {:else if section.category === "Playlists"}
-                            <div class="albums-search-grid">
+                            <div class="playlists-search-grid">
                                 {#each section.items as item}
                                     {#if item.type === "Playlist"}
                                         <PlaylistCard 
@@ -491,6 +387,29 @@
 </section>
 
 <style>
+
+    .albums-search-grid,
+    .playlists-search-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 1.25rem;
+        width: 100%;
+    }
+
+    .artists-search-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 1.5rem;
+        width: 100%;
+    }
+
+    .videos-search-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 1.25rem;
+        width: 100%;
+    }
+
     .search-controls-row {
         display: flex;
         align-items: center;
@@ -818,218 +737,9 @@
         flex-direction: column;
         gap: 0.4rem;
     }
-    .ledger-row {
-        display: flex;
-        align-items: center;
-        gap: 0.9rem;
-        padding: 0.6rem 0.75rem;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid transparent;
-        cursor: pointer;
-        transition: background-color 0.15s ease, border-color 0.15s ease;
-    }
-    .ledger-row:hover {
-        background: rgba(255, 255, 255, 0.06);
-        border-color: rgba(255, 255, 255, 0.08);
-    }
-    .ledger-row.active-track {
-        background: rgba(181, 142, 98, 0.12);
-        border-color: rgba(181, 142, 98, 0.3);
-    }
-    .ledger-num {
-        font-family: ui-monospace, monospace;
-        font-size: 0.9rem;
-        font-weight: 700;
-        color: #B58E62;
-        min-width: 22px;
-    }
-    .track-art-wrapper {
-        position: relative;
-        width: 40px;
-        height: 40px;
-        flex-shrink: 0;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-    .track-squircle {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-    .typographic-art-squircle {
-        width: 100%;
-        height: 100%;
-        background: #232328;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #B58E62;
-        font-family: ui-serif, Georgia, serif;
-        font-weight: 700;
-    }
-    .typographic-art-squircle.large {
-        font-size: 2.2rem;
-    }
-    .play-overlay-btn {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.6);
-        border: none;
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        cursor: pointer;
-        transition: opacity 0.15s ease;
-    }
-    .ledger-row:hover .play-overlay-btn, .ledger-row.active-track .play-overlay-btn {
-        opacity: 1;
-    }
-    .track-meta {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-    .track-title {
-        font-size: 0.92rem;
-        font-weight: 600;
-        color: #FFFFFF;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .track-subline {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-        font-size: 0.8rem;
-        color: rgba(255, 255, 255, 0.55);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .track-duration {
-        font-family: ui-monospace, monospace;
-        font-size: 0.78rem;
-        color: rgba(255, 255, 255, 0.45);
-    }
-    .albums-search-grid {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 1.2rem;
-    }
-    @media (max-width: 1100px) {
-        .albums-search-grid {
-            grid-template-columns: repeat(3, 1fr);
-        }
-    }
-    .echo-album-card {
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-        cursor: pointer;
-    }
-    .echo-album-art-container {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 1/1;
-        border-radius: 10px;
-        overflow: hidden;
-        background: #1E1E22;
-    }
-    .echo-album-img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-    .echo-album-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: opacity 0.2s ease;
-    }
-    .echo-album-card:hover .echo-album-overlay {
-        opacity: 1;
-    }
-    .echo-album-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-    .echo-album-title {
-        font-size: 0.9rem;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .echo-album-artist {
-        font-size: 0.8rem;
-        color: rgba(255, 255, 255, 0.55);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .artists-search-grid {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
-        gap: 1.2rem;
-    }
-    .artist-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: 0.6rem;
-        cursor: pointer;
-        transition: transform 0.18s ease;
-    }
-    .artist-card:hover {
-        transform: translateY(-3px);
-    }
-    .artist-avatar-wrapper {
-        width: 90px;
-        height: 90px;
-        border-radius: 50%;
-        overflow: hidden;
-        background: #232328;
-    }
-    .artist-avatar {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-    .artist-avatar-fallback {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: ui-serif, Georgia, serif;
-        font-weight: 700;
-        font-size: 1.8rem;
-        color: #B58E62;
-    }
-    .artist-name {
-        font-size: 0.88rem;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-    }
-    .artist-sub {
-        font-size: 0.75rem;
-        color: rgba(255, 255, 255, 0.5);
-    }
+
+
+
     .search-empty-state {
         padding: 3rem 0;
         text-align: center;

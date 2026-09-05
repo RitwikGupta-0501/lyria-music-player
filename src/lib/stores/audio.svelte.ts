@@ -76,6 +76,7 @@ export class AudioStore {
     private _isPlaying = false;
     private _rafId: number | null = null;
     private _autoAdvancing = false;
+    private _stagedAutoplayTrack: QueueTrack | null = null;
 
     private unlistenSync: UnlistenFn | null = null;
     private unlistenTrackEnded: UnlistenFn | null = null;
@@ -179,7 +180,16 @@ export class AudioStore {
             this.currentTime = 0;
             this._syncPosition = 0;
             this._syncTimestamp = performance.now();
-            await invoke("skip_forward", { count: 1 });
+
+            if (this._stagedAutoplayTrack) {
+                const committingTrack = this._stagedAutoplayTrack;
+                this._stagedAutoplayTrack = null;
+                await invoke("add_to_queue", { track: committingTrack });
+                await invoke("skip_forward", { count: 1 });
+            } else {
+                await invoke("skip_forward", { count: 1 });
+            }
+
             this.queueNextAudio();
         });
 
@@ -368,14 +378,17 @@ export class AudioStore {
             }
         }
 
-        const isRemote = (t.source?.type === 'Remote') ||
-                         !!providerId ||
-                         !!(t.stream_url) ||
-                         (t.type === "Remote") ||
-                         isRemoteUri;
+        const isExplicitLocal = (t.source?.type === 'Local') || (t.type === 'Local') || (providerId === 'local' && !!filePath && !isRemoteUri);
+        const isRemote = !isExplicitLocal && (
+            (t.source?.type === 'Remote') ||
+            (providerId && providerId !== 'local') ||
+            !!(t.stream_url) ||
+            (t.type === "Remote") ||
+            isRemoteUri
+        );
 
-        if (!providerId) {
-            providerId = 'unknown';
+        if (!providerId || (providerId === 'local' && isRemote)) {
+            providerId = isRemote ? (settingsStore.defaultRemoteProvider || 'youtube-wasm') : 'local';
         }
 
         if (typeof rawRemoteId === 'string' && providerId && rawRemoteId.startsWith(`remote-${providerId}-`)) {
@@ -421,6 +434,7 @@ export class AudioStore {
     }
 
     async setQueue(tracks: any[], startIndex: number = 0) {
+        this._stagedAutoplayTrack = null;
         try {
             const tracksWithIds = tracks.map((t) => this.formatQueueTrack(t));
             await invoke("set_queue", { tracks: tracksWithIds, startIndex });
@@ -500,6 +514,7 @@ export class AudioStore {
     }
 
     async clearQueue() {
+        this._stagedAutoplayTrack = null;
         try {
             await invoke("clear_queue");
         } catch (e) {
@@ -509,6 +524,19 @@ export class AudioStore {
 
     async skipForward(count: number = 1) {
         try {
+            if (this.currentPosition >= this.queue.length - 1 && settingsStore.autoplay && this.currentQueueTrack) {
+                try {
+                    const autoplayTrack = await invoke<QueueTrack | null>("resolve_autoplay_next_track", {
+                        seed: this.currentQueueTrack
+                    });
+                    if (autoplayTrack) {
+                        await invoke("add_to_queue", { track: autoplayTrack });
+                    }
+                } catch (autoErr) {
+                    console.warn("Failed to resolve autoplay track on skip:", autoErr);
+                }
+            }
+
             const event = await invoke<QueueChangePayload>("skip_forward", { count });
             if (event.current_track) {
                 const t = event.current_track;
@@ -581,13 +609,35 @@ export class AudioStore {
     private async queueNextAudio() {
         try {
             const nextTrack = await invoke<QueueTrack | null>("get_next_track");
+
             if (nextTrack) {
+                this._stagedAutoplayTrack = null;
                 await invoke("queue_next_audio", {
                     source: nextTrack.source,
                     title: nextTrack.title,
                     artist: nextTrack.artist || null,
                     album: null
                 });
+            } else if (settingsStore.autoplay && this.currentQueueTrack) {
+                // Infinite Core Loop: Just-In-Time Background Staging (pre-buffers audio sink without cluttering visible queue)
+                try {
+                    const autoplayTrack = await invoke<QueueTrack | null>("resolve_autoplay_next_track", {
+                        seed: this.currentQueueTrack
+                    });
+                    if (autoplayTrack) {
+                        this._stagedAutoplayTrack = autoplayTrack;
+                        await invoke("queue_next_audio", {
+                            source: autoplayTrack.source,
+                            title: autoplayTrack.title,
+                            artist: autoplayTrack.artist || null,
+                            album: null
+                        });
+                    }
+                } catch (autoErr) {
+                    console.warn("Failed to stage autoplay track:", autoErr);
+                }
+            } else {
+                this._stagedAutoplayTrack = null;
             }
         } catch (e) {
             console.error("Failed to queue next audio:", e);

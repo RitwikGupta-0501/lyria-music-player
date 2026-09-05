@@ -945,6 +945,8 @@ export class ExploreStore {
     }
 
     private _searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private _prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+    private _searchEpoch = 0;
 
     isLoading = $state(false);
     isCategoryLoading = $state(false);
@@ -1060,6 +1062,10 @@ export class ExploreStore {
             clearTimeout(this._searchDebounceTimer);
             this._searchDebounceTimer = null;
         }
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
+            this._prefetchTimer = null;
+        }
 
         const trimmed = query.trim();
         if (!trimmed) {
@@ -1071,7 +1077,7 @@ export class ExploreStore {
         this.isSearching = true;
         this._searchDebounceTimer = setTimeout(async () => {
             await this.performSearch(trimmed);
-        }, 260);
+        }, 320);
     }
 
     setSearchFilter(filter: string) {
@@ -1103,6 +1109,12 @@ export class ExploreStore {
         if (!trimmed) {
             this.clearSearch();
             return;
+        }
+
+        const epoch = ++this._searchEpoch;
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
+            this._prefetchTimer = null;
         }
 
         const cacheKey = `${trimmed.toLowerCase()}:${this.activeSearchFilter}`;
@@ -1146,7 +1158,8 @@ export class ExploreStore {
                 remotePromise,
             ]);
 
-            if (this.searchQuery.trim() !== trimmed) return;
+            // Discard stale or superseded search responses
+            if (this._searchEpoch !== epoch || this.searchQuery.trim() !== trimmed) return;
 
             // 2. Format Local Tracks into SearchItems
             const localTrackItems: SearchItem[] = localTracksRaw.map(t => ({
@@ -1201,7 +1214,7 @@ export class ExploreStore {
             let albumsAdded = false;
 
             for (const rSec of remoteSectionsRaw) {
-                if (rSec.category === "Songs" || rSec.category === "Videos") {
+                if (rSec.category === "Songs") {
                     const mergedSongs = [...localTrackItems, ...rSec.items];
                     combinedSections.push({
                         category: "Songs",
@@ -1239,23 +1252,28 @@ export class ExploreStore {
             this.searchCache.set(cacheKey, combinedSections);
             this.rawSections = combinedSections;
 
-            // Opportunistically prefetch categories in background when on "all"
+            // Opportunistically prefetch categories ONLY after user is settled/idle for 800ms
             if (this.activeSearchFilter === "all") {
-                this.prefetchCategory(trimmed, "songs");
-                this.prefetchCategory(trimmed, "albums");
-                this.prefetchCategory(trimmed, "artists");
-                this.prefetchCategory(trimmed, "playlists");
+                this._prefetchTimer = setTimeout(() => {
+                    if (this._searchEpoch === epoch && this.searchQuery.trim() === trimmed) {
+                        this.prefetchCategory(trimmed, "songs", epoch);
+                        this.prefetchCategory(trimmed, "albums", epoch);
+                        this.prefetchCategory(trimmed, "artists", epoch);
+                        this.prefetchCategory(trimmed, "playlists", epoch);
+                    }
+                }, 800);
             }
         } catch (e) {
             console.error("Categorized search failed:", e);
         } finally {
-            if (this.searchQuery.trim() === trimmed) {
+            if (this._searchEpoch === epoch && this.searchQuery.trim() === trimmed) {
                 this.isSearching = false;
             }
         }
     }
 
-    private async prefetchCategory(query: string, category: string) {
+    private async prefetchCategory(query: string, category: string, epoch?: number) {
+        if (epoch !== undefined && this._searchEpoch !== epoch) return;
         const cacheKey = `${query.toLowerCase()}:${category}`;
         if (this.searchCache.has(cacheKey)) return;
 
@@ -1265,6 +1283,7 @@ export class ExploreStore {
                 query,
                 filter: category,
             });
+            if (epoch !== undefined && this._searchEpoch !== epoch) return;
             if (res && Array.isArray(res.sections) && res.sections.length > 0) {
                 this.searchCache.set(cacheKey, res.sections);
             }
@@ -1274,6 +1293,7 @@ export class ExploreStore {
     }
 
     clearSearch() {
+        this._searchEpoch++;
         this.searchQuery = "";
         this.rawSections = [];
         this.searchCache.clear();
@@ -1282,6 +1302,10 @@ export class ExploreStore {
         if (this._searchDebounceTimer) {
             clearTimeout(this._searchDebounceTimer);
             this._searchDebounceTimer = null;
+        }
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
+            this._prefetchTimer = null;
         }
     }
 

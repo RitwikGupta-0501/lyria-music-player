@@ -21,8 +21,11 @@
         DotsSixVertical as GripIcon,
     } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
+    import PillButton from "$lib/components/common/PillButton.svelte";
+    import EqualizerWave from "$lib/components/common/EqualizerWave.svelte";
     import { exploreStore, type DrawerCollection } from "$lib/stores/explore.svelte";
     import { convertFileSrc } from "@tauri-apps/api/core";
+    import { isCurrentTrack } from "$lib/utils/format";
 
     let { 
         collection, 
@@ -476,46 +479,51 @@
             </p>
 
             <div class="playlist-actions-row">
-                <button 
-                    class="play-collection-btn" 
-                    onclick={togglePlayCollection}
+                <PillButton 
+                    variant="primary"
+                    size="sm"
+                    icon={isCollectionPlaying ? PauseIcon : PlayIcon}
+                    label={isCollectionPlaying ? "Pause" : "Play"}
                     disabled={displayTracks.length === 0}
+                    onclick={togglePlayCollection}
                     title={isCollectionPlaying ? "Pause collection" : "Play collection"}
-                >
-                    {#if isCollectionPlaying}
-                        <PauseIcon size={15} weight="fill" />
-                        <span>Pause</span>
-                    {:else}
-                        <PlayIcon size={15} weight="fill" />
-                        <span>Play</span>
-                    {/if}
-                </button>
+                />
 
                 {#if displayTracks.length > 1}
-                    <button 
-                        class="shuffle-collection-btn" 
+                    <PillButton 
+                        variant="secondary"
+                        size="sm"
+                        icon={ShuffleIcon}
+                        label="Shuffle"
                         onclick={shuffleCollection}
                         title="Shuffle collection"
-                    >
-                        <ShuffleIcon size={14} weight="bold" />
-                        <span>Shuffle</span>
-                    </button>
+                    />
                 {/if}
 
                 {#if isCustomLocalPlaylist}
-                    <button class="action-btn" onclick={() => isEditingName = true} title="Rename playlist">
-                        <PencilIcon size={15} />
-                        <span>Edit</span>
-                    </button>
-                    <button class="action-btn text-danger" onclick={deletePlaylist} title="Delete playlist">
-                        <TrashIcon size={15} />
-                        <span>Delete</span>
-                    </button>
+                    <PillButton 
+                        variant="secondary"
+                        size="sm"
+                        icon={PencilIcon}
+                        label="Edit"
+                        onclick={() => isEditingName = true}
+                        title="Rename playlist"
+                    />
+                    <PillButton 
+                        variant="danger"
+                        size="sm"
+                        icon={TrashIcon}
+                        label="Delete"
+                        onclick={deletePlaylist}
+                        title="Delete playlist"
+                    />
                 {:else if isRemote && !isFavorites}
                     {@const isSaved = isPlaylist ? libraryStore.isPlaylistSaved(String(collection.id)) : libraryStore.isAlbumSaved(String(collection.id), collectionTitle, collectionSubtitle)}
-                    <button 
-                        class="action-btn" 
-                        class:liked={isSaved}
+                    <PillButton 
+                        variant="secondary"
+                        size="sm"
+                        icon={HeartIcon}
+                        label={isSaved ? "Saved" : "Save"}
                         onclick={() => {
                             if (isPlaylist) {
                                 libraryStore.toggleSavePlaylist({
@@ -536,10 +544,7 @@
                             }
                         }} 
                         title={isSaved ? (isPlaylist ? "Unsave playlist" : "Unsave album") : (isPlaylist ? "Save playlist" : "Save album")}
-                    >
-                        <HeartIcon size={15} weight={isSaved ? "fill" : "regular"} color={isSaved ? "#ffd285" : "currentColor"} />
-                        <span>{isSaved ? "Saved" : "Save"}</span>
-                    </button>
+                    />
                 {/if}
             </div>
         </div>
@@ -563,12 +568,12 @@
                 {@const track = displayTracks[i]}
                 {@const trackKey = getCanonicalKey(track, collection.subtitle)}
                 {@const isTrackLiked = isFavorites ? true : likedKeys.has(trackKey)}
+                {@const isCurrent = isCurrentTrack(track, audioStore.currentQueueTrack)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                     class="track-row"
-                    class:active={audioStore.currentTrack === track.title ||
-                        audioStore.currentTrack === track.file_path}
+                    class:active={isCurrent}
                     class:menu-open={activeDropdown === i}
                     class:is-dragging={draggedIndex === i}
                     class:drag-over-top={dragoverIndex === i && dropPosition === "top" && draggedIndex !== i}
@@ -588,14 +593,9 @@
                 >
                     <div class="track-left">
                         <div class="track-status">
-                            {#if audioStore.currentTrack === track.title || audioStore.currentTrack === track.file_path}
+                            {#if isCurrent}
                                 {#if audioStore.playbackState === "Playing"}
-                                    <div class="playing-visualizer">
-                                        <div class="bar"></div>
-                                        <div class="bar"></div>
-                                        <div class="bar"></div>
-                                        <div class="bar"></div>
-                                    </div>
+                                    <EqualizerWave />
                                 {:else}
                                     <PauseIcon
                                         size={18}
@@ -1024,32 +1024,6 @@
         font-size: 0.875rem;
     }
 
-    .playing-visualizer {
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        gap: 2px;
-        height: 14px;
-        width: 1.5rem;
-    }
-
-    .playing-visualizer .bar {
-        width: 3px;
-        background-color: var(--echo-primary-dark);
-        border-radius: 2px;
-        transform-origin: bottom;
-    }
-
-    .playing-visualizer .bar:nth-child(1) { height: 100%; animation: eq-bar-1 1.2s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(2) { height: 100%; animation: eq-bar-2 1.5s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(3) { height: 100%; animation: eq-bar-3 1.1s ease-in-out infinite; }
-    .playing-visualizer .bar:nth-child(4) { height: 100%; animation: eq-bar-4 1.4s ease-in-out infinite; }
-
-    @keyframes eq-bar-1 { 0%, 100% { transform: scaleY(0.3); } 25% { transform: scaleY(0.9); } 50% { transform: scaleY(0.5); } 75% { transform: scaleY(1); } }
-    @keyframes eq-bar-2 { 0%, 100% { transform: scaleY(0.6); } 25% { transform: scaleY(0.2); } 50% { transform: scaleY(1); } 75% { transform: scaleY(0.4); } }
-    @keyframes eq-bar-3 { 0%, 100% { transform: scaleY(0.8); } 25% { transform: scaleY(0.4); } 50% { transform: scaleY(0.9); } 75% { transform: scaleY(0.3); } }
-    @keyframes eq-bar-4 { 0%, 100% { transform: scaleY(0.4); } 25% { transform: scaleY(1); } 50% { transform: scaleY(0.3); } 75% { transform: scaleY(0.8); } }
-
     .track-right {
         display: flex;
         align-items: center;
@@ -1173,94 +1147,5 @@
         margin-top: 0.4rem;
     }
 
-    .play-collection-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        background: #B58E62;
-        color: #0E0E10;
-        border: none;
-        border-radius: 20px;
-        padding: 0.35rem 0.85rem;
-        font-family: var(--echo-font-body, system-ui, sans-serif);
-        font-size: 0.8rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: transform 0.1s ease, background 0.15s ease, box-shadow 0.15s ease;
-        box-shadow: 0 4px 14px rgba(181, 142, 98, 0.3);
-        user-select: none;
-    }
-
-    .play-collection-btn:hover:not(:disabled) {
-        background: #D4A86E;
-        transform: scale(1.03);
-        box-shadow: 0 6px 18px rgba(212, 168, 110, 0.4);
-    }
-
-    .play-collection-btn:active:not(:disabled) {
-        transform: scale(0.96);
-    }
-
-    .play-collection-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
-    .shuffle-collection-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: #fff;
-        border-radius: 20px;
-        padding: 0.35rem 0.75rem;
-        font-family: var(--echo-font-body, system-ui, sans-serif);
-        font-size: 0.8rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
-        user-select: none;
-    }
-
-    .shuffle-collection-btn:hover {
-        background: rgba(255, 255, 255, 0.14);
-        border-color: rgba(255, 255, 255, 0.2);
-        transform: scale(1.03);
-    }
-
-    .shuffle-collection-btn:active {
-        transform: scale(0.96);
-    }
-
-    .action-btn {
-        background: transparent;
-        border: none;
-        color: var(--echo-text-2, rgba(255, 255, 255, 0.5));
-        cursor: pointer;
-        padding: 0.3rem 0.55rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        transition: color 0.15s ease, background 0.15s ease;
-    }
-
-    .action-btn:hover {
-        color: var(--echo-text-1, #FFFFFF);
-        background: rgba(255, 255, 255, 0.08);
-    }
-
-    .action-btn.text-danger {
-        color: var(--echo-text-2, rgba(255, 255, 255, 0.5));
-        background: transparent;
-    }
-
-    .action-btn.text-danger:hover {
-        color: rgb(239, 68, 68);
-        background: rgba(239, 68, 68, 0.12);
-    }
 
 </style>

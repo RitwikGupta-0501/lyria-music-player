@@ -7,6 +7,8 @@ export class SettingsStore {
 
     // Typed derived getters for all application settings
     glassyPlayerBar = $derived(this.settings["glassy_player_bar"] === "true");
+    autoplay = $derived(this.settings["autoplay"] !== "false");
+    remoteStreamingFallback = $derived(this.settings["remote_streaming_fallback"] !== "false");
     keepPlayingOnQueueClear = $derived(this.settings["keep_playing_on_queue_clear"] === "true");
     trackClickBehavior = $derived(
         (this.settings["track_click_behavior"] as "interrupt" | "clear" | "append") || "interrupt"
@@ -45,6 +47,14 @@ export class SettingsStore {
 
     async setGlassyPlayerBar(val: boolean) {
         await this.setSetting("glassy_player_bar", val ? "true" : "false");
+    }
+
+    async setAutoplay(val: boolean) {
+        await this.setSetting("autoplay", val ? "true" : "false");
+    }
+
+    async setRemoteStreamingFallback(val: boolean) {
+        await this.setSetting("remote_streaming_fallback", val ? "true" : "false");
     }
 
     async setKeepPlayingOnQueueClear(val: boolean) {

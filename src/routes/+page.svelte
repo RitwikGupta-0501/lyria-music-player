@@ -114,6 +114,15 @@
     $effect(() => {
         document.documentElement.style.setProperty('--drawer-w', drawerOpen ? '400px' : '0px');
     });
+    // Scroll to top whenever top-level view changes
+    $effect(() => {
+        if (activeView) {
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) {
+                mainContent.scrollTop = 0;
+            }
+        }
+    });
 </script>
 
 <KeyboardHandler />

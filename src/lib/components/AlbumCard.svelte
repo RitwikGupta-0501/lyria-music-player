@@ -3,6 +3,7 @@
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { convertFileSrc } from "@tauri-apps/api/core";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import CardPlayButton from "$lib/components/common/CardPlayButton.svelte";
     import { Disc, Play, Heart } from "phosphor-svelte";
 
     let { 
@@ -76,15 +77,10 @@
         {/if}
 
         <div class="play-overlay">
-            <button
-                type="button"
-                class="play-btn"
+            <CardPlayButton 
                 onclick={handlePlayClick}
                 title="Play album"
-                aria-label="Play album"
-            >
-                <Play weight="fill" size={18} />
-            </button>
+            />
         </div>
 
         <button
@@ -200,38 +196,6 @@
     .album-card:hover .play-overlay {
         opacity: 1;
         pointer-events: auto;
-    }
-
-    .play-btn {
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
-        background-color: #B58E62;
-        color: #0E0E10;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-        transform: scale(0.9);
-        cursor: pointer;
-        padding: 0;
-        pointer-events: auto;
-        transition: transform 0.2s ease, background-color 0.2s ease;
-    }
-
-    .album-card:hover .play-btn {
-        transform: scale(1);
-    }
-
-    .play-btn:hover {
-        background-color: #D4A86E;
-        color: #0E0E10;
-    }
-
-    .play-btn :global(svg) {
-        color: #0E0E10 !important;
-        fill: currentColor;
     }
 
     .liquid-like-btn {

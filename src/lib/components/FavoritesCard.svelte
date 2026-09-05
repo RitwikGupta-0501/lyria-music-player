@@ -2,6 +2,7 @@
     import { libraryStore } from "$lib/stores/library.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
+    import CardPlayButton from "$lib/components/common/CardPlayButton.svelte";
     import { Play, Heart } from "phosphor-svelte";
 
     let {
@@ -47,15 +48,11 @@
         </div>
 
         <div class="play-overlay">
-            <button 
-                type="button"
-                class="play-btn"
+            <CardPlayButton 
+                size="lg"
                 onclick={handlePlayClick}
                 title="Play favorites"
-                aria-label="Play favorites"
-            >
-                <Play weight="fill" size={24} />
-            </button>
+            />
         </div>
     </div>
 
@@ -139,28 +136,6 @@
 
     .favorites-card:hover .play-overlay {
         opacity: 1;
-    }
-
-    .play-btn {
-        width: 52px;
-        height: 52px;
-        border-radius: 50%;
-        background-color: var(--echo-primary, #D4A86E);
-        color: #000;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-        transform: scale(0.85);
-        cursor: pointer;
-        padding: 0;
-        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease;
-    }
-
-    .play-btn:hover {
-        transform: scale(1.05);
-        background-color: #E2BA84;
     }
 
     .card-title {

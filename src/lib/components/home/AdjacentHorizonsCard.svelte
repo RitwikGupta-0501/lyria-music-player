@@ -1,6 +1,7 @@
 <script lang="ts">
     import { homeStore } from "$lib/stores/home.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
+    import TrackRow from "$lib/components/TrackRow.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { resolveCoverArt } from "$lib/utils/media";
     import { Compass, Play, Pause } from "phosphor-svelte";
@@ -106,40 +107,11 @@
                 <div class="horizon-right">
                     <div class="preview-ledger">
                         {#each payload.preview_tracks.slice(0, 3) as track}
-                            <div 
-                                class="ledger-row" 
-                                class:playing={isTrackPlaying(track)}
-                                role="button"
-                                tabindex="0"
+                            <TrackRow 
+                                track={track}
+                                variant="compact"
                                 onclick={() => homeStore.playFederatedTrack(track)}
-                                onkeydown={(e) => { if (e.key === "Enter") homeStore.playFederatedTrack(track); }}
-                            >
-                                <div class="ledger-art">
-                                    {#if resolveCoverArt(track.cover_art_url)}
-                                        <img src={resolveCoverArt(track.cover_art_url)} alt={track.title} loading="lazy" onerror={(e) => { (e.currentTarget as HTMLElement).style.display = "none"; }} />
-                                    {:else}
-                                        <div class="placeholder-art">
-                                            <span>{track.title.charAt(0).toUpperCase()}</span>
-                                        </div>
-                                    {/if}
-                                    <div class="ledger-hover-overlay">
-                                        {#if isTrackPlaying(track)}
-                                            <Pause size={14} weight="fill" color="#fff" />
-                                        {:else}
-                                            <Play size={14} weight="fill" color="#fff" />
-                                        {/if}
-                                    </div>
-                                </div>
-
-                                <div class="ledger-info">
-                                    <span class="ledger-title" title={track.title}>{track.title}</span>
-                                    <span class="ledger-artist" title={track.artist}>{track.artist}</span>
-                                </div>
-
-                                {#if track.duration_ms}
-                                    <span class="ledger-time">{formatDuration(track.duration_ms)}</span>
-                                {/if}
-                            </div>
+                            />
                         {/each}
                     </div>
                 </div>
@@ -356,106 +328,5 @@
         gap: 0.4rem;
     }
 
-    .ledger-row {
-        display: flex;
-        align-items: center;
-        gap: 0.85rem;
-        padding: 0.45rem 0.6rem;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: background 0.15s ease;
-    }
 
-    .ledger-row:hover {
-        background: rgba(255, 255, 255, 0.05);
-    }
-
-    .ledger-row.playing {
-        background: rgba(181, 142, 98, 0.12);
-    }
-
-    .ledger-art {
-        width: 38px;
-        height: 38px;
-        border-radius: 6px;
-        overflow: hidden;
-        flex-shrink: 0;
-        position: relative;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .ledger-art img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .placeholder-art {
-        width: 100%;
-        height: 100%;
-        background: #202024;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #D4A86E;
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-
-    .ledger-hover-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: opacity 0.15s ease;
-    }
-
-    .ledger-row:hover .ledger-hover-overlay,
-    .ledger-row.playing .ledger-hover-overlay {
-        opacity: 1;
-    }
-
-    .ledger-info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-
-    .ledger-title {
-        font-size: 0.84rem;
-        font-weight: 600;
-        color: #fff;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .ledger-artist {
-        font-size: 0.74rem;
-        color: rgba(255, 255, 255, 0.55);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .ledger-time {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.72rem;
-        color: rgba(255, 255, 255, 0.4);
-        flex-shrink: 0;
-    }
-
-    @media (max-width: 1024px) {
-        .horizon-card {
-            grid-template-columns: 1fr;
-            gap: 1.75rem;
-        }
-    }
 </style>

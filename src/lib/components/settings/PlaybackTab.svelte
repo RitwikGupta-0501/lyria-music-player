@@ -63,6 +63,39 @@
 
     <div class="setting-row">
         <div class="setting-info">
+            <p class="setting-label">Autoplay</p>
+            <p class="setting-desc">Continuously discover and play similar music when the queue finishes (remote radio stream with local library fallback).</p>
+        </div>
+        <label class="switch">
+            <input
+                type="checkbox"
+                checked={settingsStore.autoplay}
+                onchange={() => settingsStore.setAutoplay(!settingsStore.autoplay)}
+                disabled={!settingsStore.loaded}
+            />
+            <span class="slider round"></span>
+        </label>
+    </div>
+
+
+    <div class="setting-row">
+        <div class="setting-info">
+            <p class="setting-label">Remote Stream Fallback</p>
+            <p class="setting-desc">Automatically stream from your configured remote provider when a track's local file is missing in Quick Picks and home feeds.</p>
+        </div>
+        <label class="switch">
+            <input
+                type="checkbox"
+                checked={settingsStore.remoteStreamingFallback}
+                onchange={() => settingsStore.setRemoteStreamingFallback(!settingsStore.remoteStreamingFallback)}
+                disabled={!settingsStore.loaded}
+            />
+            <span class="slider round"></span>
+        </label>
+    </div>
+
+    <div class="setting-row">
+        <div class="setting-info">
             <p class="setting-label">Keep Playing on Queue Clear</p>
             <p class="setting-desc">Allow the current song to finish even if the upcoming queue is wiped.</p>
         </div>

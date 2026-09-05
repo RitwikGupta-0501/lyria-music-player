@@ -4,6 +4,7 @@
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { Play, Sparkle, Disc } from "phosphor-svelte";
     import CarouselControls from "$lib/components/common/CarouselControls.svelte";
+    import PillButton from "$lib/components/common/PillButton.svelte";
 
     let autoScrollInterval: ReturnType<typeof setInterval> | null = null;
     let isHoveringHero = $state(false);
@@ -80,20 +81,24 @@
                         <p class="hero-desc">{spot.description}</p>
                     {/if}
                     <div class="hero-actions">
-                        <button class="echo-play-pill primary" onclick={() => exploreStore.playSpotlight()}>
-                            <Play size={16} weight="fill" />
-                            <span>Play Album</span>
-                        </button>
-                        <button class="echo-play-pill secondary" onclick={() => exploreStore.openAlbum({
-                            id: spot.id,
-                            title: spot.title,
-                            artist: spot.artist,
-                            cover_art_url: spot.cover_art_url,
-                            provider_id: spot.provider_id || "youtube-wasm",
-                        })}>
-                            <Disc size={16} weight="bold" />
-                            <span>Explore Release</span>
-                        </button>
+                        <PillButton 
+                            variant="primary"
+                            icon={Play}
+                            label="Play Album"
+                            onclick={() => exploreStore.playSpotlight()}
+                        />
+                        <PillButton 
+                            variant="secondary"
+                            icon={Disc}
+                            label="Explore Release"
+                            onclick={() => exploreStore.openAlbum({
+                                id: spot.id,
+                                title: spot.title,
+                                artist: spot.artist,
+                                cover_art_url: spot.cover_art_url,
+                                provider_id: spot.provider_id || "youtube-wasm",
+                            })}
+                        />
                     </div>
                 </div>
 
@@ -222,35 +227,6 @@
         align-items: center;
         gap: 0.8rem;
         margin-top: 0.8rem;
-    }
-    .echo-play-pill {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.6rem 1.25rem;
-        border-radius: 24px;
-        font-size: 0.88rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        border: none;
-    }
-    .echo-play-pill.primary {
-        background: #B58E62;
-        color: #0E0E10;
-    }
-    .echo-play-pill.primary:hover {
-        background: #C49E72;
-        transform: scale(1.03);
-    }
-    .echo-play-pill.secondary {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        color: #FFFFFF;
-    }
-    .echo-play-pill.secondary:hover {
-        background: rgba(255, 255, 255, 0.15);
-        border-color: rgba(255, 255, 255, 0.3);
     }
     .hero-right {
         flex-shrink: 0;

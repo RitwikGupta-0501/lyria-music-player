@@ -360,6 +360,7 @@ button.primary {
 
 button.primary:hover:not(:disabled) {
   background: var(--echo-primary-dark);
+  color: var(--echo-void);
 }
 
 button.ghost {

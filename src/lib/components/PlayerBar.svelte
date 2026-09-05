@@ -16,8 +16,7 @@
         CornersOut,
         Heart,
     } from "phosphor-svelte";
-    import { transitionLayout } from "$lib/utils/transitions";
-
+    
     let { queueOpen = $bindable(false), fullScreenOpen = $bindable(false) } =
         $props<{
             queueOpen?: boolean;
@@ -282,7 +281,7 @@
                 <button
                     class="ctrl-btn"
                     class:active={queueOpen}
-                    onclick={() => transitionLayout(() => { queueOpen = !queueOpen; })}
+                    onclick={() => { queueOpen = !queueOpen; }}
                     title="Queue"
                 >
                     <ListNumbers size={16} weight="bold" />
@@ -351,14 +350,9 @@
         display: flex;
         justify-content: center;
         pointer-events: none;
-        view-transition-name: player-bar;
     }
 
-    :global(::view-transition-group(player-bar)) {
-        z-index: 999;
-    }
-
-    .player-pill-wrapper {
+        .player-pill-wrapper {
         position: relative;
         height: 100%;
         transition:
@@ -476,6 +470,62 @@
     }
 
     /* 135deg Sub-surface Ambient Light Sheen */
+    
+    /* Glassmorphic Controls: Luminous on Playing, Dull on Paused/Idle */
+    .pill-body.is-glass .ctrl-btn {
+        color: rgba(255, 255, 255, 0.48);
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+        transition:
+            color 0.25s ease,
+            filter 0.25s ease,
+            background-color 0.2s var(--ease-liquid, ease),
+            transform 0.15s var(--ease-liquid, ease);
+    }
+
+    .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .ctrl-btn {
+        color: rgba(255, 255, 255, 0.85);
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));
+    }
+
+    .pill-body.is-glass .vol-icon {
+        color: rgba(255, 255, 255, 0.48);
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+        transition: color 0.25s ease, filter 0.25s ease, transform 0.15s var(--ease-liquid, ease);
+    }
+
+    .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .vol-icon {
+        color: rgba(255, 255, 255, 0.85);
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));
+    }
+
+    .pill-body.is-glass .song-time {
+        color: rgba(255, 255, 255, 0.45);
+        transition: color 0.25s ease;
+    }
+
+    .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .song-time {
+        color: rgba(255, 255, 255, 0.70);
+    }
+
+    .pill-body.is-glass .vol-track {
+        background-color: rgba(255, 255, 255, 0.12);
+        transition: background-color 0.25s ease;
+    }
+
+    .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .vol-track {
+        background-color: rgba(255, 255, 255, 0.20);
+    }
+
+    .pill-body.is-glass .ctrl-btn:hover {
+        color: #ffffff !important;
+        background-color: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.20);
+    }
+
+    .pill-body.is-glass .vol-wrapper:hover .vol-icon {
+        color: #ffffff !important;
+    }
+
     .pill-body.is-glass::after {
         content: "";
         position: absolute;

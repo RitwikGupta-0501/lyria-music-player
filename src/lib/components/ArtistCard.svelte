@@ -9,10 +9,12 @@
             avatar_url?: string;
             total_plays?: number;
             subtitle?: string;
+            subscribers?: string;
         } | any;
         onclick?: () => void;
         size?: number;
         avatarSize?: number;
+        fluid?: boolean;
     }
 
     let {
@@ -20,6 +22,7 @@
         onclick,
         size = 176,
         avatarSize = 160,
+        fluid = false,
     }: Props = $props();
 
     let displayName = $derived(artist?.name || artist?.artist || "Unknown Artist");
@@ -28,13 +31,14 @@
 
     let statText = $derived.by(() => {
         if (artist?.subtitle) return artist.subtitle;
+        if (artist?.subscribers) return artist.subscribers;
         if (typeof artist?.total_plays === "number") {
             if (artist.total_plays > 0) {
                 return `${artist.total_plays} ${artist.total_plays === 1 ? "play" : "plays"}`;
             }
             return "Discovered Seed";
         }
-        return null;
+        return "Artist";
     });
 </script>
 
@@ -42,13 +46,14 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div 
     class="artist-card" 
-    style="--card-size: {size}px; --avatar-size: {avatarSize}px;"
+    class:is-fluid={fluid}
+    style="--card-size: {fluid ? '100%' : `${size}px`}; --avatar-size: {fluid ? '100%' : `${avatarSize}px`};"
     {onclick}
     role="button"
     tabindex="0"
     onkeydown={(e) => { if (e.key === "Enter" && onclick) onclick(); }}
 >
-    <div class="avatar-container">
+    <div class="avatar-container" class:is-fluid={fluid}>
         {#if avatarSrc}
             <img 
                 src={avatarSrc} 
@@ -84,6 +89,13 @@
         scroll-snap-align: start;
         user-select: none;
         align-self: flex-start;
+        box-sizing: border-box;
+    }
+
+    .artist-card.is-fluid {
+        flex: 1 1 0;
+        width: 100%;
+        min-width: 0;
     }
 
     .avatar-container {
@@ -99,6 +111,12 @@
         transform: translateZ(0);
         backface-visibility: hidden;
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .avatar-container.is-fluid {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        height: auto;
     }
 
     .artist-card:hover .avatar-container {
@@ -132,7 +150,7 @@
 
     .avatar-letter {
         font-family: var(--echo-font-heading, "Playfair Display", serif);
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         font-weight: 700;
         color: #B58E62;
     }
