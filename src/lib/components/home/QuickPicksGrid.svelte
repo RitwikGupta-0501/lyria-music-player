@@ -1,18 +1,13 @@
 <script lang="ts">
     import { homeStore, type FederatedTrack } from "$lib/stores/home.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
-    import { Play, Pause, Heart } from "phosphor-svelte";
+    import { Play, Pause, Heart, Lightning } from "phosphor-svelte";
     import { resolveCoverArt } from "$lib/utils/media";
-
-    function isCurrentTrack(song: FederatedTrack): boolean {
-        const cur = audioStore.currentQueueTrack;
-        if (!cur) return false;
-        return cur.title.toLowerCase() === song.title.toLowerCase()
-            && (cur.artist || "").toLowerCase() === song.artist.toLowerCase();
-    }
+    import EqualizerWave from "$lib/components/common/EqualizerWave.svelte";
+    import { isCurrentTrack } from "$lib/utils/format";
 
     function isPlaying(song: FederatedTrack): boolean {
-        return isCurrentTrack(song) && audioStore.playbackState === "Playing";
+        return isCurrentTrack(song, audioStore.currentQueueTrack) && audioStore.playbackState === "Playing";
     }
 
 
@@ -21,16 +16,17 @@
 <section class="quick-picks-section">
     <div class="section-title-row">
         <div class="title-group">
+            <Lightning size={20} weight="fill" class="quick-icon" />
             <h2>Quick Picks</h2>
         </div>
         
     </div>
 
     <div class="quick-picks-grid">
-        {#each homeStore.quickPicks.slice(0, 8) as song}
+        {#each homeStore.quickPicks.slice(0, 12) as song}
             <div 
                 class="quick-pick-pill"
-                class:active-track={isCurrentTrack(song)}
+                class:active-track={isCurrentTrack(song, audioStore.currentQueueTrack)}
                 role="button"
                 tabindex="0"
                 onclick={() => homeStore.playFederatedTrack(song)}
@@ -49,11 +45,7 @@
 
                     <div class="pill-play-overlay">
                         {#if isPlaying(song)}
-                            <div class="equalizer-indicator">
-                                <span class="bar bar-1"></span>
-                                <span class="bar bar-2"></span>
-                                <span class="bar bar-3"></span>
-                            </div>
+                            <EqualizerWave />
                         {:else}
                             <Play size={16} weight="fill" />
                         {/if}
@@ -97,6 +89,10 @@
         display: flex;
         align-items: center;
         gap: 0.75rem;
+    }
+
+    :global(.quick-icon) {
+        color: #B58E62;
     }
 
     .section-title-row h2 {
@@ -186,29 +182,7 @@
         opacity: 1;
     }
 
-    /* Equalizer Bar Animation */
-    .equalizer-indicator {
-        display: flex;
-        align-items: flex-end;
-        gap: 2px;
-        height: 14px;
-    }
 
-    .equalizer-indicator .bar {
-        width: 3px;
-        background: #B58E62;
-        border-radius: 1px;
-        animation: eqBounce 0.8s ease-in-out infinite alternate;
-    }
-
-    .bar-1 { height: 60%; animation-delay: 0.1s; }
-    .bar-2 { height: 100%; animation-delay: 0.3s; }
-    .bar-3 { height: 40%; animation-delay: 0.2s; }
-
-    @keyframes eqBounce {
-        0% { height: 20%; }
-        100% { height: 100%; }
-    }
 
     .pill-info {
         flex: 1;

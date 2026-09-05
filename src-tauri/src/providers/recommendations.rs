@@ -167,7 +167,7 @@ impl RecommendationCompiler {
         };
 
         let heavy_rotation = if crate::feature_flags::FEATURE_FLAGS.is_enabled(crate::feature_flags::FeatureFlag::HomeHeavyRotation) {
-            queries::get_heavy_rotation_7d(&conn, 6).unwrap_or_default()
+            queries::get_heavy_rotation_7d(&conn, 20).unwrap_or_default()
         } else {
             crate::db::queries::HeavyRotationShelf { artists: Vec::new(), albums: Vec::new() }
         };
