@@ -13,6 +13,7 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   APPIMAGE_EXTRACT_AND_RUN: 1
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
   build-release:
@@ -74,6 +75,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUSTFLAGS: ${{ matrix.platform.rustflags }}
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Lyria ${{ github.ref_name }}"
