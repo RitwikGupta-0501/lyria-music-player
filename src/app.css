@@ -1,7 +1,9 @@
-/* Outfit – premium geometric sans, available via Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
-/* Newsreader – majestic modern serif */
-@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap');
+/* Newsreader – Editorial music identity (variable optical size + italic) */
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap');
+/* Inter Tight – High-density functional operational interface */
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap');
+/* IBM Plex Mono – Technical telemetry, audio codecs, and durations */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 /* ─────────────────────────────────────────
    ECHO HARDWARE LUXURY DESIGN TOKENS
@@ -36,9 +38,15 @@
   --echo-glass-bg: rgba(25 25 32 / 0.25);
   --echo-glass-tint: rgba(255 255 255 / 0.04);
 
-  /* Typography */
-  --echo-font-body: "Outfit", system-ui, -apple-system, sans-serif;
-  --echo-font-heading: "Newsreader", serif;
+  /* Typography — Lyria Tripartite Design System */
+  --lyria-font-heading: "Newsreader", "Instrument Serif", "Source Serif 4", serif;
+  --lyria-font-body: "Inter Tight", system-ui, -apple-system, sans-serif;
+  --lyria-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Backward Compatibility Aliases */
+  --echo-font-heading: var(--lyria-font-heading);
+  --echo-font-body: var(--lyria-font-body);
+  --echo-font-mono: var(--lyria-font-mono);
 
   /* Layout & Clearance */
   --sidebar-w: 83px;

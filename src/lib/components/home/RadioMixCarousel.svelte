@@ -146,7 +146,7 @@
     }
 
     .section-title-row h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
@@ -311,7 +311,7 @@
     }
 
     .radio-station-pill span {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.58rem;
         font-weight: 700;
         letter-spacing: 0.1em;
@@ -327,7 +327,7 @@
     }
 
     .radio-title {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.15rem;
         font-weight: 600;
         margin: 0;

@@ -304,7 +304,7 @@
         animation: fadeIn 0.2s ease;
     }
     .section-title {
-        font-family: var(--echo-font-heading);
+        font-family: var(--lyria-font-body);
         font-size: 1.25rem;
         font-weight: 500;
         color: var(--echo-text-1);
@@ -337,7 +337,7 @@
         margin: -0.5rem 0 0.5rem 0;
     }
     .experiments-desc code {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.78rem;
         background: rgba(255, 255, 255, 0.08);
         padding: 0.15rem 0.35rem;
@@ -400,7 +400,7 @@
     }
 
     .master-page-name {
-        font-family: var(--echo-font-heading);
+        font-family: var(--lyria-font-body);
         font-size: 1.15rem;
         font-weight: 600;
         color: var(--echo-text-1);
@@ -587,7 +587,7 @@
         font-family: var(--echo-font-body);
     }
     .flag-meta code {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         color: rgba(255, 255, 255, 0.5);
     }
     .setting-row {

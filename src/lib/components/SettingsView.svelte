@@ -95,7 +95,7 @@
     }
 
     .settings-title {
-        font-family: var(--echo-font-heading);
+        font-family: var(--lyria-font-body);
         font-size: 1.5rem;
         font-weight: 600;
         color: var(--echo-text-1);

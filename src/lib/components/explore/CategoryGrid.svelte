@@ -95,7 +95,7 @@
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid rgba(255, 255, 255, 0.08);
         color: var(--echo-primary, #d4a86e);
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.68rem;
         font-weight: 600;
         letter-spacing: 0.04em;
@@ -113,7 +113,7 @@
     }
 
     h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
@@ -170,7 +170,7 @@
     .tile-label {
         position: relative;
         z-index: 2;
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.05rem;
         font-weight: 600;
         color: #FFFFFF;

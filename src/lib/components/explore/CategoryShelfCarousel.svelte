@@ -103,7 +103,7 @@
     }
 
     .shelf-title-group h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.25rem;
         font-weight: 600;
         margin: 0;

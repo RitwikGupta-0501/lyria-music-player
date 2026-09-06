@@ -126,7 +126,7 @@
         margin-bottom: 0.5rem;
     }
     .section-title {
-        font-family: var(--echo-font-heading);
+        font-family: var(--lyria-font-body);
         font-size: 1.25rem;
         font-weight: 500;
         color: var(--echo-text-1);
@@ -187,7 +187,7 @@
         padding: 0.4rem 0.8rem;
         border-radius: 6px;
         cursor: pointer;
-        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-family: var(--lyria-font-mono);
         font-size: 0.82rem;
         font-weight: 600;
         transition: all 0.15s ease;

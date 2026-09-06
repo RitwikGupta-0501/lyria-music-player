@@ -199,7 +199,7 @@
         background: rgba(0, 0, 0, 0.75);
         backdrop-filter: blur(4px);
         color: rgba(255, 255, 255, 0.9);
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.72rem;
         font-weight: 600;
         padding: 0.2rem 0.45rem;

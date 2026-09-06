@@ -320,7 +320,7 @@
     }
 
     .card-title {
-        font-family: var(--echo-font-body, system-ui, sans-serif);
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
         font-size: 0.88rem;
         font-weight: 600;
         color: #fff;
@@ -333,7 +333,7 @@
     }
 
     .card-artist {
-        font-family: var(--echo-font-body, system-ui, sans-serif);
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
         font-size: 0.78rem;
         color: rgba(255, 255, 255, 0.55);
         display: block;

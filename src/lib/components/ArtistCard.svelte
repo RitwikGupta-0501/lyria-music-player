@@ -149,7 +149,7 @@
     }
 
     .avatar-letter {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 2.2rem;
         font-weight: 700;
         color: #B58E62;
@@ -177,7 +177,7 @@
     }
 
     .artist-stat {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.72rem;
         color: rgba(255, 255, 255, 0.45);
         white-space: nowrap;

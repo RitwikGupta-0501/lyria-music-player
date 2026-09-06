@@ -70,7 +70,7 @@
         animation: fadeIn 0.2s ease;
     }
     .section-title {
-        font-family: var(--echo-font-heading);
+        font-family: var(--lyria-font-body);
         font-size: 1.25rem;
         font-weight: 500;
         color: var(--echo-text-1);

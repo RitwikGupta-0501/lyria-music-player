@@ -223,7 +223,7 @@
 
     /* Rank Number */
     .row-num {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.82rem;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.3);
@@ -264,7 +264,7 @@
         align-items: center;
         justify-content: center;
         background: linear-gradient(135deg, rgba(181, 142, 98, 0.2), rgba(181, 142, 98, 0.05));
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-weight: 700;
         font-size: 1.1rem;
         color: var(--echo-primary, #B58E62);
@@ -373,7 +373,7 @@
     .row-metric {
         font-size: 0.78rem;
         color: rgba(255, 255, 255, 0.38);
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         flex-shrink: 0;
         margin-left: 0.3rem;
     }
