@@ -99,7 +99,7 @@
             <p class="setting-label">Enable Diagnostic Log Collection</p>
             <p class="setting-desc">
                 Record WASM plugin calls, BotGuard JS VM signals, network statuses, and audio engine events to local memory and log files. 
-                <strong style="color: var(--echo-text-1);">Echo never transmits remote telemetry — all diagnostic logs stay 100% on your device.</strong>
+                <strong style="color: var(--echo-text-1);">Lyria never transmits remote telemetry — all diagnostic logs stay 100% on your device.</strong>
             </p>
         </div>
         <label class="switch">

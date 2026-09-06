@@ -1,5 +1,5 @@
 /**
- * Centralized formatting and comparison utilities for Echo Desktop.
+ * Centralized formatting and comparison utilities for Lyria.
  */
 
 /**

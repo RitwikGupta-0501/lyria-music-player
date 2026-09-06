@@ -1317,7 +1317,7 @@ pub fn run() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    tracing::info!("Echo Music Player starting up");
+    tracing::info!("Lyria starting up");
 
     let (audio_tx, audio_rx) = mpsc::channel();
     let (db_tx, db_rx) = mpsc::channel();

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Echo",
+  "productName": "Lyria",
   "version": "0.1.0",
-  "identifier": "com.ritwik.echo-desktop",
+  "identifier": "com.ritwik.lyria",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Echo",
+        "title": "Lyria",
         "width": 1200,
         "height": 800,
         "minWidth": 960,

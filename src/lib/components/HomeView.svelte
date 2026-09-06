@@ -70,8 +70,8 @@
                 <Sparkle size={16} weight="fill" />
                 <span>Algorithmic Cockpit</span>
             </div>
-            <h2>Welcome to Echo</h2>
-            <p>Start playing music from your local library or explore global releases. Echo learns from your unique listening telemetry and generates dynamic daily mixes automatically.</p>
+            <h2>Welcome to Lyria</h2>
+            <p>Start playing music from your local library or explore global releases. Lyria learns from your unique listening telemetry and generates dynamic daily mixes automatically.</p>
             
             <div class="welcome-actions">
                 <button class="primary-btn" onclick={() => activeView = "explore"}>

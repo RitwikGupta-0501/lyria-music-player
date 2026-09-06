@@ -92,7 +92,7 @@
             </button>
             
             <div class="brand-wrapper" class:visible={sidebarOpen}>
-                <span class="wordmark">Sonic Topography</span>
+                <span class="wordmark">Lyria</span>
             </div>
         </div>
 

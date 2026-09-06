@@ -1,4 +1,4 @@
-name: Release Echo Desktop
+name: Release Lyria
 
 on:
   push:
@@ -76,9 +76,9 @@ jobs:
           RUSTFLAGS: ${{ matrix.platform.rustflags }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Echo Desktop ${{ github.ref_name }}"
+          releaseName: "Lyria ${{ github.ref_name }}"
           releaseBody: |
-            ## Echo Desktop ${{ github.ref_name }}
+            ## Lyria ${{ github.ref_name }}
             
             Minimal, algorithmically-driven audio player.
             

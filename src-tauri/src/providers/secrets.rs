@@ -4,7 +4,7 @@ use tokio::sync::oneshot;
 /// Stores and retrieves provider secrets with OS keychain priority
 /// and SQLite fallback for environments without a keyring daemon.
 ///
-/// Keyring entries use service="com.ritwik.echo-desktop" and account="<provider_id>:<key>".
+/// Keyring entries use service="com.ritwik.lyria" and account="<provider_id>:<key>".
 /// SQLite entries use the existing `settings` table with key="provider:<provider_id>:<key>".
 pub struct ProviderSecretStore {
     service_name: String,
@@ -13,7 +13,7 @@ pub struct ProviderSecretStore {
 impl ProviderSecretStore {
     pub fn new() -> Self {
         Self {
-            service_name: "com.ritwik.echo-desktop".to_string(),
+            service_name: "com.ritwik.lyria".to_string(),
         }
     }
 }
