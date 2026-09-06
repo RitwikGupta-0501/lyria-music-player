@@ -1248,10 +1248,8 @@ async fn sandbox_callback(
     if let Some(tx) = pending.remove(&req_id) {
         let res = if let Some(e) = error {
             Err(e)
-        } else if let Some(p) = payload {
-            Ok(p)
         } else {
-            Err("No payload or error provided".to_string())
+            Ok(payload.unwrap_or(serde_json::Value::Null))
         };
         let _ = tx.send(res);
     } else {

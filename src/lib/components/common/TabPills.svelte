@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { Component } from "svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
 
     export interface TabItem<T extends string = string> {
         id: T;
@@ -22,9 +23,11 @@
         activeTab = $bindable(""),
         onchange,
         size = "sm",
-        isGlass = false,
+        isGlass,
         ariaLabel = "Tabs",
     }: Props<any> = $props();
+
+    let effectiveGlass = $derived(isGlass ?? settingsStore.glassyPlayerBar);
 
     function selectTab(id: string, disabled?: boolean) {
         if (disabled) return;
@@ -35,7 +38,7 @@
 
 <div 
     class="tab-pills" 
-    class:is-glass={isGlass}
+    class:is-glass={effectiveGlass}
     class:size-md={size === "md"}
     role="tablist"
     aria-label={ariaLabel}
@@ -72,11 +75,18 @@
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
     }
 
+    /* Glass Housing: Translucent Tinted Frosted Track */
     .tab-pills.is-glass {
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        background: rgba(25, 25, 32, 0.45);
-        border-color: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(16px) saturate(130%) brightness(1.06);
+        -webkit-backdrop-filter: blur(16px) saturate(130%) brightness(1.06);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(24, 20, 26, 0.32) 60%, rgba(14, 12, 16, 0.40) 100%);
+        border: 1.5px solid rgba(255, 255, 255, 0.10);
+        border-top-color: rgba(255, 255, 255, 0.26);
+        border-bottom-color: rgba(10, 8, 12, 0.25);
+        box-shadow: 
+            inset 0 1px 1.5px rgba(255, 255, 255, 0.12),
+            inset 0 -1px 2px rgba(0, 0, 0, 0.35),
+            0 6px 20px rgba(0, 0, 0, 0.35);
     }
 
     .tab-pills.size-md {
@@ -93,7 +103,7 @@
         font-weight: 600;
         color: rgba(255, 255, 255, 0.55);
         background: transparent;
-        border: none;
+        border: 1.5px solid transparent;
         outline: none;
         -webkit-tap-highlight-color: transparent;
         padding: 0.25rem 0.6rem;
@@ -101,9 +111,11 @@
         cursor: pointer;
         user-select: none;
         transition:
-            background-color 0.12s ease,
-            box-shadow 0.12s ease,
-            transform 0.1s ease;
+            background 0.15s ease,
+            border-color 0.15s ease,
+            box-shadow 0.15s ease,
+            transform 0.1s ease,
+            color 0.15s ease;
     }
 
     .tab-pills.size-md .pill-btn {
@@ -127,6 +139,42 @@
         background: #D4A86E;
         box-shadow: 0 2px 8px rgba(212, 168, 110, 0.35);
         transition: none;
+    }
+
+    /* Glass pill-btn states: Translucent Tinted Frosted Glass */
+    .tab-pills.is-glass .pill-btn {
+        color: rgba(255, 255, 255, 0.70);
+    }
+
+    .tab-pills.is-glass .pill-btn:hover:not(:disabled):not(.active) {
+        color: #ffffff;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%);
+        border-color: rgba(255, 255, 255, 0.14);
+        border-top-color: rgba(255, 255, 255, 0.32);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+    }
+
+    /* Active Tab: Transparent Echo Primary (#e2a973) Amber-Brass Tinted Glass */
+    .tab-pills.is-glass .pill-btn.active {
+        color: #ffffff;
+        background: linear-gradient(
+            180deg,
+            rgba(235, 175, 115, 0.40) 0%,
+            rgba(224, 162, 102, 0.32) 50%,
+            rgba(214, 150, 90, 0.35) 100%
+        );
+        border: 1.5px solid rgba(235, 175, 115, 0.65);
+        border-top-color: rgba(255, 238, 208, 0.95);
+        border-bottom-color: rgba(170, 110, 55, 0.40);
+        backdrop-filter: blur(12px) saturate(155%) brightness(1.15);
+        -webkit-backdrop-filter: blur(12px) saturate(155%) brightness(1.15);
+        font-weight: 650;
+        box-shadow: 
+            inset 0 1px 2px 0 rgba(255, 240, 215, 0.45),
+            inset 0 -1px 2px 0 rgba(140, 95, 50, 0.30),
+            0 3px 14px rgba(226, 169, 115, 0.35),
+            0 1px 4px rgba(0, 0, 0, 0.4);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
     }
 
     .pill-btn:focus-visible {

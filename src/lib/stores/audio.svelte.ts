@@ -74,7 +74,7 @@ export class AudioStore {
     private _syncPosition = 0;
     private _syncTimestamp = 0;
     private _isPlaying = false;
-    private _rafId: number | null = null;
+    // _clockTimer used instead of _rafId
     private _autoAdvancing = false;
     private _stagedAutoplayTrack: QueueTrack | null = null;
 
@@ -129,6 +129,11 @@ export class AudioStore {
             this._syncPosition = payload.position;
             this._syncTimestamp = performance.now();
             this._isPlaying = payload.state === "Playing";
+            if (this._isPlaying) {
+                this.startClock();
+            } else {
+                this.stopClock();
+            }
 
             this.playbackState = payload.state;
             const fallbackDuration = this.currentQueueTrack?.source?.type === "Remote" && this.currentQueueTrack.source.duration_ms
@@ -214,7 +219,9 @@ export class AudioStore {
             console.error("Failed to sync playback state on boot:", e);
         }
 
-        this.startClock();
+        if (this._isPlaying) {
+            this.startClock();
+        }
     }
 
     destroy() {
@@ -226,36 +233,42 @@ export class AudioStore {
     }
 
     // ══════════════════════════════════════════
-    // PLAYBACK CLOCK (60fps interpolation)
+    // PLAYBACK CLOCK (Pure 4Hz Timer - Zero RAF overhead)
     // ══════════════════════════════════════════
 
-    private tick = () => {
-        if (this._isPlaying) {
-            const elapsed = (performance.now() - this._syncTimestamp) / 1000;
-            const fallbackDuration = this.currentQueueTrack?.source?.type === "Remote" && this.currentQueueTrack.source.duration_ms
-                ? this.currentQueueTrack.source.duration_ms / 1000
-                : 0;
-            const effectiveDuration = this.duration > 0 ? this.duration : fallbackDuration;
+    private _clockTimer: ReturnType<typeof setInterval> | null = null;
 
-            if (effectiveDuration > 0) {
-                this.currentTime = Math.min(this._syncPosition + elapsed, effectiveDuration);
-            } else {
-                this.currentTime = this._syncPosition + elapsed;
-            }
+    private tick = () => {
+        if (!this._isPlaying) {
+            this.stopClock();
+            return;
         }
-        this._rafId = requestAnimationFrame(this.tick);
+
+        const now = performance.now();
+        const elapsed = (now - this._syncTimestamp) / 1000;
+        const fallbackDuration = this.currentQueueTrack?.source?.type === "Remote" && this.currentQueueTrack.source.duration_ms
+            ? this.currentQueueTrack.source.duration_ms / 1000
+            : 0;
+        const effectiveDuration = this.duration > 0 ? this.duration : fallbackDuration;
+
+        if (effectiveDuration > 0) {
+            this.currentTime = Math.min(this._syncPosition + elapsed, effectiveDuration);
+        } else {
+            this.currentTime = this._syncPosition + elapsed;
+        }
     };
 
     private startClock() {
-        if (this._rafId === null) {
-            this._rafId = requestAnimationFrame(this.tick);
+        if (this._clockTimer === null && this._isPlaying) {
+            this.tick();
+            this._clockTimer = setInterval(this.tick, 250);
         }
     }
 
     private stopClock() {
-        if (this._rafId !== null) {
-            cancelAnimationFrame(this._rafId);
-            this._rafId = null;
+        if (this._clockTimer !== null) {
+            clearInterval(this._clockTimer);
+            this._clockTimer = null;
         }
     }
 
@@ -272,6 +285,8 @@ export class AudioStore {
     }
 
     async pause() {
+        this._isPlaying = false;
+        this.stopClock();
         try {
             await invoke("pause_audio");
         } catch (e) {
@@ -280,6 +295,8 @@ export class AudioStore {
     }
 
     async stop() {
+        this._isPlaying = false;
+        this.stopClock();
         try {
             await invoke("stop_audio");
         } catch (e) {

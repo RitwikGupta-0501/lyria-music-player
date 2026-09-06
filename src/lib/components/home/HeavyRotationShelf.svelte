@@ -210,6 +210,8 @@
         margin-bottom: -0.25rem;
         scrollbar-width: none;
         will-change: scroll-position;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .artists-carousel-track::-webkit-scrollbar,

@@ -16,12 +16,12 @@
         "title": "Lyria",
         "width": 1200,
         "height": 800,
-        "minWidth": 960,
-        "minHeight": 640
+        "minWidth": 640,
+        "minHeight": 480
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' asset: https://asset.localhost https://*.ytimg.com https://*.googleusercontent.com https: data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' https: http: asset: blob:;",
+      "csp": "default-src 'self'; font-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' asset: https://asset.localhost https://*.ytimg.com https://*.googleusercontent.com https: data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' https: http: asset: blob:;",
       "assetProtocol": {
         "enable": true,
         "scope": [

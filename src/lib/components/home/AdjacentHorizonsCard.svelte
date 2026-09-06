@@ -198,12 +198,20 @@
         border-radius: 14px;
         padding: 2.25rem;
         display: grid;
-        grid-template-columns: 1.15fr 0.85fr;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
         gap: 3rem;
         align-items: center;
         overflow: hidden;
         box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
         transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    @media (max-width: 1024px) {
+        .horizon-card {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 1.75rem;
+            padding: 1.75rem;
+        }
     }
 
     .horizon-card:hover {

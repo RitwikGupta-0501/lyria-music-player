@@ -171,12 +171,14 @@
 
 <style>
     .home-view {
-        padding: 2.5rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
+        padding: 3rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
         scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         display: flex;
         flex-direction: column;
         gap: 3rem;
         width: 100%;
+        max-width: 100%;
+        min-width: 0;
         box-sizing: border-box;
     }
 
@@ -200,7 +202,7 @@
 
     .header-top {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
     }
 
@@ -211,6 +213,8 @@
         overflow-x: auto;
         padding-bottom: 0.25rem;
         scrollbar-width: none;
+        max-width: 100%;
+        min-width: 0;
     }
 
     .mood-filter-bar::-webkit-scrollbar {
@@ -232,14 +236,13 @@
     }
 
     .mood-pill.is-glass {
-        background: rgba(25, 25, 32, 0.35);
-        backdrop-filter: blur(12px) saturate(1.4);
-        -webkit-backdrop-filter: blur(12px) saturate(1.4);
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 100%);
+        border: 1.5px solid rgba(255, 255, 255, 0.10);
+        border-top-color: rgba(255, 255, 255, 0.24);
+        border-bottom-color: rgba(255, 255, 255, 0.06);
         box-shadow: 
-            0 4px 14px rgba(0, 0, 0, 0.25),
-            inset 0 1px 1px rgba(255, 255, 255, 0.18),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+            inset 0 1px 2px rgba(255, 255, 255, 0.08),
+            0 4px 12px rgba(0, 0, 0, 0.35);
         color: var(--echo-text-2, rgba(255, 255, 255, 0.7));
     }
 
@@ -250,40 +253,52 @@
     }
 
     .mood-pill.is-glass:hover:not(.active) {
-        background: rgba(35, 35, 45, 0.55);
-        border-color: rgba(255, 255, 255, 0.22);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
+        border-color: rgba(255, 255, 255, 0.18);
+        border-top-color: rgba(255, 255, 255, 0.38);
         color: var(--echo-text-1, #ffffff);
         box-shadow: 
-            0 6px 18px rgba(0, 0, 0, 0.35),
-            inset 0 1px 1px rgba(255, 255, 255, 0.28),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+            inset 0 1px 2px rgba(255, 255, 255, 0.15),
+            0 6px 18px rgba(0, 0, 0, 0.45);
     }
 
     .mood-pill.active {
-        color: var(--echo-primary, #e2a973);
-        background: rgba(226, 169, 115, 0.12);
-        border-color: rgba(226, 169, 115, 0.35);
+        color: #ffffff;
+        background: linear-gradient(180deg, rgba(226, 169, 115, 0.28) 0%, rgba(185, 130, 80, 0.14) 100%);
+        border-color: rgba(226, 169, 115, 0.45);
         font-weight: 600;
     }
 
     .mood-pill.is-glass.active {
-        color: var(--echo-primary, #e2a973);
-        background: rgba(226, 169, 115, 0.18);
-        border-color: rgba(226, 169, 115, 0.45);
+        color: #ffffff;
+        background: linear-gradient(
+            180deg,
+            rgba(226, 169, 115, 0.28) 0%,
+            rgba(205, 148, 92, 0.16) 50%,
+            rgba(175, 120, 70, 0.20) 100%
+        );
+        border: 1.5px solid rgba(226, 169, 115, 0.45);
+        border-top-color: rgba(255, 230, 195, 0.85);
+        border-bottom-color: rgba(160, 105, 55, 0.30);
+        backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
+        -webkit-backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
         font-weight: 600;
         box-shadow: 
-            0 6px 20px rgba(0, 0, 0, 0.35),
-            inset 0 1px 1.5px rgba(226, 169, 115, 0.35),
-            inset 0 -1px 1.5px rgba(0, 0, 0, 0.25);
+            inset 0 1px 2px 0 rgba(255, 235, 205, 0.35),
+            inset 0 -1px 2px 0 rgba(140, 95, 50, 0.25),
+            0 4px 16px rgba(226, 169, 115, 0.20),
+            0 2px 6px rgba(0, 0, 0, 0.4);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
     }
 
     .home-header h1 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
-        font-size: 2.5rem;
-        font-weight: 600;
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-size: 2.25rem;
+        font-weight: 500;
         letter-spacing: -0.02em;
-        margin: 0 0 0.25rem 0;
-        color: #fff;
+        line-height: 1.25;
+        margin: 0;
+        color: var(--echo-text-1);
         transform: translateZ(0);
         backface-visibility: hidden;
     }
@@ -296,6 +311,7 @@
         border-radius: 50%;
         width: 36px;
         height: 36px;
+        margin-top: 4px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -313,30 +329,29 @@
     }
 
     .refresh-btn.is-glass {
-        background: rgba(25, 25, 32, 0.45);
-        backdrop-filter: blur(12px) saturate(1.4);
-        -webkit-backdrop-filter: blur(12px) saturate(1.4);
-        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+        border: 1.5px solid rgba(255, 255, 255, 0.10);
+        border-top-color: rgba(255, 255, 255, 0.28);
+        border-bottom-color: rgba(255, 255, 255, 0.06);
         box-shadow: 
-            0 4px 14px rgba(0, 0, 0, 0.25),
-            inset 0 1px 1px rgba(255, 255, 255, 0.18),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+            inset 0 1px 2px rgba(255, 255, 255, 0.10),
+            0 4px 14px rgba(0, 0, 0, 0.35);
     }
 
     .refresh-btn:hover {
         background: rgba(255, 255, 255, 0.16);
-        color: #B58E62;
-        border-color: rgba(181, 142, 98, 0.4);
+        color: #ffffff;
+        border-color: rgba(255, 255, 255, 0.25);
     }
 
     .refresh-btn.is-glass:hover {
-        background: rgba(45, 45, 60, 0.65);
-        border-color: rgba(181, 142, 98, 0.4);
-        color: #B58E62;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.04) 100%);
+        border-color: rgba(255, 255, 255, 0.20);
+        border-top-color: rgba(255, 255, 255, 0.45);
+        color: #ffffff;
         box-shadow: 
-            0 6px 18px rgba(0, 0, 0, 0.35),
-            inset 0 1px 1px rgba(255, 255, 255, 0.28),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+            inset 0 1px 2px rgba(255, 255, 255, 0.22),
+            0 6px 18px rgba(0, 0, 0, 0.45);
     }
 
     .refresh-btn:active {

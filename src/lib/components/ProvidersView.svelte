@@ -594,7 +594,7 @@ async function handleVerifyChecksum() {
     .providers-view {
         position: absolute;
         inset: 0;
-        padding: 2rem 2rem var(--player-clearance, 10rem) 2rem;
+        padding: 3rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
         scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         overflow-y: auto;
         display: flex;
@@ -604,9 +604,12 @@ async function handleVerifyChecksum() {
     }
 
     .view-header h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-size: 2.25rem;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
+        margin: 0 0 0.5rem 0;
     }
 
     .content-grid {

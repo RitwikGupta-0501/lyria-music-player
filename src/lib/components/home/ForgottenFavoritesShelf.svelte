@@ -88,6 +88,8 @@
         padding-bottom: 0.75rem;
         margin-bottom: -0.25rem;
         scrollbar-width: none;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .favs-carousel-track::-webkit-scrollbar {

@@ -164,7 +164,7 @@
         </div>
 
         <!-- 2. Main Pill Body (Liquid Glass Capsule) -->
-        <div class="pill-body" class:is-glass={settingsStore.glassyPlayerBar}>
+        <div class="pill-body" class:is-glass={settingsStore.glassyPlayerBar} class:liquid-glass-hybrid={settingsStore.glassyPlayerBar}>
             <!-- Liquid Glass Specular Catch-Lights (Only in Glass Mode) -->
             {#if settingsStore.glassyPlayerBar}
                 <div class="liquid-specular-rim player-specular-rim" aria-hidden="true"></div>
@@ -367,6 +367,7 @@
     .player-pill-wrapper[data-state="playing"],
     .player-pill-wrapper[data-state="paused"] {
         width: 720px;
+        max-width: calc(100% - 2rem);
     }
 
     /* Fitts's Law Top-Edge Seek Bar */
@@ -456,9 +457,9 @@
                                  saturate(var(--liquid-glass-saturate)) 
                                  contrast(var(--liquid-glass-contrast)) 
                                  brightness(var(--liquid-glass-brightness));
-        border: 1px solid transparent;
+        border: 1.5px solid transparent;
         border-color: var(--liquid-border-card);
-        box-shadow: var(--liquid-specular-pill), 0 14px 38px -4px rgba(0, 0, 0, 0.48);
+        box-shadow: inset 0 1.5px 0 0 rgba(255, 255, 255, 0.50), inset 0 -2px 5px 0 rgba(0, 0, 0, 0.28), 0 14px 38px -4px rgba(0, 0, 0, 0.48);
     }
 
     /* Active & Paused Track Caustic Internal Scatter */
@@ -466,7 +467,7 @@
     .player-pill-wrapper[data-state="paused"] .pill-body.is-glass {
         background: var(--liquid-glass-amber-bg);
         border-color: var(--liquid-border-amber);
-        box-shadow: var(--liquid-specular-amber), 0 16px 44px -4px rgba(0, 0, 0, 0.55);
+        box-shadow: inset 0 1.5px 0 0 rgba(255, 235, 205, 0.60), inset 0 -2px 5px 0 rgba(0, 0, 0, 0.30), 0 16px 44px -4px rgba(0, 0, 0, 0.55);
     }
 
     /* 135deg Sub-surface Ambient Light Sheen */
@@ -508,12 +509,30 @@
     }
 
     .pill-body.is-glass .vol-track {
-        background-color: rgba(255, 255, 255, 0.12);
+        height: 2px;
+        background-color: rgba(0, 0, 0, 0.35);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
         transition: background-color 0.25s ease;
     }
 
     .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .vol-track {
-        background-color: rgba(255, 255, 255, 0.20);
+        background-color: rgba(0, 0, 0, 0.35);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.40);
+    }
+
+    .pill-body.is-glass .vol-fill {
+        background: linear-gradient(90deg, #c8955c 0%, #e2a973 100%) !important;
+        box-shadow: 0 0 4px rgba(226, 169, 115, 0.35);
+    }
+
+    .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .vol-fill {
+        background: linear-gradient(90deg, #d49b65 0%, #f5cb99 100%) !important;
+        box-shadow: 0 0 4px rgba(226, 169, 115, 0.40);
+    }
+
+    .pill-body.is-glass .vol-thumb {
+        background: radial-gradient(circle at 35% 35%, #ffdca8 0%, #e2a973 70%, #b87b42 100%) !important;
+        box-shadow: 0 0 6px rgba(226, 169, 115, 0.5), 0 1px 3px rgba(0, 0, 0, 0.5);
     }
 
     .pill-body.is-glass .ctrl-btn:hover {
@@ -545,9 +564,9 @@
     .player-specular-rim {
         inset-inline: 24px;
         top: 0;
-        height: 1px;
-        opacity: 0.45;
-        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.50) 50%, transparent 100%);
+        height: 2.5px;
+        opacity: 0.80;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.85) 50%, transparent 100%);
         pointer-events: none;
         z-index: 4;
         transition: opacity 0.3s ease, background 0.3s ease;
@@ -555,13 +574,13 @@
 
     .player-pill-wrapper[data-state="playing"] .player-specular-rim,
     .player-pill-wrapper[data-state="paused"] .player-specular-rim {
-        opacity: 0.65;
+        opacity: 0.95;
         background: linear-gradient(
             90deg, 
             transparent 0%, 
-            rgba(255, 215, 165, 0.40) 30%, 
-            rgba(255, 235, 205, 0.65) 50%, 
-            rgba(255, 215, 165, 0.40) 70%, 
+            rgba(255, 215, 165, 0.50) 25%, 
+            rgba(255, 235, 205, 0.90) 50%, 
+            rgba(255, 215, 165, 0.50) 75%, 
             transparent 100%
         );
     }
@@ -664,7 +683,7 @@
         justify-content: center;
         border-radius: 9999px;
         background: transparent;
-        border: 1px solid transparent;
+        border: 1.5px solid transparent;
         cursor: pointer;
         position: relative;
         filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
@@ -830,11 +849,13 @@
 
     /* Paused State */
     .player-pill-wrapper[data-state="paused"] .pill-accent-bg {
-        background: linear-gradient(180deg, #b58e62 0%, #7a5c38 100%);
-        filter: saturate(0.65) opacity(0.85);
+        background: linear-gradient(180deg, #a88258 0%, #6e5232 100%);
     }
     .player-pill-wrapper[data-state="paused"] .pill-accent-shadow {
         box-shadow: none;
+    }
+    .player-pill-wrapper[data-state="paused"] .play-pause-btn :global(svg) {
+        transform: translateX(1px);
     }
     .player-pill-wrapper[data-state="paused"] .song-title {
         color: var(--echo-text-3);
@@ -865,11 +886,11 @@
     }
 
     .like-btn.is-glass {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(8px) url(#glass-refraction-subtle) saturate(180%);
-        -webkit-backdrop-filter: blur(8px) url(#glass-refraction-subtle) saturate(180%);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.03) 100%);
+        border: 1.5px solid rgba(255, 255, 255, 0.12);
+        border-top-color: rgba(255, 255, 255, 0.28);
+        border-bottom-color: rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
     .like-btn:hover {
@@ -880,7 +901,9 @@
 
     .like-btn.is-glass:hover {
         background: rgba(255, 255, 255, 0.14);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.4);
+        border-color: rgba(226, 169, 115, 0.45);
+        border-top-color: rgba(255, 225, 185, 0.65);
+        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.22), 0 4px 12px rgba(0, 0, 0, 0.4);
     }
 
     .like-btn:active {
@@ -894,8 +917,10 @@
     }
 
     .like-btn.is-glass.liked {
-        background: linear-gradient(180deg, rgba(200, 157, 110, 0.25) 0%, rgba(150, 107, 61, 0.15) 100%);
-        border-color: rgba(224, 184, 143, 0.45);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3);
+        background: linear-gradient(180deg, rgba(226, 169, 115, 0.32) 0%, rgba(185, 130, 80, 0.18) 100%);
+        border: 1.5px solid rgba(224, 184, 143, 0.55);
+        border-top-color: rgba(255, 235, 205, 0.85);
+        border-bottom-color: rgba(160, 105, 55, 0.35);
+        box-shadow: inset 0 1px 2px rgba(255, 235, 205, 0.35), 0 2px 10px rgba(226, 169, 115, 0.3);
     }
 </style>

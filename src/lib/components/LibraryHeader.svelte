@@ -44,8 +44,13 @@
     }
 
     .lib-heading {
-        font-size: 2.25rem; /* text-4xl */
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-size: 2.25rem;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
         margin: 0;
+        color: var(--echo-text-1);
     }
 
     .tabs {

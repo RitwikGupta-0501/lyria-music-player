@@ -142,6 +142,8 @@
         padding-bottom: 0.5rem;
         scrollbar-width: none;
         will-change: scroll-position;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .discover-carousel::-webkit-scrollbar {

@@ -75,6 +75,7 @@
 <aside 
     class="sidebar" 
     class:open={sidebarOpen}
+    class:is-glass={settingsStore.glassyPlayerBar}
 >
 
     <!-- Top Section: Header & Navigation Core -->
@@ -206,6 +207,10 @@
         width: 256px; /* Expanded state */
     }
 
+    .sidebar.is-glass {
+        border-right: 1.5px solid rgba(255, 255, 255, 0.08);
+    }
+
     .sidebar-top {
         display: flex;
         flex-direction: column;
@@ -240,15 +245,24 @@
     }
 
     .toggle-btn.is-glass {
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+        border: 1.5px solid rgba(255, 255, 255, 0.12);
+        border-top-color: rgba(255, 255, 255, 0.28);
+        border-bottom-color: rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     .toggle-btn:hover {
         background: rgba(255, 255, 255, 0.12);
         color: #ffffff;
         border-color: rgba(255, 255, 255, 0.22);
+    }
+
+    .toggle-btn.is-glass:hover {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.25);
+        border-top-color: rgba(255, 255, 255, 0.45);
+        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.22), 0 6px 16px rgba(0, 0, 0, 0.4);
     }
 
     .toggle-btn:active {
@@ -315,21 +329,27 @@
     }
 
     .sliding-glass-pill.is-glass {
-        background: linear-gradient(180deg, rgba(200, 157, 110, 0.22) 0%, rgba(150, 107, 61, 0.12) 100%);
-        border: 1px solid rgba(224, 184, 143, 0.35);
+        background: linear-gradient(
+            180deg,
+            rgba(226, 169, 115, 0.28) 0%,
+            rgba(205, 148, 92, 0.16) 50%,
+            rgba(175, 120, 70, 0.20) 100%
+        );
+        border: 1.5px solid rgba(226, 169, 115, 0.45);
+        border-top-color: rgba(255, 230, 195, 0.85);
+        border-bottom-color: rgba(160, 105, 55, 0.30);
+        backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
+        -webkit-backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
         box-shadow: 
-            inset 0 1px 1px rgba(255, 255, 255, 0.35),
+            inset 0 1px 2px 0 rgba(255, 235, 205, 0.35),
+            inset 0 -1px 2px 0 rgba(140, 95, 50, 0.25),
+            0 4px 20px rgba(226, 169, 115, 0.20),
             0 8px 24px -4px rgba(0, 0, 0, 0.5);
     }
 
-    /* 1. Internal Refractive Specular Catch-Light Line */
+    /* 1. Internal Refractive Specular Catch-Light Line - hidden to avoid flat line clipping on pill */
     .specular-top-highlight {
-        position: absolute;
-        inset-inline: 8px;
-        top: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%);
-        pointer-events: none;
+        display: none;
     }
 
     /* Nav Item Button */
@@ -452,10 +472,21 @@
     }
 
     .active-pill.settings-pill.is-glass {
-        background: linear-gradient(180deg, rgba(200, 157, 110, 0.22) 0%, rgba(150, 107, 61, 0.12) 100%);
-        border: 1px solid rgba(224, 184, 143, 0.35);
+        background: linear-gradient(
+            180deg,
+            rgba(226, 169, 115, 0.28) 0%,
+            rgba(205, 148, 92, 0.16) 50%,
+            rgba(175, 120, 70, 0.20) 100%
+        );
+        border: 1.5px solid rgba(226, 169, 115, 0.45);
+        border-top-color: rgba(255, 230, 195, 0.85);
+        border-bottom-color: rgba(160, 105, 55, 0.30);
+        backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
+        -webkit-backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
         box-shadow: 
-            inset 0 1px 1px rgba(255, 255, 255, 0.35),
+            inset 0 1px 2px 0 rgba(255, 235, 205, 0.35),
+            inset 0 -1px 2px 0 rgba(140, 95, 50, 0.25),
+            0 4px 20px rgba(226, 169, 115, 0.20),
             0 8px 24px -4px rgba(0, 0, 0, 0.5);
     }
 

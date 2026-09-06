@@ -88,19 +88,21 @@
         width: 250px;
         min-width: 250px;
         border-right: 1px solid var(--echo-border);
-        padding: 3rem 1.5rem;
+        padding: 3rem 1.5rem 3rem 2.5rem;
         display: flex;
         flex-direction: column;
         gap: 2rem;
     }
 
     .settings-title {
-        font-family: var(--lyria-font-body);
-        font-size: 1.5rem;
-        font-weight: 600;
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-size: 2.25rem;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
         color: var(--echo-text-1);
         margin: 0;
-        padding-left: 0.5rem;
+        padding-left: 0;
     }
 
     .nav-list {

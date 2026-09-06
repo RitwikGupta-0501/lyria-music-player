@@ -339,13 +339,10 @@
     }
 
     .liquid-like-btn.is-glass {
-        background: rgba(255, 255, 255, 0.028);
-        backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
-        -webkit-backdrop-filter: blur(8px) saturate(1.35) contrast(1.08) brightness(1.02);
-        border: 1px solid rgba(255, 255, 255, 0.10);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+        border: 1.5px solid rgba(255, 255, 255, 0.14);
         box-shadow: 
-            inset 0 1px 1px rgba(255, 255, 255, 0.18),
-            inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+            inset 0 1.5px 0 0 rgba(255, 255, 255, 0.30),
             0 4px 12px rgba(0, 0, 0, 0.35);
     }
 
