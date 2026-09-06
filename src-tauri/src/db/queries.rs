@@ -444,8 +444,8 @@ pub fn sync_providers(conn: &Connection, providers: Vec<crate::ProviderInfo>) ->
 
     for p in providers {
         conn.execute(
-            "INSERT INTO providers (id, name, author, version, file_path, status, error_message, checksum, capabilities, homepage, settings_schema, priority, icon)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            "INSERT INTO providers (id, name, author, version, file_path, status, error_message, checksum, capabilities, homepage, settings_schema, priority, icon, description)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
                 author=excluded.author,
@@ -458,12 +458,14 @@ pub fn sync_providers(conn: &Connection, providers: Vec<crate::ProviderInfo>) ->
                 settings_schema=excluded.settings_schema,
                 priority=excluded.priority,
                 icon=excluded.icon,
+                description=excluded.description,
                 updated_at=CURRENT_TIMESTAMP",
             rusqlite::params![
                 p.id, p.name, p.author, p.version, p.file_path,
                 p.status, p.error_message, p.checksum,
                 p.capabilities.map(|c| serde_json::to_string(&c).unwrap_or_default()),
-                p.homepage, p.settings_schema, p.priority, p.icon
+                p.homepage, p.settings_schema, p.priority, p.icon,
+                p.description
             ],
         ).map_err(|e| e.to_string())?;
     }
@@ -484,7 +486,7 @@ pub fn delete_provider(conn: &Connection, provider_id: &str) -> Result<Option<St
 }
 
 pub fn get_providers(conn: &Connection) -> Result<Vec<crate::ProviderInfo>, String> {
-    let mut stmt = conn.prepare("SELECT id, name, author, version, file_path, status, error_message, checksum, capabilities, homepage, settings_schema, priority, icon, settings FROM providers").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, name, author, version, file_path, status, error_message, checksum, capabilities, homepage, settings_schema, priority, icon, settings, description FROM providers").map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
 
     let mut providers = Vec::new();
@@ -508,6 +510,7 @@ pub fn get_providers(conn: &Connection) -> Result<Vec<crate::ProviderInfo>, Stri
             priority: row.get(11).unwrap_or(0),
             icon: row.get(12).unwrap_or(None),
             settings: row.get(13).unwrap_or(None),
+            description: row.get(14).unwrap_or(None),
         });
     }
 

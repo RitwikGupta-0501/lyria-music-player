@@ -1,8 +1,10 @@
 <script lang="ts">
     import { invoke } from '@tauri-apps/api/core';
-        import { onMount, tick } from 'svelte';
-    import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, Trash, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin } from 'phosphor-svelte';
+    import { onMount, tick } from 'svelte';
+    import { open } from '@tauri-apps/plugin-dialog';
+    import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, Trash, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin, UploadSimple, FileArchive, FolderPlus, CaretDown } from 'phosphor-svelte';
     import { audioStore } from '../stores/audio.svelte';
+    import { toastStore } from '$lib/stores/toast.svelte';
 
     interface ProviderInfo {
         id: string;
@@ -19,6 +21,7 @@
         priority: number;
         icon: string | null;
         settings: string | null;
+        description: string | null;
     }
 
     interface TrackResult {
@@ -35,6 +38,10 @@
     let providers = $state<ProviderInfo[]>([]);
     let activeProviderPath = $state<string | null>(null);
     let isScanning = $state(false);
+    let isImporting = $state(false);
+    let showImportDropdown = $state(false);
+    let importError = $state<string | null>(null);
+    let isDraggingOver = $state(false);
 
     let searchQuery = $state('');
     let isSearching = $state(false);
@@ -91,13 +98,16 @@
     async function handleDeleteProvider() {
         if (!activeProvider) return;
         isDeleting = true;
+        const name = activeProvider.name;
         try {
             await invoke('delete_provider', { providerId: activeProvider.id });
             activeProviderPath = null;
             showDeleteConfirm = false;
             await loadProviders();
-        } catch (e) {
+            toastStore.success(`Deleted "${name}"`);
+        } catch (e: any) {
             console.error("Failed to delete provider:", e);
+            toastStore.error(e?.toString() || "Failed to delete extension");
         } finally {
             isDeleting = false;
         }
@@ -142,15 +152,131 @@ async function handleVerifyChecksum() {
             });
             // Reload providers to get updated state
             await loadProviders();
-        } catch (error) {
+            toastStore.success(`Saved settings for ${activeProvider.name}`);
+        } catch (error: any) {
             console.error("Failed to save settings:", error);
+            toastStore.error(error?.toString() || "Failed to save settings");
         } finally {
             isSavingSettings = false;
         }
     }
 
-    onMount(async () => {
-        await loadProviders();
+    async function handleImportFile() {
+        importError = null;
+        try {
+            const selected = await open({
+                multiple: false,
+                directory: false,
+                title: "Import Extension Archive (.zip, .wasm)",
+                filters: [
+                    {
+                        name: "Extensions",
+                        extensions: ["zip", "wasm"]
+                    }
+                ]
+            });
+            if (selected && typeof selected === 'string') {
+                await importPath(selected);
+            }
+        } catch (err: any) {
+            console.error("Failed to pick extension file:", err);
+            const errString = err?.message || (typeof err === 'string' ? err : "Failed to select extension archive");
+            importError = errString;
+            toastStore.error(errString);
+        }
+    }
+
+    async function handleImportFolder() {
+        importError = null;
+        try {
+            const selected = await open({
+                multiple: false,
+                directory: true,
+                title: "Import Extension Folder"
+            });
+            if (selected && typeof selected === 'string') {
+                await importPath(selected);
+            }
+        } catch (err: any) {
+            console.error("Failed to pick extension folder:", err);
+            const errString = err?.message || (typeof err === 'string' ? err : "Failed to select extension folder");
+            importError = errString;
+            toastStore.error(errString);
+        }
+    }
+
+    async function handleOpenExtensionsFolder() {
+        try {
+            await invoke('open_extensions_folder');
+        } catch (err: any) {
+            console.error("Failed to open extensions folder:", err);
+            toastStore.error(err?.toString() || "Failed to open extensions folder");
+        }
+    }
+
+    async function importPath(path: string) {
+        isImporting = true;
+        importError = null;
+        try {
+            const imported: any = await invoke('import_extension', { path });
+            await loadProviders();
+            if (imported?.file_path) {
+                await setActiveProvider(imported.file_path);
+            }
+            toastStore.success(`Imported "${imported?.name || 'Extension'}" successfully!`);
+        } catch (err: any) {
+            console.error("Failed to import extension:", err);
+            const errString = err?.message || (typeof err === 'string' ? err : "Failed to import extension");
+            importError = errString;
+            toastStore.error(errString);
+        } finally {
+            isImporting = false;
+        }
+    }
+
+    onMount(() => {
+        loadProviders();
+
+        // Prevent WebKitGTK / browser default navigation when files are dropped
+        const preventFileNav = (e: DragEvent) => {
+            e.preventDefault();
+        };
+        window.addEventListener('dragover', preventFileNav);
+        window.addEventListener('drop', preventFileNav);
+
+        const closeDropdown = () => {
+            showImportDropdown = false;
+        };
+        window.addEventListener('click', closeDropdown);
+
+        let unlistenDragDrop: (() => void) | undefined;
+        (async () => {
+            try {
+                const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+                unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
+                    if (event.payload.type === 'over' || event.payload.type === 'enter') {
+                        isDraggingOver = true;
+                    } else if (event.payload.type === 'drop') {
+                        isDraggingOver = false;
+                        const paths = event.payload.paths;
+                        if (paths && paths.length > 0) {
+                            importPath(paths[0]);
+                        }
+                    } else if (event.payload.type === 'leave') {
+                        isDraggingOver = false;
+                    }
+                });
+            } catch (e) {
+                console.warn("Drag-drop listener not initialized:", e);
+            }
+        })();
+
+        return () => {
+            window.removeEventListener('dragover', preventFileNav);
+            window.removeEventListener('drop', preventFileNav);
+            window.removeEventListener('click', closeDropdown);
+            if (unlistenDragDrop) unlistenDragDrop();
+        };
     });
 
     async function loadProviders() {
@@ -248,67 +374,126 @@ async function handleVerifyChecksum() {
 
     <div class="content-grid">
         <!-- LEFT COLUMN: INSTALLED PLUGINS -->
-        <div class="plugins-list">
-            <div class="section-title">
-                <h2>Installed Providers</h2>
-                <button class="refresh-btn" onclick={async () => {
-                    isScanning = true;
-                    try {
-                        await invoke('sync_providers');
-                        await loadProviders();
-                    } finally {
-                        isScanning = false;
-                    }
-                }} disabled={isScanning}>
-                    {#if isScanning}
-                        <SpinnerGap class="spin" size={16} />
-                        Syncing...
-                    {:else}
-                        <ArrowsClockwise size={16} />
-                        Sync
-                    {/if}
-                </button>
-            </div>
+        <div class="plugins-list {isDraggingOver ? 'dragging-over' : ''}">
+            {#if isDraggingOver}
+                <div class="dropzone-overlay">
+                    <UploadSimple size={48} weight="bold" color="var(--echo-primary)" />
+                    <p class="dropzone-title">Drop to import extension</p>
+                    <span class="dropzone-sub">Supports .zip archives and extension folders</span>
+                </div>
+            {/if}
 
-            <div class="cards-container">
-                {#if providers.length === 0 && !isScanning}
-                    <div class="empty-state">
-                        <PuzzlePiece size={32} class="text-3" />
-                        <p class="text-3">No providers found in app directory.</p>
-                    </div>
-                {:else}
-                    <div class="providers-list-stack">
-                        {#each providers as provider (provider.id)}
-                            <!-- svelte-ignore a11y_click_events_have_key_events -->
-                            <!-- svelte-ignore a11y_no_static_element_interactions -->
-                            <div 
-                                class="provider-card {activeProviderPath === provider.file_path ? 'active' : ''} {provider.status !== 'enabled' ? 'disabled' : ''}"
-                                onclick={() => setActiveProvider(provider.file_path)}
+            <div class="plugins-list-content" class:content-hidden={isDraggingOver}>
+                <div class="section-title">
+                    <h2>Installed</h2>
+                    <div class="header-actions">
+                        <button class="action-btn" onclick={handleOpenExtensionsFolder} title="Open extensions directory">
+                            <FolderOpen size={16} />
+                        </button>
+                        
+                        <div class="dropdown-wrapper">
+                            <button 
+                                class="action-btn import-btn" 
+                                onclick={(e) => { e.stopPropagation(); showImportDropdown = !showImportDropdown; }} 
+                                disabled={isImporting} 
+                                title="Import extension"
                             >
-                                <div class="card-icon">
-                                    <PuzzlePiece size={24} weight={activeProviderPath === provider.file_path ? 'fill' : 'regular'} />
+                                {#if isImporting}
+                                    <SpinnerGap class="spin" size={16} />
+                                    <span>Importing...</span>
+                                {:else}
+                                    <UploadSimple size={16} />
+                                    <span>Import</span>
+                                    <CaretDown size={11} weight="bold" />
+                                {/if}
+                            </button>
+
+                            {#if showImportDropdown}
+                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                <div class="import-dropdown-menu" onclick={(e) => e.stopPropagation()}>
+                                    <button class="dropdown-item" onclick={() => { showImportDropdown = false; handleImportFile(); }}>
+                                        <FileArchive size={16} />
+                                        <span>Archive (.zip, .wasm)</span>
+                                    </button>
+                                    <button class="dropdown-item" onclick={() => { showImportDropdown = false; handleImportFolder(); }}>
+                                        <FolderPlus size={16} />
+                                        <span>Folder</span>
+                                    </button>
                                 </div>
-                                <div class="card-details text-left" style="flex-grow: 1;">
-                                    <h3>{provider.name}</h3>
-                                    <p class="text-3">by {provider.author} • v{provider.version}</p>
-                                </div>
-                                
-                                <button 
-                                    class="power-btn"
-                                    style="flex-shrink: 0; color: {provider.status === 'enabled' ? 'var(--echo-primary)' : 'var(--echo-text-3)'}; opacity: {provider.status === 'enabled' ? '1' : '0.5'}; cursor: pointer;"
-                                    onclick={(e) => { e.stopPropagation(); toggleProvider(provider); }}
-                                    aria-label="Toggle provider"
-                                >
-                                    {#if provider.status === 'enabled'}
-                                        <CheckCircle size={24} weight="fill" />
-                                    {:else}
-                                        <XCircle size={24} weight="regular" />
-                                    {/if}
-                                </button>
-                            </div>
-                        {/each}
+                            {/if}
+                        </div>
+
+                        <button class="action-btn" onclick={async () => {
+                            isScanning = true;
+                            try {
+                                await invoke('sync_providers');
+                                await loadProviders();
+                                toastStore.success("Extensions synchronized");
+                            } catch (err: any) {
+                                toastStore.error(err?.toString() || "Failed to sync extensions");
+                            } finally {
+                                isScanning = false;
+                            }
+                        }} disabled={isScanning} title="Sync extensions">
+                            {#if isScanning}
+                                <SpinnerGap class="spin" size={16} />
+                                <span>Syncing...</span>
+                            {:else}
+                                <ArrowsClockwise size={16} />
+                                <span>Sync</span>
+                            {/if}
+                        </button>
+                    </div>
+                </div>
+
+                {#if importError}
+                    <div class="import-error-banner">
+                        <span>{importError}</span>
+                        <button onclick={() => importError = null}>✕</button>
                     </div>
                 {/if}
+
+                <div class="cards-container">
+                    {#if providers.length === 0 && !isScanning}
+                        <div class="empty-state">
+                            <PuzzlePiece size={32} class="text-3" />
+                            <p class="text-3">No providers found in app directory.</p>
+                        </div>
+                    {:else}
+                        <div class="providers-list-stack">
+                            {#each providers as provider (provider.id)}
+                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                <div 
+                                    class="provider-card {activeProviderPath === provider.file_path ? 'active' : ''} {provider.status !== 'enabled' ? 'disabled' : ''}"
+                                    onclick={() => setActiveProvider(provider.file_path)}
+                                >
+                                    <div class="card-icon">
+                                        <PuzzlePiece size={24} weight={activeProviderPath === provider.file_path ? 'fill' : 'regular'} />
+                                    </div>
+                                    <div class="card-details text-left" style="flex-grow: 1;">
+                                        <h3>{provider.name}</h3>
+                                        <p class="text-3">by {provider.author} • v{provider.version}</p>
+                                    </div>
+                                    
+                                    <button 
+                                        class="power-btn"
+                                        style="flex-shrink: 0; color: {provider.status === 'enabled' ? 'var(--echo-primary)' : 'var(--echo-text-3)'}; opacity: {provider.status === 'enabled' ? '1' : '0.5'}; cursor: pointer;"
+                                        onclick={(e) => { e.stopPropagation(); toggleProvider(provider); }}
+                                        aria-label="Toggle provider"
+                                    >
+                                        {#if provider.status === 'enabled'}
+                                            <CheckCircle size={24} weight="fill" />
+                                        {:else}
+                                            <XCircle size={24} weight="regular" />
+                                        {/if}
+                                    </button>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
 
@@ -324,7 +509,7 @@ async function handleVerifyChecksum() {
                     </div>
                 </div>
             {:else}
-                <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--echo-border); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                <div class="section-title" style="flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--echo-border); padding-bottom: 1rem; margin-bottom: 1.5rem;">
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
                         <button class="tab-btn {currentTab === 'details' ? 'active' : ''}" onclick={() => currentTab = 'details'}>Details</button>
                         <button class="tab-btn {currentTab === 'configure' ? 'active' : ''}" onclick={() => currentTab = 'configure'}>Configure</button>
@@ -339,7 +524,7 @@ async function handleVerifyChecksum() {
                     {#if currentTab === 'details'}
                         {@const IconCmp = getProviderIcon(activeProvider.icon)}
                         <div class="details-tab">
-                            <div class="details-header" style="display: flex; gap: 1.5rem; align-items: flex-start; margin-bottom: 2.5rem;">
+                            <div class="details-header" style="flex-shrink: 0; display: flex; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem;">
                                 <div class="icon-lg">
                                     <IconCmp size={48} weight="duotone" />
                                 </div>
@@ -360,7 +545,13 @@ async function handleVerifyChecksum() {
                                 </div>
                             </div>
                             
-                            <div class="meta-section" style="margin-bottom: 2.5rem;">
+                            <div class="details-scrollable">
+                                {#if activeProvider.description}
+                                    <div class="description-section">
+                                        <p class="description-text">{activeProvider.description}</p>
+                                    </div>
+                                {/if}
+                                <div class="meta-section" style="margin-bottom: 2.5rem;">
                                 <h3 style="font-size: 1.125rem; font-weight: 500; color: var(--echo-text-1); margin-bottom: 1rem;">Capabilities</h3>
                                 <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
                                     {#if activeProvider.capabilities && activeProvider.capabilities.length > 0}
@@ -423,6 +614,7 @@ async function handleVerifyChecksum() {
                                         </button>
                                     </div>
                                 </div>
+                            </div>
                             </div>
                         </div>
                     {:else if currentTab === 'configure'}
@@ -615,6 +807,7 @@ async function handleVerifyChecksum() {
     .content-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
+        align-items: stretch;
         gap: 2rem;
         flex: 1;
         min-height: 0;
@@ -633,23 +826,157 @@ async function handleVerifyChecksum() {
         color: var(--echo-text-1);
     }
 
-    .refresh-btn {
-        background: transparent;
-        border: 1px solid var(--echo-border);
-        color: var(--echo-text-2);
-        padding: 0.25rem 0.75rem;
-        border-radius: 4px;
-        font-size: 0.875rem;
-        cursor: pointer;
+    .header-actions {
         display: flex;
         align-items: center;
         gap: 0.5rem;
+    }
+
+    .action-btn {
+        background: transparent;
+        border: 1px solid var(--echo-border);
+        color: var(--echo-text-2);
+        padding: 0.35rem 0.65rem;
+        border-radius: 6px;
+        font-size: 0.8125rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
         transition: all 0.2s;
     }
 
-    .refresh-btn:hover:not(:disabled) {
+    .action-btn:hover:not(:disabled) {
         color: var(--echo-text-1);
         border-color: var(--echo-text-3);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .action-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .plugins-list-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        width: 100%;
+        height: 100%;
+    }
+
+    .plugins-list-content.content-hidden,
+    .plugins-list-content.content-hidden * {
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        transition: none !important;
+    }
+
+    .dropzone-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.85rem;
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: var(--echo-text-1, #fff);
+        text-align: center;
+        padding: 2rem 1.5rem;
+        box-sizing: border-box;
+        pointer-events: none;
+        user-select: none;
+        z-index: 10;
+    }
+
+    .dropzone-title {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin: 0;
+        color: var(--echo-text-1, #fff);
+    }
+
+    .dropzone-sub {
+        font-size: 0.8125rem;
+        color: var(--echo-text-2, rgba(255, 255, 255, 0.6));
+    }
+
+    .plugins-list.dragging-over {
+        border: 2px dashed var(--echo-primary) !important;
+        outline: none !important;
+    }
+
+    .dropdown-wrapper {
+        position: relative;
+        display: inline-block;
+    }
+
+    .import-btn {
+        gap: 0.35rem;
+    }
+
+    .import-dropdown-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        background: var(--echo-sidebar, #141414);
+        border: 1px solid var(--echo-border);
+        border-radius: 8px;
+        padding: 4px;
+        min-width: 190px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: none;
+        background: transparent;
+        color: var(--echo-text-1);
+        font-size: 0.8125rem;
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .dropdown-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--echo-primary);
+    }
+
+    .import-error-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.75rem;
+        border-radius: 6px;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #f87171;
+        font-size: 0.8125rem;
+    }
+
+    .import-error-banner button {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        font-size: 0.875rem;
+        padding: 0 0.25rem;
     }
 
     .plugins-list, .sandbox-tester {
@@ -659,7 +986,11 @@ async function handleVerifyChecksum() {
         border-radius: 12px;
         padding: 1.5rem;
         border: 1px solid var(--echo-border);
-        min-height: 0;
+        min-height: 520px;
+        height: 100%;
+        box-sizing: border-box;
+        position: relative;
+        overflow: hidden;
     }
 
     .providers-list-stack {
@@ -752,6 +1083,66 @@ async function handleVerifyChecksum() {
         gap: 1.5rem;
         flex: 1;
         min-height: 0;
+        overflow: hidden;
+    }
+
+    .details-tab {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .description-section {
+        margin-bottom: 2rem;
+    }
+
+    .description-text {
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: var(--echo-text-2);
+        margin: 0;
+    }
+
+    .details-scrollable {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        padding-right: 0.5rem;
+        padding-bottom: 1.5rem;
+    }
+
+    .details-scrollable::-webkit-scrollbar,
+    .configure-tab::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .details-scrollable::-webkit-scrollbar-track,
+    .configure-tab::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .details-scrollable::-webkit-scrollbar-thumb,
+    .configure-tab::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 3px;
+    }
+
+    .details-scrollable::-webkit-scrollbar-thumb:hover,
+    .configure-tab::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+    .configure-tab {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+        padding-bottom: 1.5rem;
     }
 
     .test-sandbox-box {
