@@ -147,7 +147,7 @@
         <div class="header-title-row">
             <div class="title-group">
                 <span class="pulse-dot" class:paused={isPaused}></span>
-                <h1 class="title">Echo Debug Console</h1>
+                <h1 class="title">Lyria Debug Console</h1>
                 <span class="log-count">{filteredLogs.length} / {logs.length} logs</span>
             </div>
 

@@ -1,7 +1,6 @@
 <script lang="ts">
     import { invoke } from '@tauri-apps/api/core';
-    import { createVirtualizer } from "@tanstack/svelte-virtual";
-    import { onMount, tick } from 'svelte';
+        import { onMount, tick } from 'svelte';
     import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, Trash, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin } from 'phosphor-svelte';
     import { audioStore } from '../stores/audio.svelte';
 
@@ -72,16 +71,7 @@
     let isVerifyingChecksum = $state(false);
     let checksumVerified = $state(false);
 
-    let scrollContainer = $state<HTMLElement | null>(null);
-    let virtStore = $derived.by(() => {
-        const container = scrollContainer;
-        return createVirtualizer({
-            count: providers.length,
-            getScrollElement: () => container,
-            estimateSize: () => 76,
-            overscan: 5,
-        });
-    });
+
 
     // Dynamic icon resolution
     function getProviderIcon(iconName: string | null) {
@@ -280,47 +270,45 @@ async function handleVerifyChecksum() {
                 </button>
             </div>
 
-            <div class="cards-container" bind:this={scrollContainer}>
+            <div class="cards-container">
                 {#if providers.length === 0 && !isScanning}
                     <div class="empty-state">
                         <PuzzlePiece size={32} class="text-3" />
                         <p class="text-3">No providers found in app directory.</p>
                     </div>
-                {/if}
-
-                <div style="position: relative; width: 100%; height: {$virtStore.getTotalSize()}px;">
-                {#each $virtStore.getVirtualItems() as virtualRow (virtualRow.index)}
-                    {@const provider = providers[virtualRow.index]}
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div 
-                        class="provider-card {activeProviderPath === provider.file_path ? 'active' : ''} {provider.status !== 'enabled' ? 'disabled' : ''}"
-                        style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualRow.start}px);"
-                        onclick={() => setActiveProvider(provider.file_path)}
-                    >
-                        <div class="card-icon">
-                            <PuzzlePiece size={24} weight={activeProviderPath === provider.file_path ? 'fill' : 'regular'} />
-                        </div>
-                        <div class="card-details text-left" style="flex-grow: 1;">
-                            <h3>{provider.name}</h3>
-                            <p class="text-3">by {provider.author} • v{provider.version}</p>
-                        </div>
-                        
-                        <button 
-                            class="power-btn"
-                            style="flex-shrink: 0; color: {provider.status === 'enabled' ? 'var(--echo-primary)' : 'var(--echo-text-3)'}; opacity: {provider.status === 'enabled' ? '1' : '0.5'}; cursor: pointer;"
-                            onclick={(e) => { e.stopPropagation(); toggleProvider(provider); }}
-                            aria-label="Toggle provider"
-                        >
-                            {#if provider.status === 'enabled'}
-                                <CheckCircle size={24} weight="fill" />
-                            {:else}
-                                <XCircle size={24} weight="regular" />
-                            {/if}
-                        </button>
+                {:else}
+                    <div class="providers-list-stack">
+                        {#each providers as provider (provider.id)}
+                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                            <!-- svelte-ignore a11y_no_static_element_interactions -->
+                            <div 
+                                class="provider-card {activeProviderPath === provider.file_path ? 'active' : ''} {provider.status !== 'enabled' ? 'disabled' : ''}"
+                                onclick={() => setActiveProvider(provider.file_path)}
+                            >
+                                <div class="card-icon">
+                                    <PuzzlePiece size={24} weight={activeProviderPath === provider.file_path ? 'fill' : 'regular'} />
+                                </div>
+                                <div class="card-details text-left" style="flex-grow: 1;">
+                                    <h3>{provider.name}</h3>
+                                    <p class="text-3">by {provider.author} • v{provider.version}</p>
+                                </div>
+                                
+                                <button 
+                                    class="power-btn"
+                                    style="flex-shrink: 0; color: {provider.status === 'enabled' ? 'var(--echo-primary)' : 'var(--echo-text-3)'}; opacity: {provider.status === 'enabled' ? '1' : '0.5'}; cursor: pointer;"
+                                    onclick={(e) => { e.stopPropagation(); toggleProvider(provider); }}
+                                    aria-label="Toggle provider"
+                                >
+                                    {#if provider.status === 'enabled'}
+                                        <CheckCircle size={24} weight="fill" />
+                                    {:else}
+                                        <XCircle size={24} weight="regular" />
+                                    {/if}
+                                </button>
+                            </div>
+                        {/each}
                     </div>
-                {/each}
-                </div>
+                {/if}
             </div>
         </div>
 
@@ -606,7 +594,7 @@ async function handleVerifyChecksum() {
     .providers-view {
         position: absolute;
         inset: 0;
-        padding: 2rem 2rem var(--player-clearance, 10rem) 2rem;
+        padding: 3rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
         scroll-padding-bottom: var(--player-scroll-padding, 10rem);
         overflow-y: auto;
         display: flex;
@@ -616,9 +604,12 @@ async function handleVerifyChecksum() {
     }
 
     .view-header h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-size: 2.25rem;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
+        margin: 0 0 0.5rem 0;
     }
 
     .content-grid {
@@ -671,6 +662,11 @@ async function handleVerifyChecksum() {
         min-height: 0;
     }
 
+    .providers-list-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
     .cards-container {
         display: flex;
         flex-direction: column;

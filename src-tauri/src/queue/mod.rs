@@ -5,6 +5,7 @@ pub mod persistence;
 pub mod recovery;
 
 pub mod commands;
+pub mod autoplay;
 
 /// The audio source for a queued track — local file or remote stream.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

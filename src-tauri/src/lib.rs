@@ -317,7 +317,20 @@ async fn browse_provider_artist(
     provider_id: String,
     artist_id: String,
 ) -> Result<crate::providers::ArtistDetailResult, String> {
-    state.provider_manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())
+    let res = state.provider_manager.browse_artist(&provider_id, &artist_id).await.map_err(|e| e.to_string())?;
+
+    // Asynchronously persist artist portrait & canonical name to SQLite cache
+    let (tx, _rx) = oneshot::channel();
+    let _ = state.db_tx.send(crate::db::DbRequest::UpsertArtistMetadata {
+        id: artist_id.clone(),
+        name: res.name.clone(),
+        avatar_url: res.avatar_url.clone(),
+        bio: res.bio.clone(),
+        provider_id: provider_id.clone(),
+        resp: tx,
+    });
+
+    Ok(res)
 }
 
 #[tauri::command]
@@ -387,6 +400,16 @@ async fn get_home_local_shelves(
     state: State<'_, AppState>,
     mood: Option<String>,
 ) -> Result<providers::recommendations::HomeLocalShelves, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome) {
+        return Ok(providers::recommendations::HomeLocalShelves {
+            quick_picks: Vec::new(),
+            keep_listening: Vec::new(),
+            jump_back_in: Vec::new(),
+            heavy_rotation: crate::db::queries::HeavyRotationShelf { artists: Vec::new(), albums: Vec::new() },
+            forgotten_favorites: Vec::new(),
+            cold_start_seeds: Vec::new(),
+        });
+    }
     let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
     state.recommendation_compiler.get_local_shelves(mood_filter)
 }
@@ -396,6 +419,11 @@ async fn get_home_remote_shelves(
     state: State<'_, AppState>,
     mood: Option<String>,
 ) -> Result<providers::recommendations::FederatedShelfResult, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome)
+        || !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::HomeDailyDiscover)
+    {
+        return Ok(providers::recommendations::FederatedShelfResult::empty());
+    }
     let new_token = tokio_util::sync::CancellationToken::new();
     {
         let mut lock = state.in_flight_recommendation_cancel.lock().unwrap();
@@ -416,6 +444,11 @@ async fn get_home_radios(
     state: State<'_, AppState>,
     mood: Option<String>,
 ) -> Result<Vec<providers::recommendations::RadioMixCard>, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome)
+        || !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::HomeRadioMix)
+    {
+        return Ok(Vec::new());
+    }
     let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
     state.recommendation_compiler.compile_algorithmic_radios(mood_filter)
 }
@@ -424,6 +457,11 @@ async fn get_home_radios(
 async fn get_home_adjacent_horizons(
     state: State<'_, AppState>,
 ) -> Result<Vec<providers::recommendations::AdjacentHorizonPayload>, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageHome)
+        || !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::HomeAdjacentHorizons)
+    {
+        return Ok(Vec::new());
+    }
     state.recommendation_compiler.compute_adjacent_horizons()
 }
 
@@ -435,9 +473,17 @@ async fn get_home_adjacent_horizon(
 }
 
 #[tauri::command]
+async fn resolve_autoplay_next_track(
+    state: State<'_, AppState>,
+    seed: queue::QueueTrack,
+) -> Result<Option<queue::QueueTrack>, String> {
+    queue::autoplay::resolve_autoplay_next_track(&state, &seed).await
+}
+
+#[tauri::command]
 async fn get_radio_stream(
     state: State<'_, AppState>,
-    _provider_id: String,
+    #[allow(unused_variables)] provider_id: String,
     seed: providers::CanonicalSeedV1,
 ) -> Result<providers::RadioStreamResultV1, String> {
     state.recommendation_compiler.compile_federated_radio(&seed).await
@@ -569,6 +615,9 @@ async fn get_extension_metrics(
 
 #[tauri::command]
 async fn get_explore_feed(state: State<'_, AppState>) -> Result<Vec<crate::providers::AggregatedModule>, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageExplore) {
+        return Ok(Vec::new());
+    }
     Ok(state.provider_manager.get_all_explore_modules().await)
 }
 
@@ -583,11 +632,49 @@ async fn get_provider_modules(state: State<'_, AppState>, provider_id: String) -
 }
 
 #[tauri::command]
-async fn fetch_provider_module(state: State<'_, AppState>, provider_id: String, module_id: String) -> Result<providers::ModuleData, String> {
+async fn fetch_provider_module(
+    state: State<'_, AppState>, 
+    provider_id: String, 
+    module_id: String,
+    force_refresh: Option<bool>,
+) -> Result<providers::ModuleData, String> {
+    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PageExplore) {
+        return Ok(providers::ModuleData { items: Vec::new() });
+    }
+    let is_force = force_refresh.unwrap_or(false);
+
+    if !is_force {
+        let (tx, rx) = oneshot::channel();
+        if state.db_tx.send(DbRequest::GetFeedCache {
+            provider_id: provider_id.clone(),
+            module_id: module_id.clone(),
+            resp: tx,
+        }).is_ok() {
+            if let Ok(Ok(Some(json_str))) = rx.await {
+                if let Ok(data) = serde_json::from_str::<providers::ModuleData>(&json_str) {
+                    if !data.items.is_empty() {
+                        return Ok(data);
+                    }
+                }
+            }
+        }
+    }
+
     let results = state.provider_manager
         .fetch_module(&provider_id, &module_id)
         .await
         .map_err(|e| e.to_string())?;
+
+    if let Ok(json_str) = serde_json::to_string(&results) {
+        let (tx, _rx) = oneshot::channel();
+        let _ = state.db_tx.send(DbRequest::SetFeedCache {
+            provider_id,
+            module_id,
+            payload_json: json_str,
+            ttl_seconds: 86400,
+            resp: tx,
+        });
+    }
 
     Ok(results)
 }
@@ -754,6 +841,103 @@ async fn get_albums(state: State<'_, AppState>, limit: u32, offset: u32) -> Resu
 }
 
 #[tauri::command]
+async fn toggle_save_album(
+    id: String,
+    title: String,
+    artist: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let (tx, rx) = oneshot::channel();
+    let p_id = provider_id.unwrap_or_else(|| "local".to_string());
+    state.db_tx.send(crate::db::DbRequest::ToggleSavedAlbum {
+        id,
+        title,
+        artist,
+        cover_art_url,
+        provider_id: p_id,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_saved_albums(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::queries::SavedAlbum>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetSavedAlbums { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn toggle_save_playlist(
+    id: String,
+    title: String,
+    author: Option<String>,
+    cover_art_url: Option<String>,
+    provider_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let (tx, rx) = oneshot::channel();
+    let p_id = provider_id.unwrap_or_else(|| "youtube-wasm".to_string());
+    state.db_tx.send(crate::db::DbRequest::ToggleSavedPlaylist {
+        id,
+        title,
+        author,
+        cover_art_url,
+        provider_id: p_id,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_saved_playlists(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::queries::SavedPlaylist>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetSavedPlaylists { resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_artist_metadata(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    avatar_url: Option<String>,
+    bio: Option<String>,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    let p_id = provider_id.unwrap_or_else(|| "youtube-wasm".to_string());
+    state.db_tx.send(crate::db::DbRequest::UpsertArtistMetadata {
+        id,
+        name,
+        avatar_url,
+        bio,
+        provider_id: p_id,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_artist_metadata(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Option<crate::db::queries::ArtistMetadata>, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetArtistMetadata {
+        query,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn get_album_tracks(state: State<'_, AppState>, album_id: i64, limit: u32, offset: u32) -> Result<Vec<LocalTrack>, String> {
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::GetAlbumTracks { album_id, limit, offset, resp: tx }).map_err(|e| e.to_string())?;
@@ -764,6 +948,17 @@ async fn get_album_tracks(state: State<'_, AppState>, album_id: i64, limit: u32,
 async fn get_playlists(state: State<'_, AppState>, limit: u32, offset: u32) -> Result<Vec<Playlist>, String> {
     let (tx, rx) = oneshot::channel();
     state.db_tx.send(DbRequest::GetPlaylists { limit, offset, resp: tx }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_queue_as_playlist(
+    state: State<'_, AppState>,
+    name: String,
+    tracks: Vec<crate::queue::QueueTrack>,
+) -> Result<i64, String> {
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(DbRequest::SaveQueueAsPlaylist { name, tracks, resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())?
 }
 
@@ -975,37 +1170,61 @@ fn get_feature_flags() -> Vec<String> {
     feature_flags::FEATURE_FLAGS
         .get_enabled_flags()
         .iter()
-        .map(|f| format!("{:?}", f))
+        .map(|f| f.key().to_string())
         .collect()
 }
 
 #[tauri::command]
+fn get_feature_flags_detail() -> Vec<feature_flags::FlagDetail> {
+    feature_flags::FEATURE_FLAGS.get_all_details()
+}
+
+#[tauri::command]
 fn is_feature_enabled(flag: String) -> bool {
-    match flag.as_str() {
-        "ShuffleMode" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::ShuffleMode),
-        "ReorderQueue" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::ReorderQueue),
-        "VirtualScrolling" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::VirtualScrolling),
-        "PersistentQueue" => feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::PersistentQueue),
-        _ => false,
+    if let Some(f) = feature_flags::FeatureFlag::from_key(&flag) {
+        feature_flags::FEATURE_FLAGS.is_enabled(f)
+    } else {
+        false
     }
 }
 
 #[tauri::command]
-fn set_feature_enabled(flag: String, enabled: bool) {
-    let feature = match flag.as_str() {
-        "ShuffleMode" => feature_flags::FeatureFlag::ShuffleMode,
-        "ReorderQueue" => feature_flags::FeatureFlag::ReorderQueue,
-        "VirtualScrolling" => feature_flags::FeatureFlag::VirtualScrolling,
-        "PersistentQueue" => feature_flags::FeatureFlag::PersistentQueue,
-        _ => return,
-    };
+async fn set_feature_flag(
+    state: State<'_, AppState>,
+    flag: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let feature = feature_flags::FeatureFlag::from_key(&flag)
+        .ok_or_else(|| format!("Unknown feature flag: {}", flag))?;
 
-    if enabled {
-        feature_flags::FEATURE_FLAGS.enable(feature.clone());
-        tracing::info!("Feature enabled: {:?}", feature);
-    } else {
-        feature_flags::FEATURE_FLAGS.disable(feature.clone());
-        tracing::info!("Feature disabled: {:?}", feature);
+    feature_flags::FEATURE_FLAGS.set_flag(feature, enabled);
+
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::SetFeatureFlag {
+        key: feature.key().to_string(),
+        enabled,
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn reset_feature_flags(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    feature_flags::FEATURE_FLAGS.reset_defaults();
+
+    let (tx, rx) = oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::ResetFeatureFlags {
+        resp: tx,
+    }).map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn set_feature_enabled(flag: String, enabled: bool) {
+    if let Some(f) = feature_flags::FeatureFlag::from_key(&flag) {
+        feature_flags::FEATURE_FLAGS.set_flag(f, enabled);
     }
 }
 
@@ -1029,10 +1248,8 @@ async fn sandbox_callback(
     if let Some(tx) = pending.remove(&req_id) {
         let res = if let Some(e) = error {
             Err(e)
-        } else if let Some(p) = payload {
-            Ok(p)
         } else {
-            Err("No payload or error provided".to_string())
+            Ok(payload.unwrap_or(serde_json::Value::Null))
         };
         let _ = tx.send(res);
     } else {
@@ -1098,7 +1315,7 @@ pub fn run() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    tracing::info!("Echo Music Player starting up");
+    tracing::info!("Lyria starting up");
 
     let (audio_tx, audio_rx) = mpsc::channel();
     let (db_tx, db_rx) = mpsc::channel();
@@ -1148,9 +1365,12 @@ pub fn run() {
 
             tracing::info!("Queue initialized with {} tracks", recovered_queue.tracks.len());
 
+            // Initialize Feature Flags from persistent SQLite table
+            feature_flags::FEATURE_FLAGS.init_from_db(&conn);
+
             let db_thread_handle = db::start_db_thread(conn, db_rx);
             
-            #[cfg(feature = "sync-workspace-extensions")]
+            #[cfg(any(debug_assertions, feature = "sync-workspace-extensions"))]
             {
                 // Copy / update extension bundles into providers_dir (Disabled by default)
                 let mut source_dirs = Vec::new();
@@ -1253,6 +1473,7 @@ pub fn run() {
             get_home_adjacent_horizons,
             get_home_adjacent_horizon,
             get_radio_stream,
+            resolve_autoplay_next_track,
             clear_recommendations_cache,
             record_track_play,
             toggle_track_like,
@@ -1264,9 +1485,16 @@ pub fn run() {
             get_local_tracks,
             get_albums,
             get_recent_albums,
+            toggle_save_album,
+            get_saved_albums,
+            toggle_save_playlist,
+            get_saved_playlists,
+            save_artist_metadata,
+            get_artist_metadata,
             resolve_track,
             get_album_tracks,
             get_playlists,
+            save_queue_as_playlist,
             create_playlist,
             add_to_playlist,
             get_playlist_tracks,
@@ -1304,8 +1532,11 @@ pub fn run() {
             clear_error_log,
             // Feature flag commands (Phase 7)
             get_feature_flags,
+            get_feature_flags_detail,
             is_feature_enabled,
             set_feature_enabled,
+            set_feature_flag,
+            reset_feature_flags,
             toggle_provider,
             delete_provider,
             sync_playback_state,

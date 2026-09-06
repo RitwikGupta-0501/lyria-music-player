@@ -1,3 +1,26 @@
+import { audioStore } from "./audio.svelte";
+import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { toastStore } from "./toast.svelte";
+
+export interface SavedAlbum {
+    id: string;
+    title: string;
+    artist?: string | null;
+    cover_art_url?: string | null;
+    provider_id: string;
+    created_at?: string | null;
+}
+
+export interface SavedPlaylist {
+    id: string;
+    title: string;
+    author?: string | null;
+    cover_art_url?: string | null;
+    provider_id: string;
+    created_at?: string | null;
+}
+
 export function getCanonicalKey(
     track: { title: string; artist?: string | null; canonical_key?: string },
     fallbackArtist?: string | null
@@ -10,9 +33,19 @@ export function getCanonicalKey(
     return `${artist}::${title}`;
 }
 
-import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from '@tauri-apps/api/core';
-import { toastStore } from './toast.svelte';
+export interface LikedSong {
+    canonical_key: string;
+    title: string;
+    artist?: string | null;
+    album?: string | null;
+    cover_art_url?: string | null;
+    last_provider_id?: string | null;
+    last_source_id?: string | null;
+    local_track_id?: number | null;
+    local_file_path?: string | null;
+    file_path?: string | null;
+    duration_ms?: number | null;
+}
 
 export interface Album {
     id: number;
@@ -39,7 +72,9 @@ export class LibraryStore {
     albums = $state<Album[]>([]);
     recentAlbums = $state<Album[]>([]);
     playlists = $state<Playlist[]>([]);
-    likedSongs = $state<any[]>([]);
+    likedSongs = $state<LikedSong[]>([]);
+    savedAlbums = $state<SavedAlbum[]>([]);
+    savedPlaylists = $state<SavedPlaylist[]>([]);
     isScanning = $state(false);
     lastScanResult = $state<number | null>(null);
     onLikeToggled: ((canonicalKey: string, isLiked: boolean) => void) | null = null;
@@ -68,13 +103,35 @@ export class LibraryStore {
         }
     }
 
-    async fetchLikedSongs(): Promise<any[]> {
+    async fetchLikedSongs(): Promise<LikedSong[]> {
         try {
-            const songs = await invoke<any[]>("get_liked_songs", { limit: 500 });
+            const songs = await invoke<LikedSong[]>("get_liked_songs", { limit: 500 });
             this.likedSongs = songs || [];
             return this.likedSongs;
         } catch (e) {
             console.error("Failed to fetch liked songs:", e);
+            return [];
+        }
+    }
+
+    async fetchSavedAlbums(): Promise<SavedAlbum[]> {
+        try {
+            const albums = await invoke<SavedAlbum[]>("get_saved_albums");
+            this.savedAlbums = albums || [];
+            return this.savedAlbums;
+        } catch (e) {
+            console.error("Failed to fetch saved albums:", e);
+            return [];
+        }
+    }
+
+    async fetchSavedPlaylists(): Promise<SavedPlaylist[]> {
+        try {
+            const playlists = await invoke<SavedPlaylist[]>("get_saved_playlists");
+            this.savedPlaylists = playlists || [];
+            return this.savedPlaylists;
+        } catch (e) {
+            console.error("Failed to fetch saved playlists:", e);
             return [];
         }
     }
@@ -114,19 +171,106 @@ export class LibraryStore {
         }
     }
 
+    async toggleSaveAlbum(album: { 
+        id: string; 
+        title: string; 
+        artist?: string | null; 
+        cover_art_url?: string | null; 
+        provider_id?: string 
+    }): Promise<boolean> {
+        try {
+            const isSaved = await invoke<boolean>("toggle_save_album", {
+                id: album.id,
+                title: album.title,
+                artist: album.artist || null,
+                coverArtUrl: album.cover_art_url || null,
+                providerId: album.provider_id || "local",
+            });
+            await this.fetchSavedAlbums();
+            if (isSaved) {
+                toastStore.show(`Added "${album.title}" to Albums`, "success");
+            } else {
+                toastStore.show(`Removed "${album.title}" from Albums`, "info");
+            }
+            return isSaved;
+        } catch (e) {
+            console.error("Failed to toggle save album:", e);
+            toastStore.show("Failed to update saved album", "error");
+            return false;
+        }
+    }
+
+    async toggleSavePlaylist(playlist: { 
+        id: string; 
+        title: string; 
+        author?: string | null; 
+        cover_art_url?: string | null; 
+        provider_id?: string 
+    }): Promise<boolean> {
+        try {
+            const isSaved = await invoke<boolean>("toggle_save_playlist", {
+                id: playlist.id,
+                title: playlist.title,
+                author: playlist.author || null,
+                coverArtUrl: playlist.cover_art_url || null,
+                providerId: playlist.provider_id || "youtube-wasm",
+            });
+            await this.fetchSavedPlaylists();
+            if (isSaved) {
+                toastStore.show(`Saved "${playlist.title}" to Playlists`, "success");
+            } else {
+                toastStore.show(`Removed "${playlist.title}" from Playlists`, "info");
+            }
+            return isSaved;
+        } catch (e) {
+            console.error("Failed to toggle save playlist:", e);
+            toastStore.show("Failed to update saved playlist", "error");
+            return false;
+        }
+    }
+
+    isLikedSong(canonicalKey: string): boolean {
+        if (!canonicalKey) return false;
+        return this.likedSongs.some(s => s.canonical_key.toLowerCase() === canonicalKey.toLowerCase());
+    }
+
+        isAlbumSaved(id: string, title?: string, artist?: string): boolean {
+        return this.savedAlbums.some(a => {
+            if (a.id === id) return true;
+            if (title && a.title.toLowerCase().trim() === title.toLowerCase().trim()) {
+                if (!artist || !a.artist || a.artist.toLowerCase().trim() === artist.toLowerCase().trim()) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    isPlaylistSaved(id: string, title?: string, author?: string): boolean {
+        const cleanId = id ? String(id).replace(/^(VL|playlist:)/, "") : "";
+        return this.savedPlaylists.some(p => {
+            if (p.id === id) return true;
+            const cleanPId = p.id ? String(p.id).replace(/^(VL|playlist:)/, "") : "";
+            if (cleanId && cleanPId && cleanId === cleanPId) return true;
+            if (title && p.title.toLowerCase().trim() === title.toLowerCase().trim()) {
+                if (!author || !p.author || p.author.toLowerCase().trim() === author.toLowerCase().trim()) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
     async scanDirectory(path: string) {
-        if (!path) return;
         this.isScanning = true;
         this.lastScanResult = null;
         try {
-            const added = await invoke<number>("scan_local_directory", { path });
-            this.lastScanResult = added;
+            const count = await invoke<number>("scan_local_directory", { path });
+            this.lastScanResult = count;
             await this.fetchAlbums();
-            await this.fetchRecentAlbums();
-            toastStore.success(`Scan complete: ${added} new track${added !== 1 ? 's' : ''} added.`);
+            await this.fetchPlaylists();
         } catch (e) {
-            console.error("Scan error:", e);
-            toastStore.error(`Scan failed: ${e}`);
+            console.error(e);
         } finally {
             this.isScanning = false;
         }
@@ -139,12 +283,20 @@ export class LibraryStore {
     async getPlaylistTracks(playlistId: number): Promise<LocalTrack[]> {
         return await invoke("get_playlist_tracks", { playlistId, limit: 500, offset: 0 });
     }
-    
-    async createPlaylist(name: string) {
-        await invoke("create_playlist", { name });
+
+    async saveQueueAsPlaylist(name: string, tracks: any[]): Promise<number> {
+        const id = await invoke<number>("save_queue_as_playlist", { name, tracks });
         await this.fetchPlaylists();
+        toastStore.show(`Saved ${tracks.length} track${tracks.length === 1 ? "" : "s"} to "${name}"`, "success");
+        return id;
     }
-    
+
+    async createPlaylist(name: string): Promise<number> {
+        const id = await invoke<number>("create_playlist", { name });
+        await this.fetchPlaylists();
+        return id;
+    }
+
     async addToPlaylist(playlistId: number, trackId: number) {
         await invoke("add_to_playlist", { playlistId, trackId });
     }
@@ -190,6 +342,46 @@ export class LibraryStore {
             console.error(e);
         }
         return null;
+    }
+
+    async playPlaylist(playlistId: number) {
+        try {
+            const tracks = await this.getPlaylistTracks(playlistId);
+            if (tracks && tracks.length > 0) {
+                const queueTracks = tracks.map(t => ({
+                    id: t.id,
+                    track_id: t.id,
+                    title: t.title,
+                    artist: t.artist || "Unknown Artist",
+                    file_path: t.file_path,
+                    is_local: true,
+                    duration_ms: 210000,
+                }));
+                await audioStore.setQueue(queueTracks, 0);
+            }
+        } catch (e) {
+            console.error("Failed to play local playlist:", e);
+        }
+    }
+
+    async playAlbum(albumId: number) {
+        try {
+            const tracks = await this.getAlbumTracks(albumId);
+            if (tracks && tracks.length > 0) {
+                const queueTracks = tracks.map(t => ({
+                    id: t.id,
+                    track_id: t.id,
+                    title: t.title,
+                    artist: t.artist || "Unknown Artist",
+                    file_path: t.file_path,
+                    is_local: true,
+                    duration_ms: 210000,
+                }));
+                await audioStore.setQueue(queueTracks, 0);
+            }
+        } catch (e) {
+            console.error("Failed to play local album:", e);
+        }
     }
     
     async clearLibrary() {

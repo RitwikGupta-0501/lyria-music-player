@@ -44,9 +44,11 @@
             console.log(`[sandbox] tauriReturn for reqId: ${reqId}, error: ${error}`);
             if (window.__TAURI__ && window.__TAURI__.core) {
                 try {
+                    // Normalize undefined to null so JSON serialization preserves the key
+                    var safePayload = (payload === undefined) ? null : payload;
                     window.__TAURI__.core.invoke('sandbox_callback', {
                         reqId: reqId,
-                        payload: payload,
+                        payload: safePayload,
                         error: error ? String(error) : null
                     });
                     console.log(`[sandbox] IPC payload sent successfully for reqId: ${reqId}`);

@@ -1,7 +1,17 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import { exploreStore, type ArtistDetailResult } from "$lib/stores/explore.svelte";
+    import AlbumCard from "$lib/components/AlbumCard.svelte";
+    import PlaylistCard from "$lib/components/PlaylistCard.svelte";
+    import VideoCard from "$lib/components/VideoCard.svelte";
+    import BackButton from "$lib/components/common/BackButton.svelte";
+    import PillButton from "$lib/components/common/PillButton.svelte";
+    import SectionHeaderSkeleton from "$lib/components/common/SectionHeaderSkeleton.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import TrackRow from "$lib/components/TrackRow.svelte";
+    import ArtistCard from "$lib/components/ArtistCard.svelte";
+    import { formatDuration, getInitial, isCurrentTrack, getTrackDisplayMetric, sanitizeAlbumName } from "$lib/utils/format";
     import {
         ArrowLeft,
         Play,
@@ -14,6 +24,7 @@
         CaretRight,
         Video,
         Playlist,
+        MusicNotes,
     } from "phosphor-svelte";
 
     let { onBack } = $props<{ onBack: () => void }>();
@@ -26,10 +37,6 @@
     let showAllVideos = $state(false);
     let showAllFeatured = $state(false);
     let showAllSimilar = $state(false);
-
-    function isCurrentTrack(track: any): boolean {
-        return audioStore.currentQueueTrack?.title === track.title;
-    }
 
     function playTopTracks() {
         if (!artist || artist.top_tracks.length === 0) return;
@@ -64,37 +71,82 @@
         audioStore.setQueue(queueTracks as any, 0);
     }
 
-    function formatDuration(ms?: number | null): string {
-        if (!ms) return "--:--";
-        const totalSeconds = Math.floor(ms / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    }
-
-    function getInitial(name: string): string {
-        return name ? name.charAt(0).toUpperCase() : "?";
-    }
+    onMount(() => {
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.scrollTop = 0;
+        }
+    });
 </script>
 
 <div class="artist-detail-container">
     <!-- Navigation Topbar -->
     <div class="artist-topbar">
-        <button class="back-btn" onclick={onBack}>
-            <ArrowLeft size={16} weight="bold" />
-            <span>Back</span>
-        </button>
+        <BackButton onclick={onBack} />
     </div>
 
     {#if exploreStore.isLoadingArtist}
+        <!-- Comprehensive Artist Skeleton Loader -->
         <div class="artist-loading-state">
-            <div class="artist-skeleton-header">
-                <div class="skeleton-avatar"></div>
-                <div class="skeleton-meta">
-                    <div class="skeleton-line lg"></div>
-                    <div class="skeleton-line sm"></div>
+            <!-- Hero Skeleton -->
+            <div class="artist-hero-header skeleton-hero">
+                <div class="skeleton-avatar skeleton skeleton-box"></div>
+                <div class="artist-header-info">
+                    <div class="skeleton-line lg skeleton-box"></div>
+                    <div class="skeleton-line sm skeleton-box"></div>
+                    <div class="skeleton-line bio skeleton-box"></div>
+                    <div class="skeleton-btn-row">
+                        <div class="skeleton-pill skeleton-box"></div>
+                        <div class="skeleton-pill skeleton-box"></div>
+                    </div>
                 </div>
             </div>
+
+            <!-- Top Songs Skeleton -->
+            <section class="artist-section">
+                <SectionHeaderSkeleton hasControls={false} titleWidth="140px" />
+                <div class="top-tracks-ledger">
+                    {#each Array(5) as _}
+                        <div class="ledger-row skeleton">
+                            <div class="skeleton-num skeleton-box"></div>
+                            <div class="track-squircle skeleton-box"></div>
+                            <div class="track-meta">
+                                <div class="track-title-skeleton skeleton-box"></div>
+                                <div class="track-artist-skeleton skeleton-box"></div>
+                            </div>
+                            <div class="track-duration-skeleton skeleton-box"></div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <!-- Albums Grid Skeleton -->
+            <section class="artist-section">
+                <SectionHeaderSkeleton hasControls={false} titleWidth="110px" />
+                <div class="artist-albums-grid">
+                    {#each Array(6) as _}
+                        <div class="skeleton-card skeleton">
+                            <div class="card-art-wrapper skeleton-box"></div>
+                            <div class="title-skeleton skeleton-box"></div>
+                            <div class="subtitle-skeleton skeleton-box"></div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <!-- Singles & EPs Skeleton -->
+            <section class="artist-section">
+                <SectionHeaderSkeleton hasControls={false} titleWidth="130px" />
+                <div class="artist-albums-grid">
+                    {#each Array(6) as _}
+                        <div class="skeleton-card skeleton">
+                            <div class="card-art-wrapper skeleton-box"></div>
+                            <div class="title-skeleton skeleton-box"></div>
+                            <div class="subtitle-skeleton skeleton-box"></div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
         </div>
     {:else if artist}
         <!-- Hero Header -->
@@ -110,7 +162,6 @@
             </div>
 
             <div class="artist-header-info">
-
                 <h1 class="artist-name-title">{artist.name}</h1>
                 
                 {#if artist.subscribers}
@@ -125,14 +176,18 @@
                 {/if}
 
                 <div class="artist-actions-row">
-                    <button class="echo-primary-btn" onclick={playTopTracks}>
-                        <Play size={16} weight="fill" />
-                        <span>Play Top Songs</span>
-                    </button>
-                    <button class="echo-secondary-btn" onclick={shuffleTopTracks}>
-                        <Shuffle size={16} weight="bold" />
-                        <span>Shuffle</span>
-                    </button>
+                    <PillButton 
+                        variant="primary"
+                        icon={Play}
+                        label="Play Top Songs"
+                        onclick={playTopTracks}
+                    />
+                    <PillButton 
+                        variant="secondary"
+                        icon={Shuffle}
+                        label="Shuffle"
+                        onclick={shuffleTopTracks}
+                    />
                 </div>
             </div>
         </header>
@@ -141,8 +196,11 @@
         {#if artist.top_tracks.length > 0}
             <section class="artist-section">
                 <div class="section-title-row">
-                    <h2>Top Songs</h2>
-                    {#if artist.top_tracks.length >= 5}
+                    <div class="title-group">
+                        <MusicNotes size={20} weight="bold" class="section-icon" />
+                        <h2>Top Songs</h2>
+                    </div>
+                    {#if artist.top_tracks.length > 5}
                         <button class="see-more-btn" onclick={() => showAllTopSongs = !showAllTopSongs}>
                             <span>{showAllTopSongs ? "Show Less" : `See More (${artist.top_tracks.length})`}</span>
                             <CaretRight size={13} weight="bold" class={showAllTopSongs ? "rotate-90" : ""} />
@@ -151,54 +209,25 @@
                 </div>
                 <div class="top-tracks-ledger">
                     {#each (showAllTopSongs ? artist.top_tracks : artist.top_tracks.slice(0, 5)) as track, index}
-                        <div 
-                            class="ledger-row"
-                            class:active-track={isCurrentTrack(track)}
-                            role="button"
-                            tabindex="0"
-                            ondblclick={() => exploreStore.playTrack(track, track.provider_id || artist.provider_id)}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.playTrack(track, track.provider_id || artist.provider_id); }}
-                        >
-                            <span class="track-index">{index + 1}</span>
-
-                            <div class="track-art-wrapper">
-                                {#if track.cover_art_url}
-                                    <img src={track.cover_art_url} alt={track.title} class="track-squircle" />
-                                {:else}
-                                    <div class="typographic-art-squircle">
-                                        <span>{getInitial(track.title)}</span>
-                                    </div>
-                                {/if}
-                                <button class="play-overlay-btn" onclick={() => exploreStore.playTrack(track, track.provider_id || artist.provider_id)}>
-                                    {#if isCurrentTrack(track) && audioStore.playbackState === "Playing"}
-                                        <Pause size={13} weight="fill" />
-                                    {:else}
-                                        <Play size={13} weight="fill" />
-                                    {/if}
-                                </button>
-                            </div>
-
-                            <div class="track-meta">
-                                <span class="track-title">{track.title}</span>
-                                {#if track.album}
-                                    <span class="track-album-sub">{track.album}</span>
-                                {/if}
-                            </div>
-
-                            <div class="track-duration-cell">
-                                <span class="duration-text">{formatDuration(track.duration_ms)}</span>
-                            </div>
-                        </div>
+                        <TrackRow 
+                            track={track}
+                            index={index + 1}
+                            showArtist={false}
+                            providerId={track.provider_id || artist.provider_id}
+                        />
                     {/each}
                 </div>
             </section>
         {/if}
 
-        <!-- Discography Albums Grid -->
+        <!-- Discography Albums Grid (Using our standard AlbumCard component) -->
         {#if artist.albums.length > 0}
             <section class="artist-section">
                 <div class="section-title-row">
-                    <h2>Albums</h2>
+                    <div class="title-group">
+                        <Disc size={20} weight="bold" class="section-icon" />
+                        <h2>Albums</h2>
+                    </div>
                     {#if artist.albums.length > 6}
                         <button class="see-more-btn" onclick={() => showAllAlbums = !showAllAlbums}>
                             <span>{showAllAlbums ? "Show Less" : `See More (${artist.albums.length})`}</span>
@@ -208,54 +237,23 @@
                 </div>
                 <div class="artist-albums-grid">
                     {#each (showAllAlbums ? artist.albums : artist.albums.slice(0, 6)) as album}
-                        <div 
-                            class="album-card"
-                            role="button"
-                            tabindex="0"
+                        <AlbumCard 
+                            album={album}
                             onclick={() => exploreStore.openAlbum(album)}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openAlbum(album); }}
-                        >
-                            <div class="album-art-wrapper">
-                                {#if album.cover_art_url}
-                                    <img src={album.cover_art_url} alt={album.title} class="album-art" loading="lazy" />
-                                {:else}
-                                    <div class="typographic-art-squircle large">
-                                        <span>{getInitial(album.title)}</span>
-                                    </div>
-                                {/if}
-                                <button 
-                                    class="album-play-btn" 
-                                    onclick={(e) => { 
-                                        e.stopPropagation(); 
-                                        exploreStore.playAlbum({
-                                            id: album.id,
-                                            title: album.title,
-                                            artist: artist.name,
-                                            cover_art_url: album.cover_art_url,
-                                            provider_id: artist.provider_id || "youtube-wasm",
-                                        }); 
-                                    }}
-                                >
-                                    <Play size={16} weight="fill" />
-                                </button>
-                            </div>
-                            <div class="album-info">
-                                <span class="album-title">{album.title}</span>
-                                {#if album.year}
-                                    <span class="album-year">{album.year}</span>
-                                {/if}
-                            </div>
-                        </div>
+                        />
                     {/each}
                 </div>
             </section>
         {/if}
 
-        <!-- Singles & EPs Grid -->
+        <!-- Singles & EPs Grid (Using our standard AlbumCard component) -->
         {#if artist.singles.length > 0}
             <section class="artist-section">
                 <div class="section-title-row">
-                    <h2>Singles & EPs</h2>
+                    <div class="title-group">
+                        <Sparkle size={20} weight="bold" class="section-icon" />
+                        <h2>Singles & EPs</h2>
+                    </div>
                     {#if artist.singles.length > 6}
                         <button class="see-more-btn" onclick={() => showAllSingles = !showAllSingles}>
                             <span>{showAllSingles ? "Show Less" : `See More (${artist.singles.length})`}</span>
@@ -265,44 +263,10 @@
                 </div>
                 <div class="artist-albums-grid">
                     {#each (showAllSingles ? artist.singles : artist.singles.slice(0, 6)) as single}
-                        <div 
-                            class="album-card"
-                            role="button"
-                            tabindex="0"
+                        <AlbumCard 
+                            album={single}
                             onclick={() => exploreStore.openAlbum(single)}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openAlbum(single); }}
-                        >
-                            <div class="album-art-wrapper">
-                                {#if single.cover_art_url}
-                                    <img src={single.cover_art_url} alt={single.title} class="album-art" loading="lazy" />
-                                {:else}
-                                    <div class="typographic-art-squircle large">
-                                        <span>{getInitial(single.title)}</span>
-                                    </div>
-                                {/if}
-                                <button 
-                                    class="album-play-btn" 
-                                    onclick={(e) => { 
-                                        e.stopPropagation(); 
-                                        exploreStore.playAlbum({
-                                            id: single.id,
-                                            title: single.title,
-                                            artist: artist.name,
-                                            cover_art_url: single.cover_art_url,
-                                            provider_id: artist.provider_id || "youtube-wasm",
-                                        }); 
-                                    }}
-                                >
-                                    <Play size={16} weight="fill" />
-                                </button>
-                            </div>
-                            <div class="album-info">
-                                <span class="album-title">{single.title}</span>
-                                {#if single.year}
-                                    <span class="album-year">{single.year}</span>
-                                {/if}
-                            </div>
-                        </div>
+                        />
                     {/each}
                 </div>
             </section>
@@ -312,7 +276,10 @@
         {#if artist.videos && artist.videos.length > 0}
             <section class="artist-section">
                 <div class="section-title-row">
-                    <h2>Music Videos</h2>
+                    <div class="title-group">
+                        <Video size={20} weight="bold" class="section-icon" />
+                        <h2>Music Videos</h2>
+                    </div>
                     {#if artist.videos.length > 4}
                         <button class="see-more-btn" onclick={() => showAllVideos = !showAllVideos}>
                             <span>{showAllVideos ? "Show Less" : `See More (${artist.videos.length})`}</span>
@@ -322,46 +289,24 @@
                 </div>
                 <div class="artist-videos-grid">
                     {#each (showAllVideos ? artist.videos : artist.videos.slice(0, 4)) as video}
-                        <div 
-                            class="video-card"
-                            role="button"
-                            tabindex="0"
-                            ondblclick={() => exploreStore.playTrack(video, video.provider_id || artist.provider_id)}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.playTrack(video, video.provider_id || artist.provider_id); }}
-                        >
-                            <div class="video-art-wrapper">
-                                {#if video.cover_art_url}
-                                    <img src={video.cover_art_url} alt={video.title} class="video-art" loading="lazy" />
-                                {:else}
-                                    <div class="typographic-art-squircle large">
-                                        <Video size={24} />
-                                    </div>
-                                {/if}
-                                <button 
-                                    class="video-play-btn" 
-                                    onclick={(e) => { 
-                                        e.stopPropagation(); 
-                                        exploreStore.playTrack(video, video.provider_id || artist.provider_id); 
-                                    }}
-                                >
-                                    <Play size={16} weight="fill" />
-                                </button>
-                            </div>
-                            <div class="album-info">
-                                <span class="album-title" title={video.title}>{video.title}</span>
-                                <span class="album-year">Official Music Video</span>
-                            </div>
-                        </div>
+                        <VideoCard 
+                            video={video}
+                            onclick={() => exploreStore.playTrack(video, video.provider_id || artist.provider_id)}
+                            onplay={() => exploreStore.playTrack(video, video.provider_id || artist.provider_id)}
+                        />
                     {/each}
                 </div>
             </section>
         {/if}
 
-        <!-- Featured On Playlists Shelf -->
+        <!-- Featured On Playlists Shelf (Using our standard PlaylistCard component) -->
         {#if artist.featured_on && artist.featured_on.length > 0}
             <section class="artist-section">
                 <div class="section-title-row">
-                    <h2>Featured On</h2>
+                    <div class="title-group">
+                        <Playlist size={20} weight="bold" class="section-icon" />
+                        <h2>Featured On</h2>
+                    </div>
                     {#if artist.featured_on.length > 6}
                         <button class="see-more-btn" onclick={() => showAllFeatured = !showAllFeatured}>
                             <span>{showAllFeatured ? "Show Less" : `See More (${artist.featured_on.length})`}</span>
@@ -371,36 +316,10 @@
                 </div>
                 <div class="artist-albums-grid">
                     {#each (showAllFeatured ? artist.featured_on : artist.featured_on.slice(0, 6)) as playlist}
-                        <div 
-                            class="album-card"
-                            role="button"
-                            tabindex="0"
+                        <PlaylistCard 
+                            playlist={playlist}
                             onclick={() => exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined })}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined }); }}
-                        >
-                            <div class="album-art-wrapper">
-                                {#if playlist.cover_art_url}
-                                    <img src={playlist.cover_art_url} alt={playlist.title} class="album-art" loading="lazy" />
-                                {:else}
-                                    <div class="typographic-art-squircle large">
-                                        <Playlist size={28} />
-                                    </div>
-                                {/if}
-                                <button 
-                                    class="album-play-btn" 
-                                    onclick={(e) => { 
-                                        e.stopPropagation(); 
-                                        exploreStore.openPlaylist({ ...playlist, author: playlist.author || undefined }); 
-                                    }}
-                                >
-                                    <Play size={16} weight="fill" />
-                                </button>
-                            </div>
-                            <div class="album-info">
-                                <span class="album-title" title={playlist.title}>{playlist.title}</span>
-                                <span class="album-year">{playlist.author || "Curated Playlist"}</span>
-                            </div>
-                        </div>
+                        />
                     {/each}
                 </div>
             </section>
@@ -410,7 +329,10 @@
         {#if artist.similar_artists && artist.similar_artists.length > 0}
             <section class="artist-section">
                 <div class="section-title-row">
-                    <h2>Fans Also Like</h2>
+                    <div class="title-group">
+                        <MicrophoneStage size={20} weight="bold" class="section-icon" />
+                        <h2>Fans Also Like</h2>
+                    </div>
                     {#if artist.similar_artists.length > 6}
                         <button class="see-more-btn" onclick={() => showAllSimilar = !showAllSimilar}>
                             <span>{showAllSimilar ? "Show Less" : `See More (${artist.similar_artists.length})`}</span>
@@ -420,25 +342,11 @@
                 </div>
                 <div class="similar-artists-grid">
                     {#each (showAllSimilar ? artist.similar_artists : artist.similar_artists.slice(0, 6)) as simArtist}
-                        <div 
-                            class="artist-avatar-card"
-                            role="button"
-                            tabindex="0"
+                        <ArtistCard 
+                            artist={simArtist}
                             onclick={() => exploreStore.openArtist(simArtist)}
-                            onkeydown={(e) => { if (e.key === 'Enter') exploreStore.openArtist(simArtist); }}
-                        >
-                            <div class="artist-avatar-wrapper">
-                                {#if simArtist.avatar_url}
-                                    <img src={simArtist.avatar_url} alt={simArtist.name} class="artist-avatar-img" />
-                                {:else}
-                                    <div class="artist-avatar-fallback">
-                                        <span>{getInitial(simArtist.name)}</span>
-                                    </div>
-                                {/if}
-                            </div>
-                            <span class="similar-artist-name" title={simArtist.name}>{simArtist.name}</span>
-                            <span class="similar-artist-sub">{simArtist.subscribers || "Artist"}</span>
-                        </div>
+                            fluid
+                        />
                     {/each}
                 </div>
             </section>
@@ -450,10 +358,10 @@
     .artist-detail-container {
         display: flex;
         flex-direction: column;
-        gap: 2rem;
+        gap: 2.2rem;
         padding: 1.5rem 2rem var(--player-clearance, 10rem) 2rem;
         scroll-padding-bottom: var(--player-scroll-padding, 10rem);
-        max-width: 1200px;
+        max-width: 1300px;
         margin: 0 auto;
         width: 100%;
         box-sizing: border-box;
@@ -464,27 +372,6 @@
         align-items: center;
     }
 
-    .back-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.85);
-        font-family: inherit;
-        font-size: 0.82rem;
-        font-weight: 600;
-        padding: 0.45rem 0.9rem;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.18s ease;
-    }
-
-    .back-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: #B58E62;
-        color: #B58E62;
-    }
 
     .artist-hero-header {
         display: flex;
@@ -531,8 +418,6 @@
         flex: 1;
     }
 
-
-
     .artist-name-title {
         font-size: 2.4rem;
         font-weight: 800;
@@ -570,86 +455,56 @@
         margin-top: 0.4rem;
     }
 
-    .echo-primary-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: #B58E62;
-        color: #121212;
-        font-family: inherit;
-        font-size: 0.88rem;
-        font-weight: 700;
-        padding: 0.65rem 1.4rem;
-        border-radius: 24px;
-        border: none;
-        cursor: pointer;
-        transition: transform 0.15s ease, background 0.15s ease;
-    }
-
-    .echo-primary-btn:hover {
-        background: #c9a073;
-        transform: scale(1.03);
-    }
-
-    .echo-secondary-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: #fff;
-        font-family: inherit;
-        font-size: 0.88rem;
-        font-weight: 600;
-        padding: 0.65rem 1.2rem;
-        border-radius: 24px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
-
-    .echo-secondary-btn:hover {
-        background: rgba(255, 255, 255, 0.12);
-        border-color: rgba(255, 255, 255, 0.25);
-    }
 
     .artist-section {
         display: flex;
         flex-direction: column;
-        gap: 1rem;
+        gap: 1.1rem;
     }
 
     .section-title-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        min-height: 36px;
     }
 
-    .section-title-row h2 {
+    .title-group {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .title-group h2 {
         font-size: 1.25rem;
         font-weight: 700;
         color: #fff;
         margin: 0;
     }
 
+    :global(.section-icon) {
+        color: #B58E62;
+    }
+
     .see-more-btn {
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
-        background: none;
-        border: none;
-        color: #B58E62;
-        font-family: inherit;
-        font-size: 0.775rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--echo-primary, #d4a86e);
+        font-family: var(--lyria-font-mono);
+        font-size: 0.68rem;
         font-weight: 600;
+        padding: 0.35rem 0.65rem;
+        border-radius: 6px;
         cursor: pointer;
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
         transition: all 0.15s ease;
     }
 
     .see-more-btn:hover {
-        background: rgba(181, 142, 98, 0.12);
-        color: #fff;
+        background: rgba(212, 168, 110, 0.12);
+        border-color: rgba(212, 168, 110, 0.25);
     }
 
     :global(.see-more-btn .rotate-90) {
@@ -657,293 +512,146 @@
         transition: transform 0.2s ease;
     }
 
-    .artist-videos-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: 1.25rem;
-    }
-
-    .video-card {
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-        cursor: pointer;
-        transition: transform 0.18s ease;
-    }
-
-    .video-card:hover {
-        transform: translateY(-3px);
-    }
-
-    .video-art-wrapper {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 16 / 9;
-        border-radius: 8px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.05);
-    }
-
-    .video-art {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .video-play-btn {
-        position: absolute;
-        bottom: 0.6rem;
-        right: 0.6rem;
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        background: #B58E62;
-        color: #121212;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-        opacity: 0;
-        transform: translateY(6px);
-        transition: all 0.2s ease;
-        cursor: pointer;
-    }
-
-    .video-card:hover .video-play-btn {
-        opacity: 1;
-        transform: translateY(0);
-    }
-
-    .similar-artists-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
-        gap: 1.8rem 1.4rem;
-        padding: 0.5rem 0;
-    }
-
-    .artist-avatar-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: 0.5rem;
-        cursor: pointer;
-        padding: 0.75rem 0.5rem;
-        border-radius: 14px;
-        transition: background 0.18s ease, transform 0.18s ease;
-    }
-
-    .artist-avatar-card .artist-avatar-wrapper {
-        width: 100px;
-        height: 100px;
-    }
-
-    .artist-avatar-card:hover {
-        background: rgba(255, 255, 255, 0.04);
-        transform: translateY(-3px);
-    }
-
-    .similar-artist-name {
-        font-size: 0.825rem;
-        font-weight: 600;
-        color: #fff;
-        max-width: 120px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .similar-artist-sub {
-        font-size: 0.72rem;
-        color: rgba(255, 255, 255, 0.45);
-    }
-
     /* Top tracks ledger */
     .top-tracks-ledger {
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
+        gap: 0.35rem;
     }
 
-    .ledger-row {
-        display: grid;
-        grid-template-columns: 28px 44px 1fr 60px;
-        align-items: center;
-        gap: 0.9rem;
-        padding: 0.45rem 0.8rem;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background 0.15s ease;
-    }
 
-    .ledger-row:hover {
-        background: rgba(255, 255, 255, 0.05);
-    }
 
-    .ledger-row.active-track {
-        background: rgba(181, 142, 98, 0.12);
-    }
-
-    .track-index {
-        font-family: ui-monospace, monospace;
-        font-size: 0.8rem;
-        color: rgba(255, 255, 255, 0.4);
-        text-align: center;
-    }
-
-    .track-art-wrapper {
-        position: relative;
-        width: 44px;
-        height: 44px;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-
-    .track-squircle {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .play-overlay-btn {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.55);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        border: none;
-        opacity: 0;
-        cursor: pointer;
-        transition: opacity 0.15s ease;
-    }
-
-    .ledger-row:hover .play-overlay-btn,
-    .ledger-row.active-track .play-overlay-btn {
-        opacity: 1;
-    }
-
-    .track-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-        overflow: hidden;
-    }
-
-    .track-title {
-        font-size: 0.88rem;
-        font-weight: 600;
-        color: #fff;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .track-album-sub {
-        font-size: 0.75rem;
-        color: rgba(255, 255, 255, 0.5);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .track-duration-cell {
-        font-family: ui-monospace, monospace;
-        font-size: 0.75rem;
-        color: rgba(255, 255, 255, 0.45);
-        text-align: right;
-    }
-
-    /* Albums grid */
+    /* Albums & Playlists grid */
     .artist-albums-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-        gap: 1.2rem;
+        gap: 1.4rem;
     }
 
-    .album-card {
+    /* Video cards */
+    .artist-videos-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 1.25rem;
+    }
+
+
+    /* Similar Artists */
+    .similar-artists-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 1.6rem 1.2rem;
+        padding: 0.5rem 0;
+    }
+
+    /* Skeleton Loading System */
+    .artist-loading-state {
+        display: flex;
+        flex-direction: column;
+        gap: 2.5rem;
+    }
+
+    .skeleton-hero {
+        pointer-events: none;
+    }
+
+    .skeleton-avatar {
+        width: 170px;
+        height: 170px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .skeleton-box {
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.03) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-pulse 1.8s infinite ease-in-out;
+    }
+
+    @keyframes skeleton-pulse {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    .skeleton-line {
+        border-radius: 4px;
+    }
+
+    .skeleton-line.lg {
+        height: 32px;
+        width: 45%;
+    }
+
+    .skeleton-line.sm {
+        height: 14px;
+        width: 25%;
+    }
+
+    .skeleton-line.bio {
+        height: 16px;
+        width: 60%;
+        margin: 0.3rem 0;
+    }
+
+    .skeleton-btn-row {
+        display: flex;
+        gap: 0.8rem;
+        margin-top: 0.5rem;
+    }
+
+    .skeleton-pill {
+        width: 130px;
+        height: 38px;
+        border-radius: 20px;
+    }
+
+    .skeleton-num {
+        width: 1.5rem;
+        height: 12px;
+        border-radius: 3px;
+        flex-shrink: 0;
+    }
+
+    .track-title-skeleton {
+        height: 14px;
+        width: 65%;
+        border-radius: 3px;
+    }
+
+    .track-artist-skeleton {
+        height: 11px;
+        width: 40%;
+        border-radius: 3px;
+    }
+
+    .track-duration-skeleton {
+        width: 35px;
+        height: 12px;
+        border-radius: 3px;
+        margin-left: auto;
+    }
+
+    .skeleton-card {
         display: flex;
         flex-direction: column;
         gap: 0.6rem;
-        cursor: pointer;
     }
 
-    .album-art-wrapper {
-        position: relative;
+    .card-art-wrapper {
+        width: 100%;
         aspect-ratio: 1 / 1;
         border-radius: 10px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     }
 
-    .album-art {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        transition: transform 0.25s ease;
+    .title-skeleton {
+        height: 13px;
+        width: 75%;
+        border-radius: 3px;
     }
 
-    .album-card:hover .album-art {
-        transform: scale(1.04);
-    }
-
-    .album-play-btn {
-        position: absolute;
-        bottom: 10px;
-        right: 10px;
-        width: 38px;
-        height: 38px;
-        border-radius: 50%;
-        background: #B58E62;
-        color: #121212;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-        opacity: 0;
-        transform: translateY(6px);
-        transition: all 0.2s ease;
-        cursor: pointer;
-    }
-
-    .album-card:hover .album-play-btn {
-        opacity: 1;
-        transform: translateY(0);
-    }
-
-    .album-info {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-
-    .album-title {
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: #fff;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .album-year {
-        font-family: ui-monospace, monospace;
-        font-size: 0.72rem;
-        color: rgba(255, 255, 255, 0.45);
-    }
-
-    .typographic-art-squircle {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(255, 255, 255, 0.08);
-        color: #B58E62;
-        font-weight: 700;
+    .subtitle-skeleton {
+        height: 10px;
+        width: 50%;
+        border-radius: 3px;
     }
 </style>

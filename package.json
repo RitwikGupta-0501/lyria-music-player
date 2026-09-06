@@ -1,5 +1,5 @@
 {
-  "name": "echo-desktop",
+  "name": "lyria",
   "version": "0.1.0",
   "description": "",
   "type": "module",
@@ -17,7 +17,6 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
-    "jsdom": "^30.0.1",
     "phosphor-svelte": "^3.1.0"
   },
   "devDependencies": {

@@ -121,6 +121,66 @@ pub fn get_playlists(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<P
     Ok(playlists)
 }
 
+pub fn save_queue_as_playlist(
+    conn: &mut Connection,
+    name: &str,
+    tracks: &[crate::queue::QueueTrack],
+) -> Result<i64, String> {
+    if name.trim().is_empty() {
+        return Err("Playlist name cannot be empty".to_string());
+    }
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute("INSERT INTO playlists (name) VALUES (?1)", [name.trim()])
+        .map_err(|e| format!("Failed to create playlist: {}", e))?;
+    let playlist_id = tx.last_insert_rowid();
+
+    for (idx, track) in tracks.iter().enumerate() {
+        let position = (idx + 1) as i64;
+        let track_id = match &track.source {
+            crate::queue::TrackSourceInfo::Local { track_id, file_path, .. } => {
+                if *track_id > 0 {
+                    *track_id
+                } else {
+                    let mut stmt = tx.prepare("SELECT id FROM tracks WHERE file_path = ?1").map_err(|e| e.to_string())?;
+                    stmt.query_row([file_path], |row| row.get(0)).unwrap_or_else(|_| {
+                        let _ = tx.execute(
+                            "INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)",
+                            rusqlite::params![&track.title, &track.artist, track.track_number, file_path],
+                        );
+                        tx.last_insert_rowid()
+                    })
+                }
+            }
+            crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, .. } => {
+                let uri = format!("remote://{}/{}", provider_id, remote_track_id);
+                let existing_id: Result<i64, _> = tx.query_row("SELECT id FROM tracks WHERE file_path = ?1", [&uri], |row| row.get(0));
+                match existing_id {
+                    Ok(id) => id,
+                    Err(_) => {
+                        let _ = tx.execute(
+                            "INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)",
+                            rusqlite::params![&track.title, &track.artist, track.track_number, &uri],
+                        );
+                        tx.last_insert_rowid()
+                    }
+                }
+            }
+        };
+
+        if track_id > 0 {
+            tx.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+                rusqlite::params![&playlist_id, &track_id, &position],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(playlist_id)
+}
+
 pub fn create_playlist(conn: &Connection, name: &str) -> Result<i64, String> {
     conn.execute("INSERT INTO playlists (name) VALUES (?1)", [&name]).map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())
@@ -672,7 +732,7 @@ pub fn get_canonical_quick_picks(conn: &Connection, mood: Option<&str>, limit: u
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE 1=1 {}
          ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0) - (COALESCE(julianday('now') - julianday(st.last_played_at), 0.0) * 0.2)) DESC, st.last_played_at DESC
          LIMIT ?1",
@@ -774,7 +834,7 @@ pub fn get_canonical_keep_listening(conn: &Connection, mood: Option<&str>, limit
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE st.last_played_at >= datetime('now', '-14 days') {}
          ORDER BY st.last_played_at DESC
          LIMIT ?1",
@@ -795,7 +855,7 @@ pub fn get_canonical_forgotten_favorites(conn: &Connection, mood: Option<&str>, 
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE (st.play_count >= 2 OR st.liked = 1)
            AND (st.last_played_at IS NULL OR st.last_played_at <= datetime('now', '-30 days')) {}
          ORDER BY ((st.play_count * 2.0) + (st.liked * 5.0)) DESC
@@ -816,7 +876,7 @@ pub fn get_canonical_liked_songs(conn: &Connection, limit: usize) -> SqlResult<V
     let mut stmt = conn.prepare(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE st.liked = 1
          ORDER BY st.last_played_at DESC
          LIMIT ?1"
@@ -835,7 +895,7 @@ pub fn get_canonical_discover_seeds(conn: &Connection, mood: Option<&str>, limit
     let query_str = format!(
         "SELECT st.id, st.canonical_key, st.title, st.artist, st.album, st.cover_art_url, st.play_count, st.last_played_at, st.liked, st.local_track_id, t.file_path, st.last_provider_id, st.last_source_id, st.duration_ms
          FROM song_telemetry st
-         LEFT JOIN tracks t ON st.local_track_id = t.id
+         LEFT JOIN tracks t ON (st.local_track_id = t.id OR (st.local_track_id IS NULL AND LOWER(TRIM(st.title)) = LOWER(TRIM(t.title)) AND (LOWER(TRIM(COALESCE(st.artist, ''))) = LOWER(TRIM(COALESCE(t.artist, ''))) OR t.artist IS NULL)))
          WHERE (st.liked = 1 OR st.play_count >= 1) {}
          ORDER BY (
              (st.liked * 4.0) +
@@ -1105,6 +1165,31 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
     artists.sort_by(|a, b| b.total_plays.cmp(&a.total_plays).then_with(|| b.total_duration_ms.cmp(&a.total_duration_ms)));
     artists.truncate(limit);
 
+    // Hydrate official artist portraits and canonical names from cached artist_metadata
+    for item in &mut artists {
+        let key = item.artist.trim().to_lowercase();
+        if let Ok(mut stmt) = conn.prepare_cached(
+            "SELECT name, avatar_url FROM artist_metadata WHERE LOWER(id) = ?1 OR LOWER(name) = ?1 LIMIT 1"
+        ) {
+            if let Ok(mut rows) = stmt.query(rusqlite::params![key]) {
+                if let Ok(Some(row)) = rows.next() {
+                    let canon_name: Option<String> = row.get(0).ok();
+                    let canon_art: Option<String> = row.get(1).ok();
+                    if let Some(name) = canon_name {
+                        if !name.trim().is_empty() {
+                            item.artist = name;
+                        }
+                    }
+                    if let Some(art) = canon_art {
+                        if !art.trim().is_empty() {
+                            item.avatar_url = Some(art);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 2. Top Albums in last 7 days (with fallback to all-time telemetry)
     let mut album_map: HashMap<(String, String), (i64, Option<String>)> = HashMap::new();
 
@@ -1181,7 +1266,7 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
         }
     }).collect();
 
-    albums.sort_by(|a, b| b.total_plays.cmp(&a.total_plays));
+    albums.sort_by_key(|b| std::cmp::Reverse(b.total_plays));
     albums.truncate(limit);
 
     Ok(HeavyRotationShelf {
@@ -1493,6 +1578,465 @@ mod tests {
             )",
             [],
         )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS artist_metadata (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                avatar_url TEXT,
+                bio TEXT,
+                provider_id TEXT NOT NULL DEFAULT 'youtube-wasm',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
         Ok(())
     }
+}
+
+pub fn get_feed_cache(conn: &rusqlite::Connection, provider_id: &str, module_id: &str) -> Result<Option<String>, rusqlite::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    
+    let mut stmt = conn.prepare(
+        "SELECT payload_json FROM feed_cache 
+         WHERE provider_id = ?1 AND module_id = ?2 
+           AND (?3 - fetched_at) < ttl_seconds"
+    )?;
+    
+    let mut rows = stmt.query(rusqlite::params![provider_id, module_id, now])?;
+    if let Some(row) = rows.next()? {
+        let payload: String = row.get(0)?;
+        Ok(Some(payload))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_feed_cache(
+    conn: &rusqlite::Connection,
+    provider_id: &str,
+    module_id: &str,
+    payload_json: &str,
+    ttl_seconds: i64,
+) -> Result<(), rusqlite::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    
+    conn.execute(
+        "INSERT INTO feed_cache (provider_id, module_id, payload_json, fetched_at, ttl_seconds)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(provider_id, module_id) DO UPDATE SET
+            payload_json = excluded.payload_json,
+            fetched_at = excluded.fetched_at,
+            ttl_seconds = excluded.ttl_seconds",
+        rusqlite::params![provider_id, module_id, payload_json, now, ttl_seconds],
+    )?;
+
+    let _ = conn.execute(
+        "DELETE FROM feed_cache WHERE (?1 - fetched_at) >= ttl_seconds",
+        rusqlite::params![now],
+    );
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SavedAlbum {
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub provider_id: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SavedPlaylist {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub cover_art_url: Option<String>,
+    pub provider_id: String,
+    pub created_at: Option<String>,
+}
+
+pub fn toggle_saved_album(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    artist: Option<&str>,
+    cover_art_url: Option<&str>,
+    provider_id: &str,
+) -> Result<bool, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT id FROM saved_albums WHERE id = ?1")?;
+    let exists = stmt.exists(rusqlite::params![id])?;
+
+    if exists {
+        conn.execute("DELETE FROM saved_albums WHERE id = ?1", rusqlite::params![id])?;
+        Ok(false)
+    } else {
+        conn.execute(
+            "INSERT INTO saved_albums (id, title, artist, cover_art_url, provider_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, title, artist, cover_art_url, provider_id],
+        )?;
+        Ok(true)
+    }
+}
+
+pub fn get_saved_albums(conn: &rusqlite::Connection) -> Result<Vec<SavedAlbum>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, artist, cover_art_url, provider_id, created_at FROM saved_albums ORDER BY created_at DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SavedAlbum {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            artist: row.get(2)?,
+            cover_art_url: row.get(3)?,
+            provider_id: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+
+    let mut list = Vec::new();
+    for r in rows {
+        list.push(r?);
+    }
+    Ok(list)
+}
+
+pub fn toggle_saved_playlist(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    author: Option<&str>,
+    cover_art_url: Option<&str>,
+    provider_id: &str,
+) -> Result<bool, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT id FROM saved_playlists WHERE id = ?1")?;
+    let exists = stmt.exists(rusqlite::params![id])?;
+
+    if exists {
+        conn.execute("DELETE FROM saved_playlists WHERE id = ?1", rusqlite::params![id])?;
+        Ok(false)
+    } else {
+        conn.execute(
+            "INSERT INTO saved_playlists (id, title, author, cover_art_url, provider_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, title, author, cover_art_url, provider_id],
+        )?;
+        Ok(true)
+    }
+}
+
+pub fn get_saved_playlists(conn: &rusqlite::Connection) -> Result<Vec<SavedPlaylist>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, author, cover_art_url, provider_id, created_at FROM saved_playlists ORDER BY created_at DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SavedPlaylist {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            author: row.get(2)?,
+            cover_art_url: row.get(3)?,
+            provider_id: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+
+    let mut list = Vec::new();
+    for r in rows {
+        list.push(r?);
+    }
+    Ok(list)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtistMetadata {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub bio: Option<String>,
+    pub provider_id: String,
+    pub updated_at: Option<String>,
+}
+
+pub fn upsert_artist_metadata(
+    conn: &rusqlite::Connection,
+    id: &str,
+    name: &str,
+    avatar_url: Option<&str>,
+    bio: Option<&str>,
+    provider_id: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO artist_metadata (id, name, avatar_url, bio, provider_id, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            avatar_url = COALESCE(excluded.avatar_url, artist_metadata.avatar_url),
+            bio = COALESCE(excluded.bio, artist_metadata.bio),
+            provider_id = excluded.provider_id,
+            updated_at = CURRENT_TIMESTAMP",
+        rusqlite::params![id, name, avatar_url, bio, provider_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_artist_metadata(
+    conn: &rusqlite::Connection,
+    query: &str,
+) -> Result<Option<ArtistMetadata>, rusqlite::Error> {
+    let lower_q = query.trim().to_lowercase();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, avatar_url, bio, provider_id, updated_at
+         FROM artist_metadata
+         WHERE LOWER(id) = ?1 OR LOWER(name) = ?1
+         LIMIT 1"
+    )?;
+    let mut rows = stmt.query(rusqlite::params![lower_q])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(ArtistMetadata {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            avatar_url: row.get(2)?,
+            bio: row.get(3)?,
+            provider_id: row.get(4)?,
+            updated_at: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_feature_flag(
+    conn: &rusqlite::Connection,
+    key: &str,
+    enabled: bool,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO feature_flags (key, enabled, updated_at)
+         VALUES (?1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET
+            enabled = excluded.enabled,
+            updated_at = CURRENT_TIMESTAMP",
+        rusqlite::params![key, enabled as i64],
+    )?;
+    Ok(())
+}
+
+pub fn reset_feature_flags(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    conn.execute("DELETE FROM feature_flags", [])?;
+    Ok(())
+}
+
+
+pub fn get_markov_autoplay_candidate(
+    conn: &rusqlite::Connection,
+    seed_artist: Option<&str>,
+    seed_album_id: Option<i64>,
+    seed_track_id: Option<i64>,
+    seed_file_path: Option<&str>,
+    seed_duration_ms: Option<u64>,
+) -> Result<Option<LocalTrack>, rusqlite::Error> {
+    use rand::Rng;
+
+    let mut stmt = conn.prepare(
+        "SELECT 
+            t.id, 
+            t.title, 
+            t.artist, 
+            t.album_id, 
+            t.track_number, 
+            t.file_path,
+            a.title as album_title,
+            COALESCE(st.play_count, 0) as play_count,
+            st.last_played_at,
+            COALESCE(st.liked, 0) as liked,
+            COALESCE(st.duration_ms, 0) as duration_ms,
+            CASE 
+                WHEN st.last_played_at IS NOT NULL AND st.last_played_at >= datetime('now', '-120 minutes') THEN 1 
+                ELSE 0 
+            END as recently_played_120m,
+            CASE 
+                WHEN st.last_played_at IS NOT NULL THEN (julianday('now') - julianday(st.last_played_at)) * 24.0
+                ELSE 999.0
+            END as hours_since_played
+        FROM tracks t
+        LEFT JOIN albums a ON t.album_id = a.id
+        LEFT JOIN song_telemetry st ON (st.local_track_id = t.id OR st.canonical_key = (LOWER(TRIM(COALESCE(t.artist, ''))) || '::' || LOWER(TRIM(t.title))))"
+    )?;
+
+    struct InternalMarkovCandidate {
+        track: LocalTrack,
+        #[allow(dead_code)]
+        album_title: Option<String>,
+        play_count: i64,
+        liked: bool,
+        duration_ms: u64,
+        recently_played_120m: bool,
+        hours_since_played: f64,
+    }
+
+    let rows = stmt.query_map([], |row| {
+        Ok(InternalMarkovCandidate {
+            track: LocalTrack {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album_id: row.get(3)?,
+                track_number: row.get(4)?,
+                file_path: row.get(5)?,
+            },
+            album_title: row.get(6)?,
+            play_count: row.get(7)?,
+            liked: row.get::<_, i64>(9)? == 1,
+            duration_ms: row.get::<_, i64>(10)? as u64,
+            recently_played_120m: row.get::<_, i64>(11)? == 1,
+            hours_since_played: row.get::<_, f64>(12)?,
+        })
+    })?;
+
+    let mut pool: Vec<InternalMarkovCandidate> = Vec::new();
+    for r in rows {
+        let cand = r?;
+        if let Some(s_id) = seed_track_id {
+            if cand.track.id == s_id {
+                continue;
+            }
+        }
+        if let Some(s_fp) = seed_file_path {
+            if cand.track.file_path == s_fp {
+                continue;
+            }
+        }
+        pool.push(cand);
+    }
+
+    if pool.is_empty() {
+        return Ok(None);
+    }
+
+    let filtered_pool: Vec<InternalMarkovCandidate> = pool
+        .iter()
+        .filter(|c| !c.recently_played_120m)
+        .map(|c| InternalMarkovCandidate {
+            track: c.track.clone(),
+            album_title: c.album_title.clone(),
+            play_count: c.play_count,
+            liked: c.liked,
+            duration_ms: c.duration_ms,
+            recently_played_120m: c.recently_played_120m,
+            hours_since_played: c.hours_since_played,
+        })
+        .collect();
+
+    let candidate_pool = if filtered_pool.len() >= 3 {
+        filtered_pool
+    } else {
+        pool
+    };
+
+    let s_artist_lower = seed_artist.map(|a| a.trim().to_lowercase()).unwrap_or_default();
+    let mut rng = rand::thread_rng();
+
+    let mut scored: Vec<(LocalTrack, f64)> = candidate_pool
+        .into_iter()
+        .map(|c| {
+            let mut score: f64 = 0.0;
+
+            // 1. Artist Affinity (weight 40)
+            if let Some(cand_artist) = &c.track.artist {
+                let cand_artist_lower = cand_artist.trim().to_lowercase();
+                if !s_artist_lower.is_empty() && cand_artist_lower == s_artist_lower {
+                    score += 40.0;
+                } else if !s_artist_lower.is_empty() && (cand_artist_lower.contains(&s_artist_lower) || s_artist_lower.contains(&cand_artist_lower)) {
+                    score += 20.0;
+                }
+            }
+
+            // 2. Album Affinity (weight 20)
+            if seed_album_id.is_some() && seed_album_id == c.track.album_id {
+                score += 20.0;
+            }
+
+            // 3. Genre / Lexical Affinity (weight 30)
+            if let Some(cand_artist) = &c.track.artist {
+                if !s_artist_lower.is_empty() {
+                    let first_s = s_artist_lower.split_whitespace().next().unwrap_or("");
+                    let first_c = cand_artist.trim().to_lowercase();
+                    if !first_s.is_empty() && first_c.contains(first_s) {
+                        score += 15.0;
+                    }
+                }
+            }
+
+            // 4. Duration Affinity (weight 10)
+            if let Some(s_dur) = seed_duration_ms {
+                if s_dur > 0 && c.duration_ms > 0 {
+                    let diff = (s_dur as f64 - c.duration_ms as f64).abs();
+                    let ratio = (1.0 - (diff / 180000.0)).clamp(0.0, 1.0);
+                    score += 10.0 * ratio;
+                } else {
+                    score += 5.0;
+                }
+            } else {
+                score += 5.0;
+            }
+
+            // 5. Liked Bonus (+15)
+            if c.liked {
+                score += 15.0;
+            }
+
+            // 6. Play Count Bonus (+ up to 15)
+            let play_count_bonus = ((c.play_count as f64 + 1.0).ln() * 3.75).min(15.0);
+            score += play_count_bonus;
+
+            // 7. Recency Penalty (subtraction up to 20 if played in last 24h)
+            if c.hours_since_played < 24.0 {
+                let recency_penalty = 20.0 * (1.0 - (c.hours_since_played / 24.0));
+                score -= recency_penalty;
+            }
+
+            // 8. Exploration Jitter / Noise (0.0..5.0)
+            let noise: f64 = rng.gen_range(0.0..5.0);
+            score += noise;
+
+            let final_score = score.max(0.1);
+            (c.track, final_score)
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(15);
+
+    if scored.is_empty() {
+        return Ok(None);
+    }
+
+    let max_score = scored[0].1;
+    let temp = 0.7 * 20.0;
+    let weights: Vec<f64> = scored
+        .iter()
+        .map(|(_, s)| ((s - max_score) / temp).exp())
+        .collect();
+
+    let total_weight: f64 = weights.iter().sum();
+    if total_weight <= 0.0 {
+        return Ok(Some(scored[0].0.clone()));
+    }
+
+    let mut sample_target = rng.gen_range(0.0..total_weight);
+    for (i, w) in weights.iter().enumerate() {
+        if sample_target <= *w {
+            return Ok(Some(scored[i].0.clone()));
+        }
+        sample_target -= *w;
+    }
+
+    Ok(Some(scored.last().unwrap().0.clone()))
 }

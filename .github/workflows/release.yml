@@ -1,0 +1,92 @@
+name: Release Lyria
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  APPIMAGE_EXTRACT_AND_RUN: 1
+
+jobs:
+  build-release:
+    name: Build (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Linux (x86_64)
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundle_targets: "deb,rpm,appimage"
+            rustflags: "-C link-arg=-fuse-ld=mold"
+          - name: Windows (x86_64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundle_targets: "nsis,msi"
+            rustflags: "-C link-arg=-fuse-ld=lld"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-all-crates: true
+
+      - name: Install Linux build dependencies
+        if: runner.os == "Linux"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            mold \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libasound2-dev \
+            rpm
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Tauri Application & Publish Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTFLAGS: ${{ matrix.platform.rustflags }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Lyria ${{ github.ref_name }}"
+          releaseBody: |
+            ## Lyria ${{ github.ref_name }}
+            
+            Minimal, algorithmically-driven audio player.
+            
+            ### Included Release Assets
+            * **Windows**: `.exe` (NSIS Wizard Installer) & `.msi` (Enterprise MSI Installer)
+            * **Debian / Ubuntu**: `.deb`
+            * **Fedora / RHEL / openSUSE**: `.rpm`
+            * **Universal Linux**: `.AppImage`
+          releaseDraft: false
+          prerelease: false
+          args: --bundles ${{ matrix.platform.bundle_targets }}

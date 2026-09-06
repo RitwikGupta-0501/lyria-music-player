@@ -3,6 +3,7 @@ import { audioStore } from "./audio.svelte";
 import { toastStore } from "./toast.svelte";
 import { libraryStore } from "./library.svelte";
 import { settingsStore } from "./settings.svelte";
+import { flagsStore } from "./flags.svelte";
 
 export interface TrackSourceInfo {
     type: "Local" | "Remote";
@@ -181,6 +182,7 @@ class HomeStore {
     );
 
     async init() {
+        if (!flagsStore.isEnabled("page_home")) return;
         if (!this.phase1Loaded || (!this.phase2Loaded && !this.isLoadingRemote)) {
             await this.loadHome();
         }
@@ -193,6 +195,7 @@ class HomeStore {
     }
 
     async loadHome(force = false) {
+        if (!flagsStore.isEnabled("page_home")) return;
         const fetchId = ++this.currentFetchId;
         const moodParam = this.currentMood === "All" ? null : this.currentMood;
 
@@ -281,6 +284,26 @@ class HomeStore {
         updateList(this.dailyDiscover);
     }
 
+    updateArtistMetadata(lookupKey: string, canonicalName: string, avatarUrl: string | null) {
+        if (!lookupKey) return;
+        const lower = lookupKey.trim().toLowerCase();
+        let changed = false;
+        for (const item of this.heavyRotation.artists) {
+            if (item.artist.toLowerCase() === lower || lower.includes(item.artist.toLowerCase()) || item.artist.toLowerCase().includes(lower)) {
+                if (canonicalName && canonicalName.trim().length > 0) {
+                    item.artist = canonicalName.trim();
+                }
+                if (avatarUrl) {
+                    item.avatar_url = avatarUrl;
+                }
+                changed = true;
+            }
+        }
+        if (changed) {
+            this.heavyRotation = { ...this.heavyRotation };
+        }
+    }
+
     async toggleLike(track: FederatedTrack) {
         try {
             const newLiked = await invoke<boolean>("toggle_track_like", {
@@ -340,7 +363,12 @@ class HomeStore {
             return;
         }
 
-        // 3. Fallback resolution via configured defaultRemoteProvider
+        // 3. Fallback resolution via configured defaultRemoteProvider (gated by settings toggle)
+        if (!settingsStore.remoteStreamingFallback) {
+            toastStore.show(`Local track file not found for ${track.title}`, "error");
+            return;
+        }
+
         const fallbackProvider = settingsStore.defaultRemoteProvider;
         if (!fallbackProvider || fallbackProvider === "local") {
             toastStore.show(`Local track file not found for ${track.title}`, "error");
@@ -367,10 +395,10 @@ class HomeStore {
                 ? cleanTit
                 : `${cleanArt} ${cleanTit}`;
 
-            let searchResults = await invoke<any[]>("search_provider", {
+            let searchResults: any[] = await invoke<any[]>("search_provider", {
                 providerId: fallbackProvider,
                 query: queryStr,
-            });
+            }).catch(() => []);
 
             if (!searchResults || searchResults.length === 0) {
                 // Secondary fallback: search just the cleaned title
@@ -378,7 +406,34 @@ class HomeStore {
                     searchResults = await invoke<any[]>("search_provider", {
                         providerId: fallbackProvider,
                         query: cleanTit,
-                    });
+                    }).catch(() => []);
+                }
+            }
+
+            // Tertiary fallback: search categorized if flat search failed
+            if (!searchResults || searchResults.length === 0) {
+                const catRes = await invoke<any>("search_provider_categorized", {
+                    providerId: fallbackProvider,
+                    query: queryStr,
+                    filter: "songs",
+                }).catch(() => null);
+
+                if (catRes && catRes.sections) {
+                    searchResults = [];
+                    for (const sec of catRes.sections) {
+                        for (const item of (sec.items || [])) {
+                            if (item.type === "Track" && item.data) {
+                                searchResults.push(item.data);
+                            } else if (item.type === "TopResult" && item.data) {
+                                searchResults.push({
+                                    id: item.data.id,
+                                    title: item.data.title,
+                                    artist: item.data.subtitle,
+                                    cover_art_url: item.data.cover_art_url,
+                                });
+                            }
+                        }
+                    }
                 }
             }
 

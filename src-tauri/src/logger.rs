@@ -82,7 +82,7 @@ pub fn init_logging(app: &AppHandle) {
             .try_init();
     }
 
-    push_log("System", "INFO", "Echo Music Player logging system initialized");
+    push_log("System", "INFO", "Lyria logging system initialized");
 
     // 2. Spawn 2 Hz background batch emitter targeting the debug-logger window
     let app_handle = app.clone();
@@ -127,7 +127,7 @@ pub fn open_debug_window(app: AppHandle) -> Result<(), String> {
         "debug-logger",
         WebviewUrl::App("/debug".into()),
     )
-    .title("Echo Desktop — Debug Console")
+    .title("Lyria — Debug Console")
     .inner_size(900.0, 600.0)
     .min_inner_size(600.0, 400.0)
     .resizable(true)

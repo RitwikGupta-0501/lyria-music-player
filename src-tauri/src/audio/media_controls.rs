@@ -26,8 +26,8 @@ impl OSMediaControls {
         let hwnd = None;
 
         let config = PlatformConfig {
-            dbus_name: "echo_desktop",
-            display_name: "Echo Music Player",
+            dbus_name: "lyria",
+            display_name: "Lyria",
             hwnd,
         };
 

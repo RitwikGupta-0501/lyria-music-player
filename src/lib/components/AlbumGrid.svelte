@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { libraryStore, type Album } from "$lib/stores/library.svelte";
+    import { libraryStore, type Album, type SavedAlbum } from "$lib/stores/library.svelte";
+import { exploreStore } from "$lib/stores/explore.svelte";
     import { open } from "@tauri-apps/plugin-dialog";
     import { FolderOpen, CircleNotch } from "phosphor-svelte";
     import { flip } from "svelte/animate";
@@ -22,9 +23,15 @@
     let containerWidth = $state(0);
     let cols = $derived(Math.max(1, Math.floor((containerWidth + 32) / 222))); // 190px + 32px gap
 
+    let allAlbums = $derived.by(() => {
+        const local = libraryStore.albums;
+        const saved = libraryStore.savedAlbums;
+        return [...saved, ...local];
+    });
+
     let rows = $derived.by(() => {
         const result = [];
-        const albums = libraryStore.albums;
+        const albums = allAlbums;
         for (let i = 0; i < albums.length; i += cols) {
             result.push(albums.slice(i, i + cols));
         }
@@ -68,7 +75,7 @@
 <LibraryHeader bind:activeView>
     {#snippet actions()}
         <div style="display: flex; gap: 1rem; align-items: center;">
-            <span class="text-muted">{libraryStore.albums.length} Albums</span>
+            <span class="text-muted">{allAlbums.length} Albums</span>
 
             <div style="display: flex; gap: 0.5rem; align-items: center;">
                 {#if libraryStore.isScanning}
@@ -90,7 +97,7 @@
     {/snippet}
 </LibraryHeader>
 
-{#if libraryStore.albums.length === 0 && !libraryStore.isScanning}
+{#if allAlbums.length === 0 && !libraryStore.isScanning}
     <!-- Empty state / onboarding -->
     <div class="empty-state">
         <div class="empty-icon">
@@ -119,7 +126,20 @@
                             <AlbumCard
                                 {album}
                                 selected={selectedAlbumId === album.id}
-                                onclick={() => onSelectAlbum(album)}
+                                onclick={() => {
+                                    const maybeRemote = album as any;
+                                    if (maybeRemote.provider_id && maybeRemote.provider_id !== "local") {
+                                        exploreStore.openAlbum({
+                                            id: String(maybeRemote.id),
+                                            title: maybeRemote.title,
+                                            artist: maybeRemote.artist || undefined,
+                                            cover_art_url: maybeRemote.cover_art_url,
+                                            provider_id: maybeRemote.provider_id,
+                                        });
+                                    } else {
+                                        onSelectAlbum(album as Album);
+                                    }
+                                }}
                             />
                         </div>
                     {/each}

@@ -128,19 +128,36 @@ pub fn start_audio_thread(
         let mut current_volume: f32 = 1.0;
         let mut is_muted: bool = false;
         let mut seek_offset: f64 = 0.0;
+        let mut sink_pos_baseline: f64 = 0.0;
         let mut is_seeking = false;
         let mut seek_generation: u64 = 0;
         let (seek_tx, seek_rx) = std::sync::mpsc::channel::<(u64, f64, Result<SymphoniaSource, String>, bool)>();
+        let (advance_tx, advance_rx) = std::sync::mpsc::channel::<()>();
+
+        struct QueuedTrackMeta {
+            source: TrackSource,
+            title: String,
+            artist: Option<String>,
+            album: Option<String>,
+            duration_sec: f64,
+            track_path: String,
+        }
+        let mut queued_tracks: std::collections::VecDeque<QueuedTrackMeta> = std::collections::VecDeque::new();
 
         let media_controls = OSMediaControls::new(&app_handle);
 
+        let get_active_pos = |sink: &Sink, baseline: f64, offset: f64| -> f64 {
+            let raw = sink.get_pos().as_secs_f64();
+            (raw - baseline + offset).max(0.0)
+        };
+
         let emit_sync =
-            |handle: &AppHandle, state: &str, sink: &Sink, track: &str, duration: f64, offset: f64| {
+            |handle: &AppHandle, state: &str, pos: f64, track: &str, duration: f64| {
                 let _ = handle.emit(
                     "player-sync",
                     PlayerSync {
                         state: state.to_string(),
-                        position: sink.get_pos().as_secs_f64() + offset,
+                        position: pos,
                         duration,
                         track: track.to_string(),
                     },
@@ -161,10 +178,11 @@ pub fn start_audio_thread(
                             } else {
                                 sink.set_volume(current_volume);
                             }
+                            sink_pos_baseline = 0.0;
 
-                            let app_clone = app_handle.clone();
+                            let adv_tx = advance_tx.clone();
                             let tracked = TrackedSource::new(src, move || {
-                                let _ = app_clone.emit("track-advanced", ());
+                                let _ = adv_tx.send(());
                             });
                             sink.append(tracked);
                             if !was_paused {
@@ -177,13 +195,13 @@ pub fn start_audio_thread(
                             } else {
                                 "Playing"
                             };
+                            let pos = get_active_pos(&sink, sink_pos_baseline, seek_offset);
                             emit_sync(
                                 &app_handle,
                                 state_str,
-                                &sink,
+                                pos,
                                 &current_track_path,
                                 current_duration,
-                                seek_offset,
                             );
                         }
                         Err(e) => eprintln!("Audio seek failed: {e}"),
@@ -191,13 +209,42 @@ pub fn start_audio_thread(
                 }
             }
 
-            // Track End Detection
-            if sink.empty() && !is_seeking && !current_track_path.is_empty() {
+            // Drain gapless track advancement signals from TrackedSource
+            while let Ok(()) = advance_rx.try_recv() {
+                let _ = app_handle.emit("track-advanced", ());
+                if let Some(next_track) = queued_tracks.pop_front() {
+                    sink_pos_baseline = sink.get_pos().as_secs_f64();
+                    seek_offset = 0.0;
+                    current_track_source = Some(next_track.source);
+                    current_track_path = next_track.track_path;
+                    current_duration = next_track.duration_sec;
+
+                    media_controls.update_metadata(
+                        &next_track.title,
+                        next_track.artist.as_deref().unwrap_or("Unknown Artist"),
+                        next_track.album.as_deref().unwrap_or("Unknown Album"),
+                        Some(Duration::from_secs_f64(current_duration))
+                    );
+                    media_controls.set_playback_status(true);
+
+                    emit_sync(
+                        &app_handle,
+                        "Playing",
+                        0.0,
+                        &current_track_path,
+                        current_duration,
+                    );
+                }
+            }
+
+            // Track End Detection (Queue completely drained and playback finished)
+            if sink.empty() && !is_seeking && !current_track_path.is_empty() && queued_tracks.is_empty() {
                 let _ = app_handle.emit("track-ended", ());
                 current_track_path.clear();
                 current_track_source = None;
                 current_duration = 0.0;
                 seek_offset = 0.0;
+                sink_pos_baseline = 0.0;
                 media_controls.set_playback_status(false);
             }
 
@@ -205,6 +252,7 @@ pub fn start_audio_thread(
                 Ok(cmd) => match cmd {
                     AudioCommand::Load { source, title, artist, album, duration_hint } => {
                         is_seeking = false;
+                        queued_tracks.clear();
                         sink.stop();
                         sink = Sink::try_new(&stream_handle).unwrap_or_else(|_| Sink::try_new(&stream_handle).unwrap());
                         if is_muted {
@@ -213,6 +261,7 @@ pub fn start_audio_thread(
                             sink.set_volume(current_volume);
                         }
                         seek_offset = 0.0;
+                        sink_pos_baseline = 0.0;
                         
                         current_track_source = Some(source.clone());
                         let src_result = match &source {
@@ -246,9 +295,9 @@ pub fn start_audio_thread(
                                     }
                                 };
                                 
-                                let app_clone = app_handle.clone();
+                                let adv_tx = advance_tx.clone();
                                 let tracked = TrackedSource::new(src, move || {
-                                    let _ = app_clone.emit("track-advanced", ());
+                                    let _ = adv_tx.send(());
                                 });
                                 sink.append(tracked);
                                 sink.play();
@@ -261,20 +310,22 @@ pub fn start_audio_thread(
                                 );
                                 media_controls.set_playback_status(true);
 
-                                let _ = app_handle.emit(
-                                    "player-sync",
-                                    PlayerSync {
-                                        state: "Playing".to_string(),
-                                        position: 0.0,
-                                        duration: current_duration,
-                                        track: current_track_path.clone(),
-                                    },
+                                emit_sync(
+                                    &app_handle,
+                                    "Playing",
+                                    0.0,
+                                    &current_track_path,
+                                    current_duration,
                                 );
                             }
                             Err(e) => eprintln!("Audio load failed: {e}"),
                         }
                     }
-                    AudioCommand::QueueNext { source, title: _, artist: _, album: _, duration_hint: _ } => {
+                    AudioCommand::QueueNext { source, title, artist, album, duration_hint } => {
+                        let seg_path = match &source {
+                            TrackSource::Local(path) => path.to_string_lossy().to_string(),
+                            TrackSource::Remote(url, _) => url.to_string(),
+                        };
                         let src_result = match &source {
                             TrackSource::Local(path) => {
                                 SymphoniaSource::from_path(path, audio_config.clone())
@@ -290,9 +341,25 @@ pub fn start_audio_thread(
 
                         match src_result {
                             Ok(src) => {
-                                let app_clone = app_handle.clone();
+                                let hint_sec = duration_hint.map(|ms| ms as f64 / 1000.0).filter(|&d| d > 0.0);
+                                let probed_sec = src.total_duration().map(|d| d.as_secs_f64()).filter(|&d| d > 0.0);
+                                let seg_duration = match &source {
+                                    TrackSource::Remote(..) => hint_sec.or(probed_sec).unwrap_or(0.0),
+                                    TrackSource::Local(..) => probed_sec.or(hint_sec).unwrap_or(0.0),
+                                };
+
+                                queued_tracks.push_back(QueuedTrackMeta {
+                                    source: source.clone(),
+                                    title,
+                                    artist,
+                                    album,
+                                    duration_sec: seg_duration,
+                                    track_path: seg_path,
+                                });
+
+                                let adv_tx = advance_tx.clone();
                                 let tracked = TrackedSource::new(src, move || {
-                                    let _ = app_clone.emit("track-advanced", ());
+                                    let _ = adv_tx.send(());
                                 });
                                 sink.append(tracked);
                             }
@@ -302,36 +369,38 @@ pub fn start_audio_thread(
                     AudioCommand::Play => {
                         sink.play();
                         media_controls.set_playback_status(true);
+                        let pos = get_active_pos(&sink, sink_pos_baseline, seek_offset);
                         emit_sync(
                             &app_handle,
                             "Playing",
-                            &sink,
+                            pos,
                             &current_track_path,
                             current_duration,
-                            seek_offset,
                         );
                     }
                     AudioCommand::Pause => {
                         sink.pause();
                         media_controls.set_playback_status(false);
+                        let pos = get_active_pos(&sink, sink_pos_baseline, seek_offset);
                         emit_sync(
                             &app_handle,
                             "Paused",
-                            &sink,
+                            pos,
                             &current_track_path,
                             current_duration,
-                            seek_offset,
                         );
                     }
                     AudioCommand::Stop => {
                         is_seeking = false;
+                        queued_tracks.clear();
                         sink.stop();
                         current_track_path.clear();
                         current_track_source = None;
                         current_duration = 0.0;
                         seek_offset = 0.0;
+                        sink_pos_baseline = 0.0;
                         media_controls.set_playback_status(false);
-                        emit_sync(&app_handle, "Stopped", &sink, "", 0.0, 0.0);
+                        emit_sync(&app_handle, "Stopped", 0.0, "", 0.0);
                     }
                     AudioCommand::SyncState => {
                         let state_str = if current_track_path.is_empty() {
@@ -341,33 +410,34 @@ pub fn start_audio_thread(
                         } else {
                             "Playing"
                         };
+                        let pos = get_active_pos(&sink, sink_pos_baseline, seek_offset);
                         emit_sync(
                             &app_handle,
                             state_str,
-                            &sink,
+                            pos,
                             &current_track_path,
                             current_duration,
-                            seek_offset,
                         );
                     }
                     AudioCommand::Seek(pos) => {
                         if current_track_path.is_empty() {
                             continue;
                         }
+                        queued_tracks.clear();
                         seek_generation += 1;
                         is_seeking = true;
                         let gen = seek_generation;
                         let was_paused = sink.is_paused();
                         sink.stop();
                         seek_offset = pos;
+                        sink_pos_baseline = 0.0;
 
                         emit_sync(
                             &app_handle,
                             if was_paused { "Paused" } else { "Playing" },
-                            &sink,
+                            pos,
                             &current_track_path,
                             current_duration,
-                            seek_offset,
                         );
 
                         let seek_tx_clone = seek_tx.clone();
@@ -414,7 +484,7 @@ pub fn start_audio_thread(
                 },
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     if !sink.empty() {
-                        let pos = sink.get_pos().as_secs_f64() + seek_offset;
+                        let pos = get_active_pos(&sink, sink_pos_baseline, seek_offset);
                         if pos > current_duration && current_duration > 0.0 {
                             current_duration = pos;
                         }

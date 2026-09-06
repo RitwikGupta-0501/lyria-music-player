@@ -89,6 +89,7 @@ pub enum DbRequest {
     GetAlbumTracks { album_id: i64, limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     GetPlaylists { limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<Playlist>, String>> },
     CreatePlaylist { name: String, resp: oneshot::Sender<Result<i64, String>> },
+    SaveQueueAsPlaylist { name: String, tracks: Vec<crate::queue::QueueTrack>, resp: oneshot::Sender<Result<i64, String>> },
     AddToPlaylist { playlist_id: i64, track_id: i64, resp: oneshot::Sender<Result<(), String>> },
     GetPlaylistTracks { playlist_id: i64, limit: u32, offset: u32, resp: oneshot::Sender<Result<Vec<LocalTrack>, String>> },
     RemoveFromPlaylist { playlist_id: i64, track_id: i64, resp: oneshot::Sender<Result<(), String>> },
@@ -114,6 +115,58 @@ pub enum DbRequest {
     SaveProviderSettings { provider_id: String, settings_json: String, resp: oneshot::Sender<Result<(), String>> },
     GetProviderStorage { provider_id: String, key: String, resp: oneshot::Sender<Result<Option<String>, String>> },
     SetProviderStorage { provider_id: String, key: String, value: String, resp: oneshot::Sender<Result<(), String>> },
+    GetFeedCache { provider_id: String, module_id: String, resp: oneshot::Sender<Result<Option<String>, String>> },
+    SetFeedCache { provider_id: String, module_id: String, payload_json: String, ttl_seconds: i64, resp: oneshot::Sender<Result<(), String>> },
+    ToggleSavedAlbum {
+        id: String,
+        title: String,
+        artist: Option<String>,
+        cover_art_url: Option<String>,
+        provider_id: String,
+        resp: oneshot::Sender<Result<bool, String>>,
+    },
+    GetSavedAlbums {
+        resp: oneshot::Sender<Result<Vec<queries::SavedAlbum>, String>>,
+    },
+    ToggleSavedPlaylist {
+        id: String,
+        title: String,
+        author: Option<String>,
+        cover_art_url: Option<String>,
+        provider_id: String,
+        resp: oneshot::Sender<Result<bool, String>>,
+    },
+    GetSavedPlaylists {
+        resp: oneshot::Sender<Result<Vec<queries::SavedPlaylist>, String>>,
+    },
+    UpsertArtistMetadata {
+        id: String,
+        name: String,
+        avatar_url: Option<String>,
+        bio: Option<String>,
+        provider_id: String,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    GetArtistMetadata {
+        query: String,
+        resp: oneshot::Sender<Result<Option<queries::ArtistMetadata>, String>>,
+    },
+    SetFeatureFlag {
+        key: String,
+        enabled: bool,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    ResetFeatureFlags {
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    GetMarkovAutoplayCandidate {
+        seed_artist: Option<String>,
+        seed_album_id: Option<i64>,
+        seed_track_id: Option<i64>,
+        seed_file_path: Option<String>,
+        seed_duration_ms: Option<u64>,
+        resp: oneshot::Sender<Result<Option<LocalTrack>, String>>,
+    },
     Quit,
 }
 
@@ -206,6 +259,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 DbRequest::GetPlaylists { limit, offset, resp } => {
                     let _ = resp.send(queries::get_playlists(&conn, limit, offset));
                 }
+                DbRequest::SaveQueueAsPlaylist { name, tracks, resp } => {
+                    let _ = resp.send(queries::save_queue_as_playlist(&mut conn, &name, &tracks));
+                }
                 DbRequest::CreatePlaylist { name, resp } => {
                     let _ = resp.send(queries::create_playlist(&conn, &name));
                 }
@@ -275,6 +331,57 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::SetProviderStorage { provider_id, key, value, resp } => {
                     let _ = resp.send(queries::set_provider_storage(&conn, &provider_id, &key, &value));
+                }
+                DbRequest::GetFeedCache { provider_id, module_id, resp } => {
+                    let res = queries::get_feed_cache(&conn, &provider_id, &module_id).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SetFeedCache { provider_id, module_id, payload_json, ttl_seconds, resp } => {
+                    let res = queries::set_feed_cache(&conn, &provider_id, &module_id, &payload_json, ttl_seconds).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::ToggleSavedAlbum { id, title, artist, cover_art_url, provider_id, resp } => {
+                    let res = queries::toggle_saved_album(&conn, &id, &title, artist.as_deref(), cover_art_url.as_deref(), &provider_id).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetSavedAlbums { resp } => {
+                    let res = queries::get_saved_albums(&conn).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::ToggleSavedPlaylist { id, title, author, cover_art_url, provider_id, resp } => {
+                    let res = queries::toggle_saved_playlist(&conn, &id, &title, author.as_deref(), cover_art_url.as_deref(), &provider_id).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetSavedPlaylists { resp } => {
+                    let res = queries::get_saved_playlists(&conn).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::UpsertArtistMetadata { id, name, avatar_url, bio, provider_id, resp } => {
+                    let res = queries::upsert_artist_metadata(&conn, &id, &name, avatar_url.as_deref(), bio.as_deref(), &provider_id).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetArtistMetadata { query, resp } => {
+                    let res = queries::get_artist_metadata(&conn, &query).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SetFeatureFlag { key, enabled, resp } => {
+                    let res = queries::set_feature_flag(&conn, &key, enabled).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::ResetFeatureFlags { resp } => {
+                    let res = queries::reset_feature_flags(&conn).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetMarkovAutoplayCandidate { seed_artist, seed_album_id, seed_track_id, seed_file_path, seed_duration_ms, resp } => {
+                    let res = queries::get_markov_autoplay_candidate(
+                        &conn,
+                        seed_artist.as_deref(),
+                        seed_album_id,
+                        seed_track_id,
+                        seed_file_path.as_deref(),
+                        seed_duration_ms,
+                    ).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
                 }
                 DbRequest::Quit => {
                     break;

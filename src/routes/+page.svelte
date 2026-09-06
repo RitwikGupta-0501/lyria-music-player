@@ -2,6 +2,7 @@
     import { audioStore } from "$lib/stores/audio.svelte";
     import { libraryStore } from "$lib/stores/library.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { flagsStore } from "$lib/stores/flags.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
 
     import Sidebar from "$lib/components/Sidebar.svelte";
@@ -52,9 +53,14 @@
         (async () => {
             await audioStore.init();
             await libraryStore.fetchAlbums();
+            await libraryStore.fetchSavedAlbums();
             await libraryStore.fetchPlaylists();
+            await libraryStore.fetchSavedPlaylists();
             await settingsStore.init();
-            exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
+            await flagsStore.init();
+            if (flagsStore.isEnabled("page_explore")) {
+                exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
+            }
         })();
 
         const handleSearch = () => { globalSearchOpen = true; };
@@ -81,9 +87,41 @@
         };
     });
 
+    // When a collection is opened, close the queue so the drawer shows collection details
+    $effect(() => {
+        if (exploreStore.activeDrawerCollection !== null) {
+            queueOpen = false;
+        }
+    });
+
+    // Fallback activeView if current page is disabled by feature flags
+    $effect(() => {
+        if (activeView === "home" && flagsStore.loaded && !flagsStore.isEnabled("page_home")) {
+            activeView = flagsStore.isEnabled("page_explore") ? "explore" : "albums";
+        } else if (activeView === "explore" && flagsStore.loaded && !flagsStore.isEnabled("page_explore")) {
+            activeView = flagsStore.isEnabled("page_home") ? "home" : "albums";
+        }
+    });
+
+    // When queue is opened, clear any active drawer collection
+    $effect(() => {
+        if (queueOpen) {
+            exploreStore.closeDrawerCollection();
+        }
+    });
+
     // Reactive: update the CSS variable whenever drawer state changes.
     $effect(() => {
         document.documentElement.style.setProperty('--drawer-w', drawerOpen ? '400px' : '0px');
+    });
+    // Scroll to top whenever top-level view changes
+    $effect(() => {
+        if (activeView) {
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) {
+                mainContent.scrollTop = 0;
+            }
+        }
     });
 </script>
 

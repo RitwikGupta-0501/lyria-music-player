@@ -146,7 +146,7 @@
     }
 
     .section-title-row h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
@@ -212,9 +212,14 @@
         overflow-x: auto;
         scroll-snap-type: x mandatory;
         scroll-behavior: smooth;
-        padding-bottom: 0.5rem;
+        padding-top: 8px;
+        margin-top: -8px;
+        padding-bottom: 0.75rem;
+        margin-bottom: -0.25rem;
         scrollbar-width: none;
         will-change: scroll-position;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .radio-carousel-track::-webkit-scrollbar {
@@ -308,7 +313,7 @@
     }
 
     .radio-station-pill span {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.58rem;
         font-weight: 700;
         letter-spacing: 0.1em;
@@ -324,7 +329,7 @@
     }
 
     .radio-title {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.15rem;
         font-weight: 600;
         margin: 0;

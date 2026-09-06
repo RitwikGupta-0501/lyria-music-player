@@ -1,9 +1,11 @@
 <script lang="ts">
     import { homeStore } from "$lib/stores/home.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
+    import TrackRow from "$lib/components/TrackRow.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { resolveCoverArt } from "$lib/utils/media";
-    import { Compass, Play, Pause, CaretLeft, CaretRight } from "phosphor-svelte";
+    import { Compass, Play, Pause } from "phosphor-svelte";
+    import CarouselControls from "$lib/components/common/CarouselControls.svelte";
 
     let payload = $derived(homeStore.adjacentHorizon);
     let totalHorizons = $derived(homeStore.adjacentHorizons.length);
@@ -30,7 +32,7 @@
         <!-- Section Header & Deck Stepper Controls -->
         <div class="section-title-row">
             <div class="title-group">
-                <Compass size={20} weight="fill" class="horizon-header-icon" />
+                <Compass size={20} weight="bold" color="#B58E62" />
                 <h2>Adjacent Horizons</h2>
             </div>
 
@@ -49,25 +51,15 @@
                         {/each}
                     </div>
 
-                    <!-- Prev/Next Chevrons (Consistent with Daily Discover) -->
-                    <div class="chevron-controls">
-                        <button 
-                            class="chevron-btn" 
-                            onclick={() => homeStore.prevHorizon()} 
-                            title="Previous Horizon"
-                            aria-label="Previous Horizon"
-                        >
-                            <CaretLeft size={16} weight="bold" />
-                        </button>
-                        <button 
-                            class="chevron-btn" 
-                            onclick={() => homeStore.nextHorizon()} 
-                            title="Next Horizon"
-                            aria-label="Next Horizon"
-                        >
-                            <CaretRight size={16} weight="bold" />
-                        </button>
-                    </div>
+                    <!-- Prev/Next Chevrons -->
+                    <CarouselControls 
+                        canPrev={true} 
+                        canNext={true} 
+                        onPrev={() => homeStore.prevHorizon()} 
+                        onNext={() => homeStore.nextHorizon()} 
+                        prevLabel="Previous Horizon"
+                        nextLabel="Next Horizon"
+                    />
                 </div>
             {/if}
         </div>
@@ -115,40 +107,11 @@
                 <div class="horizon-right">
                     <div class="preview-ledger">
                         {#each payload.preview_tracks.slice(0, 3) as track}
-                            <div 
-                                class="ledger-row" 
-                                class:playing={isTrackPlaying(track)}
-                                role="button"
-                                tabindex="0"
+                            <TrackRow 
+                                track={track}
+                                variant="compact"
                                 onclick={() => homeStore.playFederatedTrack(track)}
-                                onkeydown={(e) => { if (e.key === "Enter") homeStore.playFederatedTrack(track); }}
-                            >
-                                <div class="ledger-art">
-                                    {#if resolveCoverArt(track.cover_art_url)}
-                                        <img src={resolveCoverArt(track.cover_art_url)} alt={track.title} loading="lazy" />
-                                    {:else}
-                                        <div class="placeholder-art">
-                                            <span>{track.title.charAt(0).toUpperCase()}</span>
-                                        </div>
-                                    {/if}
-                                    <div class="ledger-hover-overlay">
-                                        {#if isTrackPlaying(track)}
-                                            <Pause size={14} weight="fill" color="#fff" />
-                                        {:else}
-                                            <Play size={14} weight="fill" color="#fff" />
-                                        {/if}
-                                    </div>
-                                </div>
-
-                                <div class="ledger-info">
-                                    <span class="ledger-title" title={track.title}>{track.title}</span>
-                                    <span class="ledger-artist" title={track.artist}>{track.artist}</span>
-                                </div>
-
-                                {#if track.duration_ms}
-                                    <span class="ledger-time">{formatDuration(track.duration_ms)}</span>
-                                {/if}
-                            </div>
+                            />
                         {/each}
                     </div>
                 </div>
@@ -161,7 +124,7 @@
     .adjacent-horizons-section {
         display: flex;
         flex-direction: column;
-        gap: 1.25rem;
+        gap: 1.5rem;
         width: 100%;
     }
 
@@ -182,7 +145,7 @@
     }
 
     .section-title-row h2 {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
@@ -225,67 +188,30 @@
         background: #B58E62;
     }
 
-    .chevron-controls {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(18, 18, 22, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 0.2rem 0.3rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-    }
 
-    .chevron-btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: #FFFFFF;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        padding: 0;
-        transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.2s ease;
-    }
-
-    .chevron-btn :global(svg) {
-        display: block;
-        flex-shrink: 0;
-        fill: currentColor;
-    }
-
-    .chevron-btn:hover:not(:disabled) {
-        color: #B58E62;
-        background: rgba(255, 255, 255, 0.16);
-        border-color: rgba(181, 142, 98, 0.4);
-    }
-
-    .chevron-btn:active:not(:disabled) {
-        transform: scale(0.92);
-    }
-
-    .chevron-btn:disabled {
-        opacity: 0.25;
-        pointer-events: none;
-        cursor: default;
-    }
 
     .horizon-card {
         position: relative;
+        margin-top: 0.25rem;
         background: #141416;
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 14px;
         padding: 2.25rem;
         display: grid;
-        grid-template-columns: 1.15fr 0.85fr;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
         gap: 3rem;
         align-items: center;
         overflow: hidden;
         box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
         transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    @media (max-width: 1024px) {
+        .horizon-card {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 1.75rem;
+            padding: 1.75rem;
+        }
     }
 
     .horizon-card:hover {
@@ -338,7 +264,7 @@
     }
 
     .horizon-pill span {
-        font-family: var(--echo-font-mono, monospace);
+        font-family: var(--lyria-font-mono);
         font-size: 0.62rem;
         font-weight: 700;
         letter-spacing: 0.08em;
@@ -346,7 +272,7 @@
     }
 
     .horizon-tagline {
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
+        font-family: var(--echo-font-heading, 'Newsreader', serif);
         font-size: 1.55rem;
         font-weight: 600;
         line-height: 1.25;
@@ -410,106 +336,5 @@
         gap: 0.4rem;
     }
 
-    .ledger-row {
-        display: flex;
-        align-items: center;
-        gap: 0.85rem;
-        padding: 0.45rem 0.6rem;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: background 0.15s ease;
-    }
 
-    .ledger-row:hover {
-        background: rgba(255, 255, 255, 0.05);
-    }
-
-    .ledger-row.playing {
-        background: rgba(181, 142, 98, 0.12);
-    }
-
-    .ledger-art {
-        width: 38px;
-        height: 38px;
-        border-radius: 6px;
-        overflow: hidden;
-        flex-shrink: 0;
-        position: relative;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .ledger-art img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .placeholder-art {
-        width: 100%;
-        height: 100%;
-        background: #202024;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #D4A86E;
-        font-family: var(--echo-font-heading, "Playfair Display", serif);
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-
-    .ledger-hover-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: opacity 0.15s ease;
-    }
-
-    .ledger-row:hover .ledger-hover-overlay,
-    .ledger-row.playing .ledger-hover-overlay {
-        opacity: 1;
-    }
-
-    .ledger-info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-
-    .ledger-title {
-        font-size: 0.84rem;
-        font-weight: 600;
-        color: #fff;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .ledger-artist {
-        font-size: 0.74rem;
-        color: rgba(255, 255, 255, 0.55);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .ledger-time {
-        font-family: var(--echo-font-mono, monospace);
-        font-size: 0.72rem;
-        color: rgba(255, 255, 255, 0.4);
-        flex-shrink: 0;
-    }
-
-    @media (max-width: 1024px) {
-        .horizon-card {
-            grid-template-columns: 1fr;
-            gap: 1.75rem;
-        }
-    }
 </style>

@@ -1,5 +1,5 @@
 use crate::queue::{QueueMode, QueueState, QueueTrack, RepeatMode};
-use crate::{feature_flags, telemetry};
+use crate::telemetry;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -223,9 +223,6 @@ pub async fn reorder_queue(
     from_index: usize,
     to_index: usize,
 ) -> Result<QueueChangeEvent, String> {
-    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::ReorderQueue) {
-        return Err("Queue reordering is not enabled".to_string());
-    }
 
     let mut queue = state.queue.lock().map_err(|e| {
         let err = e.to_string();
@@ -282,9 +279,6 @@ pub async fn set_shuffle(
     state: State<'_, crate::AppState>,
     enabled: bool,
 ) -> Result<QueueChangeEvent, String> {
-    if !feature_flags::FEATURE_FLAGS.is_enabled(feature_flags::FeatureFlag::ShuffleMode) {
-        return Err("Shuffle mode is not enabled".to_string());
-    }
 
     let mut queue = state.queue.lock().map_err(|e| {
         let err = e.to_string();

@@ -1,3 +1,84 @@
+import { homeStore } from "$lib/stores/home.svelte";
+
+export interface UserRegionInfo {
+    countryCode: string;
+    countryName: string;
+    chartQuery: string;
+}
+
+const COUNTRY_NAME_MAP: Record<string, string> = {
+    IN: "India",
+    US: "USA",
+    GB: "UK",
+    CA: "Canada",
+    AU: "Australia",
+    NZ: "New Zealand",
+    DE: "Germany",
+    FR: "France",
+    ES: "Spain",
+    JP: "Japan",
+    KR: "Korea",
+    BR: "Brazil",
+    MX: "Mexico",
+    IT: "Italy",
+    NL: "Netherlands",
+    SE: "Sweden",
+    NO: "Norway",
+};
+
+export function getUserRegionInfo(): UserRegionInfo {
+    try {
+        let region = "US";
+        if (typeof navigator !== "undefined" && navigator.language) {
+            try {
+                const loc = new Intl.Locale(navigator.language);
+                if (loc.region) region = loc.region.toUpperCase();
+            } catch {
+                const parts = navigator.language.split("-");
+                if (parts.length > 1) region = parts[1].toUpperCase();
+            }
+        }
+        if ((region === "US" || !region) && typeof Intl !== "undefined") {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+            if (tz.includes("Calcutta") || tz.includes("Kolkata") || tz.includes("India")) region = "IN";
+            else if (tz.includes("London")) region = "GB";
+            else if (tz.includes("Tokyo")) region = "JP";
+            else if (tz.includes("Sydney") || tz.includes("Melbourne")) region = "AU";
+            else if (tz.includes("Toronto") || tz.includes("Vancouver")) region = "CA";
+            else if (tz.includes("Berlin")) region = "DE";
+            else if (tz.includes("Paris")) region = "FR";
+            else if (tz.includes("Madrid")) region = "ES";
+            else if (tz.includes("Sao_Paulo")) region = "BR";
+        }
+        const name = COUNTRY_NAME_MAP[region] || region;
+        return {
+            countryCode: region,
+            countryName: name,
+            chartQuery: `Top 50 Songs ${name} Official Chart`,
+        };
+    } catch {
+        return {
+            countryCode: "US",
+            countryName: "USA",
+            chartQuery: "Top 50 Songs USA Official Chart",
+        };
+    }
+}
+
+export interface DrawerCollectionTrack {
+    id: string | number;
+    title: string;
+    artist?: string | null;
+    album?: string | null;
+    file_path?: string | null;
+    cover_art_url?: string | null;
+    provider_id?: string;
+    duration_ms?: number | null;
+    track_number?: number | null;
+    liked?: boolean;
+    canonical_key?: string;
+}
+
 export interface DrawerCollection {
     kind: 'album' | 'playlist';
     source: 'local' | 'remote';
@@ -7,8 +88,8 @@ export interface DrawerCollection {
     cover_art_url?: string | null;
     cover_art_path?: string | null;
     provider_id?: string;
-    tracks?: any[];
-    rawLocal?: any;
+    tracks?: DrawerCollectionTrack[];
+    rawLocal?: unknown;
     rawRemote?: AlbumDetailResult | null;
 }
 
@@ -17,6 +98,7 @@ import { audioStore } from "./audio.svelte";
 import { libraryStore } from "./library.svelte";
 import { toastStore } from "./toast.svelte";
 import { settingsStore } from "./settings.svelte";
+import { flagsStore } from "./flags.svelte";
 import type { AdjacentHorizonPayload, RadioMixCard } from "./home.svelte";
 
 export interface TrackResult {
@@ -157,13 +239,19 @@ export const AVAILABLE_SOURCES: SourceOption[] = [
     { id: "youtube-wasm", name: "YouTube Music", badge: "WASM" },
 ];
 
+export interface CategoryShelf {
+    title: string;
+    items: PlaylistItem[];
+}
+
 export type ModuleItem =
     | { type: "Track"; data: TrackResult }
     | { type: "Album"; data: AlbumItem }
     | { type: "Playlist"; data: PlaylistItem }
     | { type: "Genre"; data: GenreItem }
     | { type: "Artist"; data: ArtistItem }
-    | { type: "Spotlight"; data: EditorialSpotlight };
+    | { type: "Spotlight"; data: EditorialSpotlight }
+    | { type: "Shelf"; data: CategoryShelf };
 
 export interface ModuleData {
     items: ModuleItem[];
@@ -194,15 +282,52 @@ const CATEGORY_COLORS: CategoryPalette = {
     "Chill": "#6A7B6E",
 };
 
+
+
+
+const DEFAULT_GLOBAL_CHARTS: TrackResult[] = [
+    { id: "dQw4w9WgXcQ", title: "Starboy", artist: "The Weeknd ft. Daft Punk", cover_art_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=400&auto=format&fit=crop", duration_ms: 230000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "4NRXx6U8ABQ", title: "Nightcall", artist: "Kavinsky", cover_art_url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop", duration_ms: 259000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "dX3k_QDnzHE", title: "Midnight City", artist: "M83", cover_art_url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=400&auto=format&fit=crop", duration_ms: 243000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "a5uQMwRMHcs", title: "Instant Crush", artist: "Daft Punk ft. Julian Casablancas", cover_art_url: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?q=80&w=400&auto=format&fit=crop", duration_ms: 337000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "5NV6Rdv1a3I", title: "Get Lucky", artist: "Daft Punk ft. Pharrell Williams", cover_art_url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=400&auto=format&fit=crop", duration_ms: 248000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+];
+
+const DEFAULT_VIRAL_CHARTS: TrackResult[] = [
+    { id: "viral-1", title: "Birds of a Feather", artist: "Billie Eilish", cover_art_url: "https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=400&auto=format&fit=crop", duration_ms: 198000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-2", title: "Espresso", artist: "Sabrina Carpenter", cover_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=400&auto=format&fit=crop", duration_ms: 175000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-3", title: "Heat Waves", artist: "Glass Animals", cover_art_url: "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?q=80&w=400&auto=format&fit=crop", duration_ms: 238000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-4", title: "Houdini", artist: "Dua Lipa", cover_art_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=400&auto=format&fit=crop", duration_ms: 185000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "viral-5", title: "vampire", artist: "Olivia Rodrigo", cover_art_url: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=80&w=400&auto=format&fit=crop", duration_ms: 219000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+];
+
+const DEFAULT_REGIONAL_CHARTS: TrackResult[] = [
+    { id: "reg-1", title: "Chammak Challo", artist: "Vishal-Shekhar ft. Akon", cover_art_url: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=80&w=400&auto=format&fit=crop", duration_ms: 226000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-2", title: "Lover", artist: "Diljit Dosanjh", cover_art_url: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?q=80&w=400&auto=format&fit=crop", duration_ms: 191000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-3", title: "Kesariya", artist: "Arijit Singh & Pritam", cover_art_url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=400&auto=format&fit=crop", duration_ms: 268000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-4", title: "Hukum - Thalaivar Alappara", artist: "Anirudh Ravichander", cover_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=400&auto=format&fit=crop", duration_ms: 207000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+    { id: "reg-5", title: "MONACO", artist: "Bad Bunny", cover_art_url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=400&auto=format&fit=crop", duration_ms: 267000, provider_id: "youtube-wasm", provider_name: "YouTube Music" },
+];
+
 export class ExploreStore {
+    userRegion = $state<UserRegionInfo>(getUserRegionInfo());
+    spotlightPool = $state<EditorialSpotlight[]>([]);
     spotlights = $state<EditorialSpotlight[]>([]);
     activeSpotlightIndex = $state<number>(0);
     categoryGrid = $state<GenreItem[]>([]);
     rankedTracks = $state<TrackResult[]>([]);
     newReleases2x2 = $state<AlbumItem[]>([]);
+    trendingAlbums = $state<AlbumItem[]>([]);
+    activeChartTab = $state<'global' | 'viral' | 'regional'>('global');
+    viralTracks = $state<TrackResult[]>([]);
+    regionalTracks = $state<TrackResult[]>([]);
+    isLoadingChartTab = $state(false);
 
     activeCategory = $state<GenreItem | null>(null);
     categoryTracks = $state<TrackResult[]>([]);
+    categoryPlaylists = $state<PlaylistItem[]>([]);
+    categoryAlbums = $state<AlbumItem[]>([]);
+    categoryShelves = $state<CategoryShelf[]>([]);
 
     searchQuery = $state("");
     activeSearchFilter = $state<string>("all"); // "all", "songs", "albums", "artists", "playlists"
@@ -283,7 +408,7 @@ export class ExploreStore {
         this.selectedRemotePlaylist = null;
     }
 
-    async openAlbum(album: { id: string; title?: string; artist?: string; cover_art_url?: string | null; is_local?: boolean; provider_id?: string }) {
+    async openAlbum(album: { id: string; title?: string; artist?: string; year?: string | null; cover_art_url?: string | null; is_local?: boolean; provider_id?: string }) {
         if (album.is_local || album.id.startsWith("local-")) {
             return;
         }
@@ -466,11 +591,33 @@ export class ExploreStore {
                     provider_id: pId,
                 }));
             } else {
-                const query = card.seed?.artist || card.seed?.title || card.title;
-                const searchResults = await invoke<any[]>("search_provider", {
+                const cleanArt = (card.seed?.artist || "")
+                    .replace(/\s*•\s*[\d.]+[MK]?\s*views.*$/i, "")
+                    .replace(/\s*•.*$/i, "")
+                    .replace(/\s*-\s*Topic$/i, "")
+                    .replace(/\s*VEVO$/i, "")
+                    .trim();
+                
+                const cleanTit = (card.seed?.title || card.title || "")
+                    .replace(/\s*•\s*[\d.]+[MK]?\s*views.*$/i, "")
+                    .replace(/\s*•.*$/i, "")
+                    .trim();
+
+                const query = (!cleanArt || cleanArt.toLowerCase() === "unknown" || cleanTit.toLowerCase().includes(cleanArt.toLowerCase()))
+                    ? cleanTit
+                    : `${cleanArt} ${cleanTit}`;
+
+                let searchResults = await invoke<any[]>("search_provider", {
                     providerId: pId,
                     query,
                 }).catch(() => []);
+
+                if ((!searchResults || searchResults.length === 0) && cleanTit && cleanTit !== query) {
+                    searchResults = await invoke<any[]>("search_provider", {
+                        providerId: pId,
+                        query: cleanTit,
+                    }).catch(() => []);
+                }
 
                 if (searchResults && searchResults.length > 0) {
                     tracks = searchResults.map((t: any) => ({
@@ -655,10 +802,21 @@ export class ExploreStore {
                 ? settingsStore.defaultRemoteProvider
                 : "youtube-wasm");
 
+        if ((artist as any).avatar_url && artistName) {
+            invoke("save_artist_metadata", {
+                id: artist.id || artistName,
+                name: artistName,
+                avatarUrl: (artist as any).avatar_url,
+                bio: null,
+                providerId: pId,
+            }).catch(() => {});
+        }
+
         // Immediately navigate with provisional state
         this.selectedArtist = {
             id: artist.id,
             name: artistName,
+            avatar_url: (artist as any).avatar_url,
             top_tracks: [],
             albums: [],
             singles: [],
@@ -749,6 +907,34 @@ export class ExploreStore {
 
             if (res) {
                 this.selectedArtist = res;
+                const canonicalName = res.name || artistName;
+                const portrait = res.avatar_url || (artist as any).avatar_url || null;
+
+                // 1. In-memory real-time reactivity for Home shelves
+                homeStore.updateArtistMetadata(artistName, canonicalName, portrait);
+
+                // 2. Persist canonical record & query alias to SQLite
+                if (portrait || canonicalName) {
+                    // Canonical ID record
+                    invoke("save_artist_metadata", {
+                        id: res.id || canonicalName,
+                        name: canonicalName,
+                        avatarUrl: portrait,
+                        bio: res.bio || null,
+                        providerId: pId,
+                    }).catch(() => {});
+
+                    // Query alias record (e.g. "and Shekhar Ravjian" -> "Shekhar Ravjiani")
+                    if (artistName.toLowerCase() !== canonicalName.toLowerCase()) {
+                        invoke("save_artist_metadata", {
+                            id: artistName,
+                            name: canonicalName,
+                            avatarUrl: portrait,
+                            bio: res.bio || null,
+                            providerId: pId,
+                        }).catch(() => {});
+                    }
+                }
             }
         } catch (e) {
             console.error("Failed to browse artist:", e);
@@ -759,6 +945,8 @@ export class ExploreStore {
     }
 
     private _searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private _prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+    private _searchEpoch = 0;
 
     isLoading = $state(false);
     isCategoryLoading = $state(false);
@@ -770,8 +958,26 @@ export class ExploreStore {
             : null
     );
 
-    filteredRankedTracks = $derived(this.rankedTracks.slice(0, 5));
+    currentChartTracks = $derived.by(() => {
+        if (this.activeChartTab === 'viral') {
+            return this.viralTracks;
+        }
+        if (this.activeChartTab === 'regional') {
+            return this.regionalTracks;
+        }
+        return this.rankedTracks;
+    });
+    filteredRankedTracks = $derived(this.rankedTracks);
     filteredNewReleases = $derived(this.newReleases2x2.slice(0, 4));
+
+    showAllCategories = $state(false);
+    toggleAllCategories() {
+        this.showAllCategories = !this.showAllCategories;
+    }
+
+    displayedCategories = $derived(
+        this.showAllCategories ? this.categoryGrid : this.categoryGrid.slice(0, 8)
+    );
 
     // Dynamic filtering based on active source filters and active category filter
     searchSections = $derived.by(() => {
@@ -841,10 +1047,13 @@ export class ExploreStore {
     }
 
     async init(force = false) {
-        if (this.isLoaded && !force && this.lastFetchedAt && (Date.now() - this.lastFetchedAt < this.CACHE_TTL_MS)) {
-            return;
+        const hasWarmCache = !force && this.loadFeedFromStorage();
+        if (hasWarmCache) {
+            this.isLoading = false;
         }
-        await this.loadExplore(force);
+        if (!this.isLoaded || !hasWarmCache || force) {
+            await this.loadExplore(force);
+        }
     }
 
     setSearchQuery(query: string) {
@@ -852,6 +1061,10 @@ export class ExploreStore {
         if (this._searchDebounceTimer) {
             clearTimeout(this._searchDebounceTimer);
             this._searchDebounceTimer = null;
+        }
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
+            this._prefetchTimer = null;
         }
 
         const trimmed = query.trim();
@@ -864,7 +1077,7 @@ export class ExploreStore {
         this.isSearching = true;
         this._searchDebounceTimer = setTimeout(async () => {
             await this.performSearch(trimmed);
-        }, 260);
+        }, 320);
     }
 
     setSearchFilter(filter: string) {
@@ -896,6 +1109,12 @@ export class ExploreStore {
         if (!trimmed) {
             this.clearSearch();
             return;
+        }
+
+        const epoch = ++this._searchEpoch;
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
+            this._prefetchTimer = null;
         }
 
         const cacheKey = `${trimmed.toLowerCase()}:${this.activeSearchFilter}`;
@@ -939,7 +1158,8 @@ export class ExploreStore {
                 remotePromise,
             ]);
 
-            if (this.searchQuery.trim() !== trimmed) return;
+            // Discard stale or superseded search responses
+            if (this._searchEpoch !== epoch || this.searchQuery.trim() !== trimmed) return;
 
             // 2. Format Local Tracks into SearchItems
             const localTrackItems: SearchItem[] = localTracksRaw.map(t => ({
@@ -973,13 +1193,28 @@ export class ExploreStore {
                     }
                 }));
 
+            // Cache any resolved artist portraits in background
+            for (const rSec of remoteSectionsRaw) {
+                for (const item of rSec.items) {
+                    if (item.type === "Artist" && item.data.name && item.data.avatar_url) {
+                        invoke("save_artist_metadata", {
+                            id: item.data.id || item.data.name,
+                            name: item.data.name,
+                            avatarUrl: item.data.avatar_url,
+                            bio: null,
+                            providerId: "youtube-wasm",
+                        }).catch(() => {});
+                    }
+                }
+            }
+
             // 4. Merge Sections: Prepend local items to Songs & Albums shelves
             const combinedSections: SearchCategorySection[] = [];
             let songsAdded = false;
             let albumsAdded = false;
 
             for (const rSec of remoteSectionsRaw) {
-                if (rSec.category === "Songs" || rSec.category === "Videos") {
+                if (rSec.category === "Songs") {
                     const mergedSongs = [...localTrackItems, ...rSec.items];
                     combinedSections.push({
                         category: "Songs",
@@ -1017,23 +1252,28 @@ export class ExploreStore {
             this.searchCache.set(cacheKey, combinedSections);
             this.rawSections = combinedSections;
 
-            // Opportunistically prefetch categories in background when on "all"
+            // Opportunistically prefetch categories ONLY after user is settled/idle for 800ms
             if (this.activeSearchFilter === "all") {
-                this.prefetchCategory(trimmed, "songs");
-                this.prefetchCategory(trimmed, "albums");
-                this.prefetchCategory(trimmed, "artists");
-                this.prefetchCategory(trimmed, "playlists");
+                this._prefetchTimer = setTimeout(() => {
+                    if (this._searchEpoch === epoch && this.searchQuery.trim() === trimmed) {
+                        this.prefetchCategory(trimmed, "songs", epoch);
+                        this.prefetchCategory(trimmed, "albums", epoch);
+                        this.prefetchCategory(trimmed, "artists", epoch);
+                        this.prefetchCategory(trimmed, "playlists", epoch);
+                    }
+                }, 800);
             }
         } catch (e) {
             console.error("Categorized search failed:", e);
         } finally {
-            if (this.searchQuery.trim() === trimmed) {
+            if (this._searchEpoch === epoch && this.searchQuery.trim() === trimmed) {
                 this.isSearching = false;
             }
         }
     }
 
-    private async prefetchCategory(query: string, category: string) {
+    private async prefetchCategory(query: string, category: string, epoch?: number) {
+        if (epoch !== undefined && this._searchEpoch !== epoch) return;
         const cacheKey = `${query.toLowerCase()}:${category}`;
         if (this.searchCache.has(cacheKey)) return;
 
@@ -1043,6 +1283,7 @@ export class ExploreStore {
                 query,
                 filter: category,
             });
+            if (epoch !== undefined && this._searchEpoch !== epoch) return;
             if (res && Array.isArray(res.sections) && res.sections.length > 0) {
                 this.searchCache.set(cacheKey, res.sections);
             }
@@ -1052,6 +1293,7 @@ export class ExploreStore {
     }
 
     clearSearch() {
+        this._searchEpoch++;
         this.searchQuery = "";
         this.rawSections = [];
         this.searchCache.clear();
@@ -1061,9 +1303,88 @@ export class ExploreStore {
             clearTimeout(this._searchDebounceTimer);
             this._searchDebounceTimer = null;
         }
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
+            this._prefetchTimer = null;
+        }
+    }
+
+    private computeSpotlightDeck(pool: EditorialSpotlight[], forceAdvance = false) {
+        if (!pool || pool.length === 0) {
+            this.spotlights = [];
+            return;
+        }
+        if (pool.length <= 6) {
+            this.spotlights = pool;
+            return;
+        }
+
+        const now = Date.now();
+        const ONE_HOUR = 60 * 60 * 1000;
+        let lastVisit = 0;
+        let offset = 0;
+
+        try {
+            lastVisit = parseInt(localStorage.getItem("echo_spotlight_last_visit") || "0", 10);
+            offset = parseInt(localStorage.getItem("echo_spotlight_offset") || "0", 10);
+        } catch (_) {}
+
+        if (forceAdvance || (now - lastVisit > ONE_HOUR)) {
+            offset = (offset + 6) % pool.length;
+            try {
+                localStorage.setItem("echo_spotlight_offset", offset.toString());
+                localStorage.setItem("echo_spotlight_last_visit", now.toString());
+            } catch (_) {}
+        }
+
+        const deck: EditorialSpotlight[] = [];
+        const count = Math.min(6, pool.length);
+        for (let i = 0; i < count; i++) {
+            deck.push(pool[(offset + i) % pool.length]);
+        }
+        this.spotlights = deck;
+    }
+
+    private saveFeedToStorage() {
+        try {
+            const feedPayload = {
+                timestamp: Date.now(),
+                spotlightPool: this.spotlightPool,
+                categoryGrid: this.categoryGrid,
+                newReleases2x2: this.newReleases2x2,
+                trendingAlbums: this.trendingAlbums,
+                rankedTracks: this.rankedTracks,
+            };
+            localStorage.setItem("echo_explore_feed_cache", JSON.stringify(feedPayload));
+        } catch (_) {}
+    }
+
+    private loadFeedFromStorage(): boolean {
+        try {
+            const raw = localStorage.getItem("echo_explore_feed_cache");
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            const now = Date.now();
+            const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+            if (data && data.timestamp && (now - data.timestamp < TWENTY_FOUR_HOURS)) {
+                if (data.spotlightPool && data.spotlightPool.length > 0) {
+                    this.spotlightPool = data.spotlightPool;
+                    this.computeSpotlightDeck(this.spotlightPool, false);
+                }
+                if (data.categoryGrid) this.categoryGrid = data.categoryGrid;
+                if (data.newReleases2x2) this.newReleases2x2 = data.newReleases2x2;
+                if (data.trendingAlbums) this.trendingAlbums = data.trendingAlbums;
+                if (data.rankedTracks) this.rankedTracks = data.rankedTracks;
+                this.isLoaded = true;
+                return true;
+            }
+        } catch (_) {}
+        return false;
     }
 
     async loadExplore(force = false) {
+        if (!flagsStore.isEnabled("page_explore")) return;
         if (this.isLoading) return;
         if (!this.isLoaded) {
             this.isLoading = true;
@@ -1074,6 +1395,8 @@ export class ExploreStore {
             const allSpotlights: EditorialSpotlight[] = [];
             const allGenres: GenreItem[] = [];
             const allTracks: TrackResult[] = [];
+            const newReleasesAlbums: AlbumItem[] = [];
+            const trendingAlbumsList: AlbumItem[] = [];
             const allAlbums: AlbumItem[] = [];
 
             for (const agg of (modules || [])) {
@@ -1081,6 +1404,7 @@ export class ExploreStore {
                     const data = await invoke<ModuleData>("fetch_provider_module", {
                         providerId: agg.provider_id,
                         moduleId: agg.module.id,
+                        forceRefresh: force,
                     });
 
                     if (data && data.items) {
@@ -1090,7 +1414,6 @@ export class ExploreStore {
                                     ...item.data,
                                     provider_id: agg.provider_id,
                                     provider_name: agg.provider_name,
-                                    cover_art_url: item.data.cover_art_url || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop",
                                 });
                             } else if (item.type === "Genre") {
                                 const title = item.data.title;
@@ -1108,11 +1431,17 @@ export class ExploreStore {
                                     provider_name: agg.provider_name,
                                 });
                             } else if (item.type === "Album") {
-                                allAlbums.push({
+                                const albumObj: AlbumItem = {
                                     ...item.data,
                                     provider_id: agg.provider_id,
                                     provider_name: agg.provider_name,
-                                });
+                                };
+                                allAlbums.push(albumObj);
+                                if (agg.module.id === "new_releases") {
+                                    newReleasesAlbums.push(albumObj);
+                                } else if (agg.module.id === "trending_albums") {
+                                    trendingAlbumsList.push(albumObj);
+                                }
                             }
                         }
                     }
@@ -1121,39 +1450,114 @@ export class ExploreStore {
                 }
             }
 
-            if (allSpotlights.length > 0) {
-                this.spotlights = allSpotlights;
+            this.spotlightPool = allSpotlights;
+            this.computeSpotlightDeck(this.spotlightPool, force);
+            if (this.spotlights.length > 0 && this.activeSpotlightIndex >= this.spotlights.length) {
                 this.activeSpotlightIndex = 0;
-            } else {
-                this.spotlights = [{
-                    id: "default-spotlight",
-                    title: "Echoes of Eternity",
-                    artist: "Kavinsky & Daft Punk",
-                    cover_art_url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop",
-                    description: "Curated Master Edition • 24-bit 96kHz Lossless",
-                    release_year: "2026",
-                    provider_name: "Echo Curated",
-                }];
             }
 
-            if (allGenres.length > 0) {
-                this.categoryGrid = allGenres;
-            } else {
-                this.categoryGrid = Object.keys(CATEGORY_COLORS).map((title, i) => ({
-                    id: `genre-${i}`,
-                    title,
-                    color_hex: CATEGORY_COLORS[title],
-                }));
+            const seenGenres = new Set<string>();
+            const deduplicatedGenres: GenreItem[] = [];
+            for (const g of allGenres) {
+                const norm = g.title.toLowerCase().trim();
+                if (!seenGenres.has(norm)) {
+                    seenGenres.add(norm);
+                    deduplicatedGenres.push(g);
+                }
             }
+            this.categoryGrid = deduplicatedGenres;
 
             this.rankedTracks = allTracks;
-            this.newReleases2x2 = allAlbums;
+
+            this.newReleases2x2 = newReleasesAlbums.length > 0 ? newReleasesAlbums : allAlbums.slice(0, 4);
+
+            this.trendingAlbums = trendingAlbumsList.length > 0
+                ? trendingAlbumsList
+                : allAlbums.filter(a => !this.newReleases2x2.some(nr => nr.id === a.id));
             this.isLoaded = true;
             this.lastFetchedAt = Date.now();
+            this.saveFeedToStorage();
         } catch (e) {
-            console.error("Failed to load explore feed:", e);
+            console.error("Failed to load explore feed:", e instanceof Error ? e.message : (typeof e === "object" ? JSON.stringify(e) : String(e)));
         } finally {
             this.isLoading = false;
+        }
+    }
+
+    async setChartTab(tab: 'global' | 'viral' | 'regional', force = false) {
+        this.activeChartTab = tab;
+        if (tab === 'viral' && (force || this.viralTracks.length === 0 || this.viralTracks[0]?.id === 'viral-1')) {
+            this.isLoadingChartTab = true;
+            try {
+                const data = await invoke<ModuleData>("fetch_provider_module", {
+                    providerId: "youtube-wasm",
+                    moduleId: "charts_viral",
+                });
+                if (data && data.items && data.items.length > 0) {
+                    const tracks = data.items
+                        .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                        .map(i => ({
+                            ...i.data,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    if (tracks.length > 0) {
+                        this.viralTracks = tracks;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load viral chart via module:", e);
+            } finally {
+                this.isLoadingChartTab = false;
+            }
+        } else if (tab === 'regional' && (force || this.regionalTracks.length === 0 || this.regionalTracks[0]?.id === 'reg-1')) {
+            this.isLoadingChartTab = true;
+            try {
+                const data = await invoke<ModuleData>("fetch_provider_module", {
+                    providerId: "youtube-wasm",
+                    moduleId: `charts_regional_${this.userRegion.countryCode}`,
+                });
+                if (data && data.items && data.items.length > 0) {
+                    const tracks = data.items
+                        .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                        .map(i => ({
+                            ...i.data,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    if (tracks.length > 0) {
+                        this.regionalTracks = tracks;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load regional chart via module:", e);
+            } finally {
+                this.isLoadingChartTab = false;
+            }
+        } else if (tab === 'global' && force) {
+            this.isLoadingChartTab = true;
+            try {
+                const data = await invoke<ModuleData>("fetch_provider_module", {
+                    providerId: "youtube-wasm",
+                    moduleId: "charts_top",
+                });
+                if (data && data.items && data.items.length > 0) {
+                    const tracks = data.items
+                        .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
+                        .map(i => ({
+                            ...i.data,
+                            provider_id: "youtube-wasm",
+                            provider_name: "YouTube Music",
+                        }));
+                    if (tracks.length > 0) {
+                        this.rankedTracks = tracks;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to reload global chart via module:", e);
+            } finally {
+                this.isLoadingChartTab = false;
+            }
         }
     }
 
@@ -1164,23 +1568,69 @@ export class ExploreStore {
 
         try {
             const pId = category.provider_id || "youtube-wasm";
-            const endpoint = category.endpoint_params || category.id;
+            const moduleId = category.id || `FEmusic_moods_and_genres_category:${category.endpoint_params || category.title}`;
             
             const data = await invoke<ModuleData>("fetch_provider_module", {
                 providerId: pId,
-                moduleId: endpoint,
+                moduleId: moduleId,
             });
 
-            if (data && data.items) {
+            if (data && data.items && data.items.length > 0) {
                 this.categoryTracks = data.items
                     .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
                     .map(i => ({
                         ...i.data,
                         provider_id: pId,
                     }));
+
+                this.categoryPlaylists = data.items
+                    .filter((i): i is { type: "Playlist"; data: PlaylistItem } => i.type === "Playlist")
+                    .map(i => ({
+                        ...i.data,
+                        provider_id: pId,
+                    }));
+
+                this.categoryAlbums = data.items
+                    .filter((i): i is { type: "Album"; data: AlbumItem } => i.type === "Album")
+                    .map(i => ({
+                        ...i.data,
+                        provider_id: pId,
+                    }));
+
+                this.categoryShelves = data.items
+                    .filter((i): i is { type: "Shelf"; data: CategoryShelf } => i.type === "Shelf")
+                    .map(i => ({
+                        title: i.data.title,
+                        items: i.data.items.map(pl => ({ ...pl, provider_id: pId })),
+                    }));
+            } else {
+                const fallbackTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: pId,
+                    query: `Top ${category.title} Songs`,
+                });
+                if (fallbackTracks) {
+                    this.categoryTracks = fallbackTracks.map(t => ({
+                        ...t,
+                        provider_id: pId,
+                    }));
+                }
             }
         } catch (e) {
-            console.error(`Failed to load tracks for category ${category.title}:`, e);
+            console.error(`Failed to load category via endpoint: ${category.title}:`, e);
+            try {
+                const fallbackTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: category.provider_id || "youtube-wasm",
+                    query: `Top ${category.title} Songs`,
+                });
+                if (fallbackTracks) {
+                    this.categoryTracks = fallbackTracks.map(t => ({
+                        ...t,
+                        provider_id: category.provider_id || "youtube-wasm",
+                    }));
+                }
+            } catch (err) {
+                console.error("Fallback search failed:", err);
+            }
         } finally {
             this.isCategoryLoading = false;
         }
@@ -1189,6 +1639,9 @@ export class ExploreStore {
     closeCategory() {
         this.activeCategory = null;
         this.categoryTracks = [];
+        this.categoryPlaylists = [];
+        this.categoryAlbums = [];
+        this.categoryShelves = [];
     }
 
     async playTrack(track: TrackResult, providerId?: string) {
@@ -1248,19 +1701,71 @@ export class ExploreStore {
         }
     }
 
-    async playAlbum(album: AlbumItem) {
+    async playAlbum(album: { id: string; title?: string; artist?: string; cover_art_url?: string | null; provider_id?: string }) {
         const pId = album.provider_id || "youtube-wasm";
+        const albumTitle = album.title || "Album";
+        const albumArtist = album.artist || "Unknown Artist";
+
         try {
-            const tracks = await invoke<TrackResult[]>("search_provider", {
-                providerId: pId,
-                query: `${album.title} ${album.artist}`,
-            });
-            if (tracks && tracks.length > 0) {
+            let res: AlbumDetailResult | null = null;
+            if (album.id && (album.id.startsWith("MPRE") || album.id.startsWith("OLAK") || album.id.startsWith("VL") || album.id.startsWith("FE"))) {
+                res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                    providerId: pId,
+                    albumId: album.id,
+                }).catch(() => null);
+            }
+
+            if (!res || !res.tracks || res.tracks.length === 0) {
+                const searchQuery = `${albumArtist} ${albumTitle}`.trim();
+                const searchRes = await invoke<CategorizedSearchResult>("search_provider_categorized", {
+                    providerId: pId,
+                    query: searchQuery,
+                    filter: "albums",
+                }).catch(() => null);
+
+                let remoteAlbumId: string | null = null;
+                if (searchRes && searchRes.sections) {
+                    for (const sec of searchRes.sections) {
+                        for (const item of sec.items) {
+                            if (item.type === "Album" && item.data.id) {
+                                remoteAlbumId = item.data.id;
+                                break;
+                            }
+                            if (item.type === "TopResult" && item.data.item_type === "album" && item.data.id) {
+                                remoteAlbumId = item.data.id;
+                                break;
+                            }
+                        }
+                        if (remoteAlbumId) break;
+                    }
+                }
+
+                if (remoteAlbumId) {
+                    res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                        providerId: pId,
+                        albumId: remoteAlbumId,
+                    }).catch(() => null);
+                }
+            }
+
+            let tracks: TrackResult[] = [];
+            if (res && res.tracks && res.tracks.length > 0) {
+                tracks = res.tracks;
+            } else {
+                const searchTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: pId,
+                    query: `${albumTitle} ${albumArtist}`,
+                }).catch(() => []);
+                tracks = searchTracks || [];
+            }
+
+            if (tracks.length > 0) {
                 const canonicalTracks = tracks.map(t => ({
                     id: t.id,
+                    remote_track_id: t.id,
                     title: t.title,
-                    artist: t.artist || album.artist,
-                    album: t.album || album.title,
+                    artist: t.artist || albumArtist,
+                    album: t.album || albumTitle,
                     duration_ms: t.duration_ms || 210000,
                     cover_art_url: t.cover_art_url || album.cover_art_url || undefined,
                     provider_id: pId,
@@ -1268,7 +1773,50 @@ export class ExploreStore {
                 await audioStore.setQueue(canonicalTracks, 0);
             }
         } catch (e) {
-            console.error("Failed to play album:", e);
+            console.error("Failed to play album immediately:", e);
+        }
+    }
+
+    async playPlaylist(playlist: { id: string; title?: string; author?: string; cover_art_url?: string | null; provider_id?: string }) {
+        const pId = playlist.provider_id || "youtube-wasm";
+        const playlistTitle = playlist.title || "Playlist";
+        const playlistAuthor = playlist.author || "Curated Playlist";
+
+        try {
+            let res: AlbumDetailResult | null = null;
+            if (playlist.id) {
+                res = await invoke<AlbumDetailResult>("browse_provider_album", {
+                    providerId: pId,
+                    albumId: playlist.id,
+                }).catch(() => null);
+            }
+
+            let tracks: TrackResult[] = [];
+            if (res && res.tracks && res.tracks.length > 0) {
+                tracks = res.tracks;
+            } else {
+                const searchTracks = await invoke<TrackResult[]>("search_provider", {
+                    providerId: pId,
+                    query: `${playlistTitle} playlist`,
+                }).catch(() => []);
+                tracks = searchTracks || [];
+            }
+
+            if (tracks.length > 0) {
+                const canonicalTracks = tracks.map(t => ({
+                    id: t.id,
+                    remote_track_id: t.id,
+                    title: t.title,
+                    artist: t.artist || playlistAuthor,
+                    album: t.album || playlistTitle,
+                    duration_ms: t.duration_ms || 210000,
+                    cover_art_url: t.cover_art_url || playlist.cover_art_url || undefined,
+                    provider_id: pId,
+                }));
+                await audioStore.setQueue(canonicalTracks, 0);
+            }
+        } catch (e) {
+            console.error("Failed to play playlist immediately:", e);
         }
     }
 }

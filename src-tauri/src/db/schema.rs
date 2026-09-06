@@ -272,5 +272,77 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     let _ = conn.execute("ALTER TABLE extension_metrics ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE extension_metrics ADD COLUMN backoff_until TIMESTAMP", []);
 
+
+    // Explore Feed Cache (24-Hour Editorial TTL)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feed_cache (
+            provider_id TEXT NOT NULL,
+            module_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            fetched_at INTEGER NOT NULL,
+            ttl_seconds INTEGER NOT NULL DEFAULT 86400,
+            PRIMARY KEY(provider_id, module_id)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_cache_lookup 
+         ON feed_cache(provider_id, module_id, fetched_at)",
+        [],
+    )?;
+
+    // Saved Remote & Local Albums
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS saved_albums (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            artist TEXT,
+            cover_art_url TEXT,
+            provider_id TEXT NOT NULL DEFAULT 'local',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Saved Remote & Local Playlists
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS saved_playlists (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            author TEXT,
+            cover_art_url TEXT,
+            provider_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Cached Artist Metadata & Avatars
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS artist_metadata (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            avatar_url TEXT,
+            bio TEXT,
+            provider_id TEXT NOT NULL DEFAULT 'youtube-wasm',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_artist_metadata_name ON artist_metadata(name)",
+        [],
+    )?;
+
+    // Feature Flags & Runtime Experiments
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feature_flags (
+            key TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }

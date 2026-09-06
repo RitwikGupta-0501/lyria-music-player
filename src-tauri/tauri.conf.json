@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "echo-desktop",
+  "productName": "Lyria",
   "version": "0.1.0",
-  "identifier": "com.ritwik.echo-desktop",
+  "identifier": "com.ritwik.lyria",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,13 +13,15 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "echo-desktop",
-        "width": 800,
-        "height": 600
+        "title": "Lyria",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 480
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self'; font-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' asset: https://asset.localhost https://*.ytimg.com https://*.googleusercontent.com https: data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' https: http: asset: blob:;",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -30,7 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,8 +40,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../extensions/*"
-    ]
+    "resources": []
   }
 }
