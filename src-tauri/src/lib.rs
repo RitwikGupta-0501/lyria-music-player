@@ -75,117 +75,263 @@ pub struct ProviderInfo {
     pub priority: i32,
     pub icon: Option<String>,
     pub settings: Option<String>,
+    pub description: Option<String>,
+}
+
+pub fn get_lyria_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let data_base = app.path().data_dir().map_err(|e| e.to_string())?;
+    let lyria_dir = data_base.join("Lyria");
+
+    // Migration 1: com.ritwik.lyria -> Lyria
+    if let Ok(legacy_app_dir) = app.path().app_data_dir() {
+        if legacy_app_dir.exists() && !lyria_dir.exists() && legacy_app_dir != lyria_dir {
+            tracing::info!("Migrating legacy app data dir {:?} to {:?}", legacy_app_dir, lyria_dir);
+            let _ = std::fs::rename(&legacy_app_dir, &lyria_dir);
+        }
+    }
+
+    if !lyria_dir.exists() {
+        let _ = std::fs::create_dir_all(&lyria_dir);
+    }
+
+    // Migration 2: Lyria/providers -> Lyria/extensions
+    let ext_dir = lyria_dir.join("extensions");
+    let legacy_prov_dir = lyria_dir.join("providers");
+    if legacy_prov_dir.exists() && !ext_dir.exists() {
+        tracing::info!("Migrating legacy providers dir {:?} to {:?}", legacy_prov_dir, ext_dir);
+        let _ = std::fs::rename(&legacy_prov_dir, &ext_dir);
+    }
+
+    Ok(lyria_dir)
+}
+
+pub fn get_extensions_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let lyria_dir = get_lyria_data_dir(app)?;
+    let ext_dir = lyria_dir.join("extensions");
+    if !ext_dir.exists() {
+        let _ = std::fs::create_dir_all(&ext_dir);
+    }
+    Ok(ext_dir)
+}
+
+fn parse_json_provider(manifest_path: &std::path::Path, base_dir: &std::path::Path) -> Option<ProviderInfo> {
+    let content = std::fs::read_to_string(manifest_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let fallback_id = manifest_path.file_stem()?.to_string_lossy().into_owned();
+    let id = json["id"].as_str().unwrap_or(&fallback_id).to_string();
+    if id.is_empty() {
+        return None;
+    }
+    let name = json["name"].as_str().unwrap_or(&id).to_string();
+    let author = json["author"].as_str().unwrap_or("Unknown").to_string();
+    let version = json["version"].as_str().unwrap_or("0.0.0").to_string();
+
+    let main_file = json["main"].as_str().unwrap_or("");
+    let target_file_path = if !main_file.is_empty() {
+        base_dir.join(main_file)
+    } else if base_dir.join("main.wasm").exists() {
+        base_dir.join("main.wasm")
+    } else if base_dir.join("plugin.wasm").exists() {
+        base_dir.join("plugin.wasm")
+    } else {
+        manifest_path.with_extension("wasm")
+    };
+
+    let checksum = if target_file_path.exists() {
+        if let Ok(bytes) = std::fs::read(&target_file_path) {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            Some(hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let capabilities = json["capabilities"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<String>>());
+
+    let homepage = json["homepage"].as_str().map(|s| s.to_string());
+    let settings_schema = json["settings_schema"].as_str().map(|s| s.to_string());
+    let icon = json["icon"].as_str().map(|s| s.to_string());
+    let description = json["description"].as_str().map(|s| s.to_string());
+
+    Some(ProviderInfo {
+        id,
+        name,
+        author,
+        version,
+        file_path: target_file_path.to_string_lossy().into_owned(),
+        status: "enabled".to_string(),
+        error_message: None,
+        checksum,
+        capabilities,
+        homepage,
+        settings_schema,
+        priority: 0,
+        icon,
+        settings: None,
+        description,
+    })
+}
+
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    if let Ok(canonical_src) = src.canonicalize() {
+        if dst.exists() {
+            if let Ok(canonical_dst) = dst.canonicalize() {
+                if canonical_src == canonical_dst {
+                    return Ok(());
+                }
+                if canonical_dst.starts_with(&canonical_src) {
+                    return Err("Cannot copy a directory into its own subdirectory".to_string());
+                }
+            }
+        }
+    }
+
+    if !dst.exists() {
+        std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    }
+
+    const IGNORED: &[&str] = &["target", ".git", "node_modules", ".DS_Store", ".cargo"];
+
+    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+        if IGNORED.iter().any(|ig| ig.eq_ignore_ascii_case(&name_str)) {
+            continue;
+        }
+
+        let ty = entry.file_type().map_err(|e| e.to_string())?;
+        let dest_path = dst.join(&file_name);
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), dest_path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn extract_zip_extension(zip_path: &std::path::Path, extensions_dir: &std::path::Path) -> Result<(), String> {
+    let file = std::fs::File::open(zip_path).map_err(|e| format!("Failed to open zip file: {}", e))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Invalid zip archive: {}", e))?;
+
+    let default_folder_name = zip_path.file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+
+    let mut has_valid_extension_content = false;
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index(i) {
+            if let Some(enclosed) = file.enclosed_name() {
+                let s = enclosed.to_string_lossy().to_lowercase();
+                if s.ends_with(".json") || s.ends_with(".wasm") {
+                    has_valid_extension_content = true;
+                    break;
+                }
+            }
+        }
+    }
+    if !has_valid_extension_content {
+        return Err("Archive is not a valid extension: missing manifest.json or .wasm binary.".to_string());
+    }
+
+    let mut top_levels = std::collections::HashSet::new();
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index(i) {
+            if let Some(enclosed) = file.enclosed_name() {
+                if let Some(first_comp) = enclosed.components().next() {
+                    top_levels.insert(first_comp.as_os_str().to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    let target_base_dir = if top_levels.len() == 1 {
+        extensions_dir.to_path_buf()
+    } else {
+        let folder = extensions_dir.join(&default_folder_name);
+        let _ = std::fs::create_dir_all(&folder);
+        folder
+    };
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("Error reading zip entry #{}: {}", i, e))?;
+        let enclosed_name = match file.enclosed_name() {
+            Some(path) => path.to_owned(),
+            None => continue,
+        };
+
+        let outpath = target_base_dir.join(enclosed_name);
+
+        if file.is_dir() {
+            std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+                }
+            }
+            let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
+            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
 async fn sync_providers(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let mut providers = Vec::new();
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let providers_dir = app_data_dir.join("providers");
-    
-    if !providers_dir.exists() {
-        let _ = std::fs::create_dir_all(&providers_dir);
-    }
-    
-    // We parse the Lua metadata using regex to avoid spinning up a full VM for every file
-    let re_id = regex::Regex::new(r#"id\s*=\s*"([^"]+)""#).unwrap();
-    let re_name = regex::Regex::new(r#"name\s*=\s*"([^"]+)""#).unwrap();
-    let re_author = regex::Regex::new(r#"author\s*=\s*"([^"]+)""#).unwrap();
-    let re_version = regex::Regex::new(r#"version\s*=\s*"([^"]+)""#).unwrap();
-    let re_homepage = regex::Regex::new(r#"homepage\s*=\s*"([^"]+)""#).unwrap();
-    let re_settings = regex::Regex::new(r#"settings_schema\s*=\s*"([^"]+)""#).unwrap();
-    let re_priority = regex::Regex::new(r#"priority\s*=\s*([0-9]+)"#).unwrap();
-    let re_icon = regex::Regex::new(r#"icon\s*=\s*"([^"]+)""#).unwrap();
-    // Simplified capabilities parser - expects a simple lua array of strings
-    let re_capabilities = regex::Regex::new(r#"capabilities\s*=\s*\{([^}]+)\}"#).unwrap();
+    let extensions_dir = get_extensions_dir(&app)?;
 
-    if let Ok(entries) = std::fs::read_dir(&providers_dir) {
+    if let Ok(entries) = std::fs::read_dir(&extensions_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
-            let ext = path.extension().and_then(|e| e.to_str());
-            
-            if ext == Some("lua") {
-                let fallback_id = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-                
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
-                use sha2::{Sha256, Digest};
-                let mut hasher = Sha256::new();
-                hasher.update(content.as_bytes());
-                let checksum = Some(hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>());
-                
-                let id = re_id.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or(fallback_id);
-                let name = re_name.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or(id.clone());
-                let author = re_author.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or_else(|| "Unknown".to_string());
-                let version = re_version.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or_else(|| "0.0.0".to_string());
-                let homepage = re_homepage.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string());
-                let settings_schema = re_settings.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string());
-                let priority = re_priority.captures(&content).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<i32>().ok()).unwrap_or(0);
-                let icon = re_icon.captures(&content).and_then(|c| c.get(1)).map(|m| m.as_str().to_string());
-                
-                let capabilities = re_capabilities.captures(&content).and_then(|c| c.get(1)).map(|m| {
-                    m.as_str().split(',')
-                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect::<Vec<String>>()
-                });
-                
-                providers.push(ProviderInfo {
-                    id,
-                    name,
-                    author,
-                    version,
-                    file_path: path.to_string_lossy().into_owned(),
-                    status: "enabled".to_string(), // Default when inserting, preserved on update by SQL
-                    error_message: None,
-                    checksum,
-                    capabilities,
-                    homepage,
-                    settings_schema,
-                    priority,
-                    icon,
-                    settings: None,
-                });
-            } else if ext == Some("json") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let id = json["id"].as_str().unwrap_or_default().to_string();
-                        let name = json["name"].as_str().unwrap_or(&id).to_string();
-                        let author = json["author"].as_str().unwrap_or("Unknown").to_string();
-                        let version = json["version"].as_str().unwrap_or("0.0.0").to_string();
-                        
-                        let main_file = json["main"].as_str().unwrap_or_default();
-                        let mut wasm_path = path.clone();
-                        wasm_path.set_file_name(main_file);
-                        
-                        let capabilities = json["capabilities"]
-                            .as_array()
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<String>>());
-                            
-                        let homepage = json["homepage"].as_str().map(|s| s.to_string());
-                        let settings_schema = json["settings_schema"].as_str().map(|s| s.to_string());
-                        let priority = json["priority"].as_i64().unwrap_or(0) as i32;
-                        let icon = json["icon"].as_str().map(|s| s.to_string());
-                        
-                        providers.push(ProviderInfo {
-                            id,
-                            name,
-                            author,
-                            version,
-                            file_path: wasm_path.to_string_lossy().into_owned(),
-                            status: "enabled".to_string(),
-                            error_message: None,
-                            checksum: None,
-                            capabilities,
-                            homepage,
-                            settings_schema,
-                            priority,
-                            icon,
-                            settings: None,
-                        });
+            if path.is_file() {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if ext == "json" {
+                    if let Some(p) = parse_json_provider(&path, &extensions_dir) {
+                        providers.push(p);
                     }
                 }
+            } else if path.is_dir() {
+                // Strictly 1-depth sub-directory inspection
+                let mut found_provider = false;
+                for candidate in ["manifest.json", "extension.json"] {
+                    let manifest_file = path.join(candidate);
+                    if manifest_file.exists() {
+                        if let Some(p) = parse_json_provider(&manifest_file, &path) {
+                            providers.push(p);
+                            found_provider = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !found_provider {
+                    // Look for any .json directly in the subfolder
+                    if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                        for sub_entry in sub_entries.filter_map(|e| e.ok()) {
+                            let sub_path = sub_entry.path();
+                            if sub_path.is_file() && sub_path.extension().and_then(|e| e.to_str()) == Some("json") {
+                                if let Some(p) = parse_json_provider(&sub_path, &path) {
+                                    providers.push(p);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+
             }
         }
     }
@@ -193,7 +339,96 @@ async fn sync_providers(app: AppHandle, state: State<'_, AppState>) -> Result<()
     let (tx, rx) = tokio::sync::oneshot::channel();
     state.db_tx.send(crate::db::DbRequest::SyncProviders { providers, resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())??;
-    
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn import_extension(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<ProviderInfo, String> {
+    let source_path = std::path::PathBuf::from(&path);
+    if !source_path.exists() {
+        return Err(format!("Source path does not exist: {}", path));
+    }
+
+    let extensions_dir = get_extensions_dir(&app)?;
+
+    let target_prefix = tokio::task::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
+        if source_path.is_dir() {
+            let has_extension_files = std::fs::read_dir(&source_path)
+                .map(|entries| {
+                    entries.filter_map(|e| e.ok()).any(|e| {
+                        let name = e.file_name().to_string_lossy().to_lowercase();
+                        name.ends_with(".json") || name.ends_with(".wasm")
+                    })
+                })
+                .unwrap_or(false);
+
+            if !has_extension_files {
+                return Err("Selected folder does not contain an extension: missing manifest.json or .wasm binary.".to_string());
+            }
+
+            let dir_name = source_path.file_name()
+                .ok_or_else(|| "Invalid directory name".to_string())?;
+            let target_dir = extensions_dir.join(dir_name);
+            copy_dir_all(&source_path, &target_dir)?;
+            Ok(target_dir)
+        } else {
+            let ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            if ext == "zip" {
+                extract_zip_extension(&source_path, &extensions_dir)?;
+                let stem = source_path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+                Ok(extensions_dir.join(stem))
+            } else if ext == "wasm" {
+                let file_name = source_path.file_name()
+                    .ok_or_else(|| "Invalid file name".to_string())?;
+                let target_file = extensions_dir.join(file_name);
+                std::fs::copy(&source_path, &target_file)
+                    .map_err(|e| format!("Failed to copy file: {}", e))?;
+
+                let matching_json = source_path.with_extension("json");
+                if matching_json.exists() {
+                    let target_json = target_file.with_extension("json");
+                    let _ = std::fs::copy(&matching_json, &target_json);
+                }
+                Ok(target_file)
+            } else {
+                Err("Unsupported format. Please select a .zip, .wasm, or extension directory.".to_string())
+            }
+        }
+    }).await.map_err(|e| e.to_string())??;
+
+    // Synchronize extension registry
+    sync_providers(app, state.clone()).await?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.db_tx.send(crate::db::DbRequest::GetProviders { resp: tx })
+        .map_err(|e| e.to_string())?;
+    let all = rx.await.map_err(|e| e.to_string())??;
+
+    let target_str = target_prefix.to_string_lossy().into_owned();
+    if let Some(matched) = all.iter().find(|p| p.file_path.contains(&target_str) || target_str.contains(&p.id)) {
+        return Ok(matched.clone());
+    }
+
+    Err("Extension package copied, but no valid manifest (manifest.json) or metadata found.".to_string())
+}
+
+#[tauri::command]
+async fn open_extensions_folder(app: AppHandle) -> Result<(), String> {
+    let extensions_dir = get_extensions_dir(&app)?;
+    let path_str = extensions_dir.to_string_lossy().to_string();
+
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(&path_str).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(&path_str).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&path_str).spawn();
+
     Ok(())
 }
 
@@ -253,12 +488,24 @@ async fn delete_provider(
 
     if let Some(file_path) = file_path_opt {
         let path = std::path::PathBuf::from(&file_path);
-        if path.exists() {
-            let _ = std::fs::remove_file(&path);
+        let ext_dir = get_extensions_dir(&app).ok();
+        let mut removed_parent = false;
+        if let Some(ref root_ext) = ext_dir {
+            if let Some(parent) = path.parent() {
+                if parent != root_ext && parent.parent() == Some(root_ext.as_path()) {
+                    let _ = std::fs::remove_dir_all(parent);
+                    removed_parent = true;
+                }
+            }
         }
-        let json_manifest = path.with_extension("json");
-        if json_manifest.exists() {
-            let _ = std::fs::remove_file(&json_manifest);
+        if !removed_parent {
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+            let json_manifest = path.with_extension("json");
+            if json_manifest.exists() {
+                let _ = std::fs::remove_file(&json_manifest);
+            }
         }
     }
 
@@ -1052,11 +1299,11 @@ async fn factory_reset(app_handle: AppHandle, state: State<'_, AppState>) -> Res
     state.db_tx.send(DbRequest::FactoryReset { resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())??;
 
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    let providers_dir = app_data_dir.join("providers");
+    let app_data_dir = get_lyria_data_dir(&app_handle)?;
+    let extensions_dir = app_data_dir.join("extensions");
     let artwork_dir = app_data_dir.join("artwork");
     
-    let _ = std::fs::remove_dir_all(&providers_dir);
+    let _ = std::fs::remove_dir_all(&extensions_dir);
     let _ = std::fs::remove_dir_all(&artwork_dir);
 
     if let Ok(tx) = state.audio_tx.lock() {
@@ -1073,7 +1320,7 @@ async fn factory_reset(app_handle: AppHandle, state: State<'_, AppState>) -> Res
 
 #[tauri::command]
 async fn extract_and_cache_artwork(app_handle: AppHandle, track_id: i64, file_path: String) -> Result<Option<String>, String> {
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_data_dir = get_lyria_data_dir(&app_handle)?;
     let artwork_dir = app_data_dir.join("artwork");
     std::fs::create_dir_all(&artwork_dir).map_err(|e| e.to_string())?;
 
@@ -1345,12 +1592,12 @@ pub fn run() {
                 .build()
                 .expect("Failed to build reqwest client");
 
-            let app_data_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+            let app_data_dir = get_lyria_data_dir(app.handle()).expect("Failed to get app data dir");
             let db_dir = app_data_dir.join("database");
-            let providers_dir = app_data_dir.join("providers");
+            let extensions_dir = app_data_dir.join("extensions");
             
             std::fs::create_dir_all(&db_dir).expect("Failed to create database directory");
-            std::fs::create_dir_all(&providers_dir).expect("Failed to create providers directory");
+            std::fs::create_dir_all(&extensions_dir).expect("Failed to create extensions directory");
             
             let db_path = db_dir.join("echo_library.db");
             let conn = db::schema::init_db(&db_path).expect("Failed to initialize SQLite");
@@ -1389,7 +1636,7 @@ pub fn run() {
                                 let p = entry.path();
                                 if p.is_file() {
                                     if let Some(name) = p.file_name() {
-                                        let dest = providers_dir.join(name);
+                                        let dest = extensions_dir.join(name);
                                         let should_copy = if !dest.exists() {
                                             true
                                         } else if let (Ok(meta_src), Ok(meta_dest)) = (p.metadata(), dest.metadata()) {
@@ -1456,6 +1703,8 @@ pub fn run() {
             delete_provider,
             save_provider_settings,
             sync_providers,
+            import_extension,
+            open_extensions_folder,
             get_provider_config,
             set_provider_config,
             search_provider,
