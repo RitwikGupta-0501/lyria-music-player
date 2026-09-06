@@ -54,7 +54,7 @@ jobs:
           cache-all-crates: true
 
       - name: Install Linux build dependencies
-        if: runner.os == "Linux"
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
