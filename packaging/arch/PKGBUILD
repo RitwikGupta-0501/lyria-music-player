@@ -5,7 +5,7 @@ pkgver=0.1.1
 pkgrel=1
 pkgdesc="Minimal, algorithmically-driven local audio player"
 arch=('x86_64')
-url="https://github.com/RitwikGupta-0501/music-player"
+url="https://github.com/RitwikGupta-0501/lyria-music-player"
 license=('MIT')
 depends=(
     'webkit2gtk-4.1'
@@ -16,7 +16,7 @@ depends=(
 )
 provides=("${_pkgname}")
 conflicts=("${_pkgname}")
-source=("https://github.com/RitwikGupta-0501/music-player/releases/download/v${pkgver}/Lyria_${pkgver}_amd64.deb")
+source=("https://github.com/RitwikGupta-0501/lyria-music-player/releases/download/v${pkgver}/Lyria_${pkgver}_amd64.deb")
 sha256sums=('SKIP')
 
 package() {
