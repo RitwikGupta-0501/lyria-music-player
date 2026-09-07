@@ -31,26 +31,18 @@
     let unlistenBatch: UnlistenFn | null = null;
     let logContainer: HTMLElement | null = null;
 
-    const categories = ["All", "WASM", "JS Sandbox", "Audio", "Network", "System"];
+    const categories = ["All", "Backend", "Frontend", "WASM", "JS Sandbox", "Audio", "Database", "Network", "System"];
 
     const filteredLogs = $derived(
         logs.filter((log) => {
             // Category Filter
             if (selectedCategory !== "All") {
-                if (
-                    selectedCategory === "WASM" &&
-                    !log.category.includes("WASM") &&
-                    !log.message.includes("[PLUGIN LOG]")
-                )
+                if (selectedCategory === "WASM") {
+                    if (!log.category.includes("WASM") && !log.message.includes("[PLUGIN LOG]"))
+                        return false;
+                } else if (!log.category.toLowerCase().includes(selectedCategory.toLowerCase())) {
                     return false;
-                if (selectedCategory === "JS Sandbox" && !log.category.includes("JS Sandbox"))
-                    return false;
-                if (selectedCategory === "Audio" && !log.category.includes("Audio"))
-                    return false;
-                if (selectedCategory === "Network" && !log.category.includes("Network"))
-                    return false;
-                if (selectedCategory === "System" && !log.category.includes("System"))
-                    return false;
+                }
             }
 
             // Severity Level Filter
@@ -138,6 +130,18 @@
     function formatTime(ts: number): string {
         const d = new Date(ts);
         return d.toTimeString().split(" ")[0] + "." + String(d.getMilliseconds()).padStart(3, "0");
+    }
+
+    function getCategoryClass(cat: string): string {
+        const lower = cat.toLowerCase();
+        if (lower.includes("frontend")) return "frontend";
+        if (lower.includes("wasm") || lower.includes("plugin")) return "wasm";
+        if (lower.includes("sandbox") || lower.includes("js")) return "sandbox";
+        if (lower.includes("audio")) return "audio";
+        if (lower.includes("database") || lower.includes("db")) return "database";
+        if (lower.includes("network") || lower.includes("http")) return "network";
+        if (lower.includes("system")) return "system";
+        return "backend";
     }
 </script>
 
@@ -229,8 +233,8 @@
             {#each filteredLogs as log (log.id)}
                 <div class="log-line {log.level.toLowerCase()}">
                     <span class="time">{formatTime(log.timestamp)}</span>
-                    <span class="level-badge {log.level.toLowerCase()}">[{log.level}]</span>
-                    <span class="cat-badge">[{log.category}]</span>
+                    <span class="level-badge {log.level.toLowerCase()}">{log.level}</span>
+                    <span class="cat-badge {getCategoryClass(log.category)}">[{log.category}]</span>
                     <span class="msg">{log.message}</span>
                 </div>
             {/each}
@@ -472,38 +476,84 @@
         display: flex;
         align-items: flex-start;
         gap: 8px;
-        padding: 2px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        padding: 3px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        border-left: 2px solid transparent;
         word-break: break-all;
+        transition: background 0.15s ease;
+    }
+
+    .log-line:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .log-line.error {
+        background: rgba(239, 68, 68, 0.08);
+        border-left-color: #ef4444;
+    }
+
+    .log-line.error:hover {
+        background: rgba(239, 68, 68, 0.14);
+    }
+
+    .log-line.warn {
+        background: rgba(245, 158, 11, 0.05);
+        border-left-color: #f59e0b;
+    }
+
+    .log-line.warn:hover {
+        background: rgba(245, 158, 11, 0.10);
     }
 
     .time {
-        color: #475569;
+        color: #64748b;
         font-size: 11px;
         white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.6;
     }
 
     .level-badge {
+        font-weight: 700;
+        font-size: 10px;
+        white-space: nowrap;
+        padding: 1px 5px;
+        border-radius: 3px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        line-height: 1.4;
+    }
+    .level-badge.info { color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); }
+    .level-badge.warn { color: #fbbf24; background: rgba(251, 191, 36, 0.14); border: 1px solid rgba(251, 191, 36, 0.3); }
+    .level-badge.error { color: #f87171; background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.35); }
+    .level-badge.debug { color: #c084fc; background: rgba(192, 132, 252, 0.12); border: 1px solid rgba(192, 132, 252, 0.25); }
+
+    .cat-badge {
         font-weight: 600;
         font-size: 11px;
         white-space: nowrap;
+        padding: 0 4px;
+        border-radius: 2px;
+        line-height: 1.5;
     }
-    .level-badge.info { color: #38bdf8; }
-    .level-badge.warn { color: #fbbf24; }
-    .level-badge.error { color: #f87171; }
-    .level-badge.debug { color: #c084fc; }
-
-    .cat-badge {
-        color: #818cf8;
-        white-space: nowrap;
-    }
+    .cat-badge.frontend { color: #34d399; background: rgba(52, 211, 153, 0.1); }
+    .cat-badge.backend  { color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+    .cat-badge.wasm     { color: #fb923c; background: rgba(251, 146, 60, 0.1); }
+    .cat-badge.sandbox  { color: #c084fc; background: rgba(192, 132, 252, 0.1); }
+    .cat-badge.audio    { color: #f472b6; background: rgba(244, 114, 182, 0.1); }
+    .cat-badge.database { color: #818cf8; background: rgba(129, 140, 248, 0.1); }
+    .cat-badge.network  { color: #2dd4bf; background: rgba(45, 212, 191, 0.1); }
+    .cat-badge.system   { color: #94a3b8; background: rgba(148, 163, 184, 0.1); }
 
     .msg {
         color: #e2e8f0;
+        line-height: 1.5;
+        flex: 1;
     }
 
     .log-line.error .msg {
         color: #fca5a5;
+        font-weight: 500;
     }
     .log-line.warn .msg {
         color: #fde68a;

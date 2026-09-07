@@ -30,7 +30,8 @@ pub struct StorageRequest {
 
 // Host functions
 host_fn!(pub host_log (input: String) -> () {
-    tracing::info!("[PLUGIN LOG] {}", input);
+    crate::logger::push_log("WASM", "INFO", &input);
+    tracing::info!(target: "echo_desktop::wasm", "[PLUGIN LOG] {}", input);
     Ok(())
 });
 
@@ -168,9 +169,18 @@ host_fn!(pub host_execute_webview_js (user_data: Arc<tauri::AppHandle>; script: 
             std::time::Duration::from_secs(15), 
             crate::sandbox::sandbox_vm::execute_javascript(&app, &state.sandbox_manager, &script)
         ).await {
-            Ok(Ok(result)) => Ok(result.to_string()),
-            Ok(Err(err)) => Err(extism::Error::msg(err)),
-            Err(_) => Err(extism::Error::msg("JS execution timeout")),
+            Ok(Ok(result)) => {
+                crate::logger::push_log("JS Sandbox", "DEBUG", "JS execution completed successfully");
+                Ok(result.to_string())
+            },
+            Ok(Err(err)) => {
+                crate::logger::push_log("JS Sandbox", "ERROR", &format!("JS execution error: {}", err));
+                Err(extism::Error::msg(err))
+            },
+            Err(_) => {
+                crate::logger::push_log("JS Sandbox", "ERROR", "JS execution timeout after 15s");
+                Err(extism::Error::msg("JS execution timeout"))
+            },
         }
     })?;
     

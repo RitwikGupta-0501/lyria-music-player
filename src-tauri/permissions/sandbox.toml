@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-callback"
 description = "Allows the Sandbox VM to send payloads back to Rust."
-commands.allow = ["sandbox_callback"]
+commands.allow = ["sandbox_callback", "sandbox_log"]

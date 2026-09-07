@@ -4,6 +4,13 @@
 - [ ] Fix duplicate album display: liking / favoriting a local album shows both the local and liked version concurrently
 - [ ] Replace hardcoded 'youtube-wasm' fallbacks with user's configured default provider
 
+## Observability & Diagnostics (v0.2.0)
+- [x] Discard development debug overlay (`#debug-overlay` in `app.html`)
+- [x] Real-time Debug Console window (`/debug`) with 4-tier log aggregation (Rust backend, WASM plugins, frontend, and JS sandbox)
+- [x] Origin-based badge coloring and high-visibility error/warning row accenting
+- [x] Mute raw terminal stdout by default, gated behind `RUST_LOG_STDOUT` environment variable
+- [x] Fix AppImage Wayland/EGL conflict: sanitize AppImage by excluding bundled `libwayland-client.so*` and GPU drivers in CI release pipeline
+
 ## Features & Improvements
 
 ### Core Playback Loop

@@ -8,10 +8,11 @@ This document defines the release cadence, scope boundaries, and feature deliver
 
 ```mermaid
 graph LR
-    v010["v0.1.0<br/><b>Architecture Foundation</b><br/>(Shipped ✅)"] --> v020["v0.2.0<br/><b>Controls, Polish & Usability</b><br/>(In Progress 🟡)"]
-    v020 --> v030["v0.3.0<br/><b>Rich Media & Discovery</b><br/>(Planned 🔵)"]
-    v030 --> v040["v0.4.0<br/><b>Power User & Library Mastery</b><br/>(Planned 🔵)"]
-    v040 --> v100["v1.0.0<br/><b>Production Extensibility</b><br/>(General Availability 🚀)"]
+    v010["v0.1.0<br/><b>Architecture Foundation</b><br/>(Shipped ✅)"] --> v020["v0.2.0<br/><b>Observability & Platform Hardening</b><br/>(In Progress 🟡)"]
+    v020 --> v030["v0.3.0<br/><b>Controls, Audio Polish & Usability</b><br/>(Planned 🔵)"]
+    v030 --> v040["v0.4.0<br/><b>Rich Media & Discovery Depth</b><br/>(Planned 🔵)"]
+    v040 --> v050["v0.5.0<br/><b>Power User & Library Mastery</b><br/>(Planned 🔵)"]
+    v050 --> v100["v1.0.0<br/><b>Production Extensibility</b><br/>(General Availability 🚀)"]
 ```
 
 ---
@@ -44,9 +45,36 @@ graph LR
 
 ---
 
-## 🎯 Version 0.2.0 — Context Controls, Audio Polish & Usability
+## 🔍 Version 0.2.0 — Observability, Diagnostics & Platform Hardening
 > **Status:** In Progress 🟡  
-> **Theme:** Complete primary desktop playback usability with contextual action menus, volume/playback fidelity, and key bug fixes.
+> **Theme:** Complete runtime observability across all four execution tiers, introduce the standalone Real-Time Debug Console, and harden cross-distribution Linux packaging.
+
+### Scope & Deliverables
+* **Real-Time Debug Console (`/debug`)**:
+  * Dedicated standalone debug window with live 2Hz batch streaming from background ring buffer.
+  * Unified 4-tier log aggregation:
+    * *Rust Backend*: Custom `tracing_subscriber::Layer` (`BufferLogLayer`) capturing engine, database, and audio thread events.
+    * *WASM Plugins*: Extism `host_log` bridge forwarding extension logs directly under `WASM`.
+    * *SvelteKit Frontend*: Non-blocking, recursion-safe telemetry hook in `app.html` forwarding `console.warn`, `console.error`, and uncaught window errors.
+    * *JS Execution Sandbox*: VM evaluation lifecycle telemetry, script execution timeouts, and CSP violation logging.
+  * Color-coded origin badge chips (Frontend, Backend, WASM, JS Sandbox, Audio, Database, Network, System).
+  * High-visibility severity formatting (crimson background wash and left-accent border for `ERROR`, warm amber for `WARN`).
+  * Telemetry control tools: live pause/resume, search query filtering, category filters, auto-scrolling, buffer clear, and formatted clipboard copy.
+  * Silent terminal by default: Raw terminal stdout printing muted, gated behind `RUST_LOG_STDOUT=1`.
+  * Discarded legacy `#debug-overlay` in `app.html`.
+* **Universal AppImage Packaging Hardening**:
+  * Automated CI post-build sanitization pipeline in `release.yml`.
+  * Unpacks AppImage, scrubs host-conflicting display and driver libraries (`libwayland*.so*`, `libEGL*.so*`, `libGL*.so*`, `libgbm*.so*`, `libdrm*.so*`), and repacks with `appimagetool`.
+  * Guarantees seamless Wayland EGL display negotiation without `EGL_BAD_PARAMETER` aborts.
+* **Targeted Fixes**:
+  * Fix duplicate album display when liking/favoriting a local album.
+  * Replace hardcoded `'youtube-wasm'` fallbacks with user's configured default provider.
+
+---
+
+## 🎯 Version 0.3.0 — Context Controls, Audio Polish & Usability
+> **Status:** Planned 🔵  
+> **Theme:** Complete primary desktop playback usability with contextual action menus, volume/playback fidelity, and desktop integration.
 
 ### Scope & Deliverables
 * **Context Menus & Action Controls**:
@@ -67,13 +95,10 @@ graph LR
   * System tray integration with minimize-to-tray, close-to-tray, and playback context menu.
 * **Command Palette Expansion**:
   * Extend <kbd>Ctrl+K</kbd> / <kbd>Cmd+K</kbd> `GlobalSearch` with slash commands (`/play`, `/shuffle`, `/liked`, `/queue`, `/clear`).
-* **Bug Fixes & Configuration**:
-  * Fix duplicate album display when liking/favoriting a local album.
-  * Replace hardcoded `'youtube-wasm'` fallbacks with user's configured default provider.
 
 ---
 
-## 🌌 Version 0.3.0 — Rich Media, Lyrics & Discovery Depth
+## 🌌 Version 0.4.0 — Rich Media, Lyrics & Discovery Depth
 > **Status:** Planned 🔵  
 > **Theme:** High-fidelity synchronized lyrics, dynamic musical frontier discovery, and catalog browsing depth.
 
@@ -96,7 +121,7 @@ graph LR
 
 ---
 
-## 🛠️ Version 0.4.0 — Power User Workflows & Library Mastery
+## 🛠️ Version 0.5.0 — Power User Workflows & Library Mastery
 > **Status:** Planned 🔵  
 > **Theme:** Specialized playback surfaces, automatic background indexing, and power user desktop integrations.
 
