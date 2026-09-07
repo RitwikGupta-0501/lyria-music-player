@@ -8,7 +8,7 @@ You can install the official `.pkg.tar.zst` release directly with `pacman`:
 
 ```bash
 # Download and install the package
-sudo pacman -U https://github.com/RitwikGupta-0501/music-player/releases/download/v0.1.1/lyria-0.1.1-1-x86_64.pkg.tar.zst
+sudo pacman -U https://github.com/RitwikGupta-0501/lyria-music-player/releases/download/v0.1.1/lyria-0.1.1-1-x86_64.pkg.tar.zst
 ```
 
 ## 2. Building with `makepkg`

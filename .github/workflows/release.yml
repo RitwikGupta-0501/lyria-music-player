@@ -147,7 +147,7 @@ jobs:
             --iteration 1 \
             -a x86_64 \
             --description "Minimal, algorithmically-driven local audio player" \
-            --url "https://github.com/RitwikGupta-0501/music-player" \
+            --url "https://github.com/RitwikGupta-0501/lyria-music-player" \
             --license "MIT" \
             -d "webkit2gtk-4.1" \
             -d "gtk3" \

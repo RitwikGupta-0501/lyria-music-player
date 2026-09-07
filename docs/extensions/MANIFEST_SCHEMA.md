@@ -20,7 +20,7 @@ Every Lyria extension must provide metadata via a JSON manifest named `manifest.
   "description": "High-fidelity audio streaming and recommendation provider via YouTube Music.",
   "main": "youtube-wasm.wasm",
   "icon": "icon.png",
-  "homepage": "https://github.com/RitwikGupta-0501/music-player",
+  "homepage": "https://github.com/RitwikGupta-0501/lyria-music-player",
   "capabilities": [
     "search",
     "warmup",
