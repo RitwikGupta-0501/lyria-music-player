@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Toast notification system for import status, sync events, deletion, and settings updates.
   - Adaptive scrolling for short viewports and tab management.
 
+### 📦 Packaging & Distribution
+* **Arch Linux Support**: Added native Arch Linux `.pkg.tar.zst` release package generation and repository `PKGBUILD` for AUR distribution.
+
 ### 📚 Documentation & Specifications
 * Added Extism WASM ABI v1 specification (`docs/extensions/ABI_SPECIFICATION.md`).
 * Added Manifest JSON schema and packaging requirements (`docs/extensions/MANIFEST_SCHEMA.md`).

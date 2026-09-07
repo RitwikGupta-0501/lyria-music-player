@@ -65,7 +65,12 @@ jobs:
             librsvg2-dev \
             patchelf \
             libasound2-dev \
-            rpm
+            rpm \
+            ruby \
+            ruby-dev \
+            libarchive-tools \
+            zstd
+          sudo gem install --no-document fpm
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -111,6 +116,47 @@ jobs:
             * **Debian / Ubuntu**: `.deb`
             * **Fedora / RHEL / openSUSE**: `.rpm`
             * **Universal Linux**: `.AppImage`
+            * **Arch Linux / CachyOS / Manjaro**: `.pkg.tar.zst`
           releaseDraft: false
           prerelease: false
           args: --bundles ${{ matrix.platform.bundle_targets }}
+
+      - name: Build & Upload Arch Linux Package (.pkg.tar.zst)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DEB_FILE=$(find src-tauri/target -name "*.deb" | head -n 1)
+          if [ -z "$DEB_FILE" ]; then
+            echo "Error: No .deb file found in src-tauri/target!" >&2
+            exit 1
+          fi
+
+          echo "Found Debian package: $DEB_FILE"
+          STAGING_DIR="$(mktemp -d)"
+          dpkg-deb -x "$DEB_FILE" "$STAGING_DIR"
+
+          ARCH_PKG="lyria-${VERSION}-1-x86_64.pkg.tar.zst"
+          echo "Packaging $ARCH_PKG using fpm..."
+
+          fpm -s dir -t pacman \
+            -n lyria \
+            -v "$VERSION" \
+            --iteration 1 \
+            -a x86_64 \
+            --description "Minimal, algorithmically-driven local audio player" \
+            --url "https://github.com/RitwikGupta-0501/music-player" \
+            --license "MIT" \
+            -d "webkit2gtk-4.1" \
+            -d "gtk3" \
+            -d "alsa-lib" \
+            -d "libappindicator-gtk3" \
+            --pacman-compression zstd \
+            -C "$STAGING_DIR" \
+            -p "$ARCH_PKG"
+
+          echo "Uploading $ARCH_PKG to release ${GITHUB_REF_NAME}..."
+          gh release upload "${GITHUB_REF_NAME}" "$ARCH_PKG" --clobber
+          rm -rf "$STAGING_DIR"
