@@ -22,6 +22,10 @@
 ### Desktop & OS Integration
 - [x] Integrate native OS media controls via `souvlaki` (MPRIS on Linux, SMTC on Windows, hardware media keys, Now-Playing metadata sync)
 - [x] Provide Arch Linux packaging (`.pkg.tar.zst` release assets and `PKGBUILD` for AUR)
+- [ ] Implement macOS packaging & distribution:
+  - Add `macos-14` Apple Silicon (`aarch64-apple-darwin`) matrix job to release workflow for `.dmg` and `.app` bundles
+  - Document unsigned release installation guide and Gatekeeper bypass (`xattr -cr /Applications/Lyria.app`)
+  - Optional: Set up Homebrew Cask recipe (`brew install --cask lyria`)
 - [ ] Implement system tray integration with minimize-to-tray, close-to-tray, and quick playback controls
 - [ ] Implement Discord Rich Presence integration (native or extension-driven, configurable in Settings)
 
