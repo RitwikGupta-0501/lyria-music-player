@@ -70,6 +70,28 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Extract Changelog
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ ("^## \\[" ver "\\]") { found=1; next }
+            found && /^## / { exit }
+            found && /^---/ { exit }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "Minimal, algorithmically-driven audio player." > RELEASE_NOTES.md
+          fi
+
+          {
+            echo "body<<EOF"
+            cat RELEASE_NOTES.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri Application & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -81,9 +103,9 @@ jobs:
           releaseName: "Lyria ${{ github.ref_name }}"
           releaseBody: |
             ## Lyria ${{ github.ref_name }}
-            
-            Minimal, algorithmically-driven audio player.
-            
+
+            ${{ steps.changelog.outputs.body }}
+
             ### Included Release Assets
             * **Windows**: `.exe` (NSIS Wizard Installer) & `.msi` (Enterprise MSI Installer)
             * **Debian / Ubuntu**: `.deb`
