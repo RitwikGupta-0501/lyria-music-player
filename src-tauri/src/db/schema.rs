@@ -76,8 +76,9 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         [],
     )?;
 
-    // Migration to add settings column if it doesn't exist
+    // Migration to add settings and description columns if they don't exist
     let _ = conn.execute("ALTER TABLE providers ADD COLUMN settings TEXT", []);
+    let _ = conn.execute("ALTER TABLE providers ADD COLUMN description TEXT", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS provider_storage (
