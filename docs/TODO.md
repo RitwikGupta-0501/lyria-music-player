@@ -21,6 +21,7 @@
 
 ### Desktop & OS Integration
 - [x] Integrate native OS media controls via `souvlaki` (MPRIS on Linux, SMTC on Windows, hardware media keys, Now-Playing metadata sync)
+- [x] Provide Arch Linux packaging (`.pkg.tar.zst` release assets and `PKGBUILD` for AUR)
 - [ ] Implement system tray integration with minimize-to-tray, close-to-tray, and quick playback controls
 - [ ] Implement Discord Rich Presence integration (native or extension-driven, configurable in Settings)
 
