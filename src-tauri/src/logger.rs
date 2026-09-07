@@ -59,7 +59,7 @@ pub fn push_log(category: &str, level: &str, message: &str) {
 
 pub fn init_logging(app: &AppHandle) {
     // 1. Configure rolling log file appender on disk
-    if let Ok(app_dir) = app.path().app_data_dir() {
+    if let Ok(app_dir) = crate::get_lyria_data_dir(app) {
         let log_dir = app_dir.join("logs");
         let _ = std::fs::create_dir_all(&log_dir);
 
@@ -166,7 +166,7 @@ pub fn copy_debug_log_to_clipboard() -> String {
 
 #[tauri::command]
 pub fn open_log_directory(app: AppHandle) -> Result<(), String> {
-    if let Ok(app_dir) = app.path().app_data_dir() {
+    if let Ok(app_dir) = crate::get_lyria_data_dir(&app) {
         let log_dir = app_dir.join("logs");
         let _ = std::fs::create_dir_all(&log_dir);
         let path_str = log_dir.to_string_lossy().to_string();
