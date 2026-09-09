@@ -33,6 +33,11 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundle_targets: "nsis,msi"
             rustflags: "-C link-arg=-fuse-ld=lld"
+          - name: macOS (Apple Silicon)
+            os: macos-14
+            target: aarch64-apple-darwin
+            bundle_targets: "dmg,app"
+            rustflags: ""
 
     steps:
       - name: Checkout repository
@@ -112,6 +117,7 @@ jobs:
             ${{ steps.changelog.outputs.body }}
 
             ### Included Release Assets
+            * **macOS (Apple Silicon)**: `.dmg` (Disk Image Installer) & `.app.tar.gz`
             * **Windows**: `.exe` (NSIS Wizard Installer) & `.msi` (Enterprise MSI Installer)
             * **Debian / Ubuntu**: `.deb`
             * **Fedora / RHEL / openSUSE**: `.rpm`
@@ -148,7 +154,7 @@ jobs:
             -a x86_64 \
             --description "Minimal, algorithmically-driven local audio player" \
             --url "https://github.com/RitwikGupta-0501/lyria-music-player" \
-            --license "MIT" \
+            --license "GPL-3.0" \
             -d "webkit2gtk-4.1" \
             -d "gtk3" \
             -d "alsa-lib" \

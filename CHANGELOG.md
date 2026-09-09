@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-10
+
+### 📦 Packaging & Distribution
+* **Native macOS Support (`.dmg` & `.app`)**:
+  - Added automated GitHub Actions release workflow for Apple Silicon macOS (`macos-14`, `aarch64-apple-darwin`).
+  - Configured DMG disk image packaging with customized installer window dimensions.
+  - Documented Gatekeeper security bypass procedures (`xattr -cr /Applications/Lyria.app`) for open-source distributions.
+
+### ⚖️ Licensing
+* Aligned all repository manifests (`package.json`, `PKGBUILD`, release workflows, and README) to **GNU General Public License v3.0 (GPL-3.0)**, matching root `LICENSE`.
+
+---
+
 ## [0.2.0] - 2026-09-09
 
 ### 🚀 Observability & Diagnostics

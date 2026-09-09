@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Lyria",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.ritwik.lyria",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -32,9 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb"
-    ],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,6 +40,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": []
+    "resources": [],
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "11.0",
+      "dmg": {
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        }
+      }
+    }
   }
 }

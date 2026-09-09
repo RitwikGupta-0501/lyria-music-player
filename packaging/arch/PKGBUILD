@@ -1,12 +1,12 @@
 # Maintainer: Ritwik Gupta <https://github.com/RitwikGupta-0501>
 pkgname=lyria-bin
 _pkgname=lyria
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Minimal, algorithmically-driven local audio player"
 arch=('x86_64')
 url="https://github.com/RitwikGupta-0501/lyria-music-player"
-license=('MIT')
+license=('GPL-3.0-only')
 depends=(
     'webkit2gtk-4.1'
     'gtk3'
