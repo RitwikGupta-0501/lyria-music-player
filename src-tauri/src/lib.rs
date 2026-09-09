@@ -1798,6 +1798,7 @@ pub fn run() {
             logger::copy_debug_log_to_clipboard,
             logger::open_log_directory,
             logger::sandbox_log,
+            logger::client_log,
             logger::set_log_collection_enabled,
             logger::get_log_collection_enabled,
         ]);

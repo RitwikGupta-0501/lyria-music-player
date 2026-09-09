@@ -57,7 +57,84 @@ pub fn push_log(category: &str, level: &str, message: &str) {
     }
 }
 
+
+struct BufferLogLayer;
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for BufferLogLayer {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        if !is_log_collection_enabled() {
+            return;
+        }
+
+        let metadata = event.metadata();
+        let target = metadata.target();
+
+        // Map target to high-level system categories
+        let category = if target.starts_with("echo_desktop::audio") || target.contains("audio") {
+            "Audio"
+        } else if target.starts_with("echo_desktop::db") || target.contains("db") || target.contains("rusqlite") {
+            "Database"
+        } else if target.contains("wasm") || target.contains("plugin") || target.contains("extism") {
+            "WASM"
+        } else if target.contains("reqwest") || target.contains("hyper") || target.contains("network") {
+            "Network"
+        } else if target.starts_with("echo_desktop") {
+            "Backend"
+        } else {
+            "System"
+        };
+
+        struct MessageVisitor(String);
+        impl tracing::field::Visit for MessageVisitor {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    let formatted = format!("{:?}", value);
+                    if formatted.starts_with('"') && formatted.ends_with('"') && formatted.len() >= 2 {
+                        self.0 = formatted[1..formatted.len() - 1].to_string();
+                    } else {
+                        self.0 = formatted;
+                    }
+                } else {
+                    if !self.0.is_empty() {
+                        self.0.push_str(", ");
+                    }
+                    self.0.push_str(&format!("{}={:?}", field.name(), value));
+                }
+            }
+
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "message" {
+                    self.0 = value.to_string();
+                } else {
+                    if !self.0.is_empty() {
+                        self.0.push_str(", ");
+                    }
+                    self.0.push_str(&format!("{}={}", field.name(), value));
+                }
+            }
+        }
+
+        let mut visitor = MessageVisitor(String::new());
+        event.record(&mut visitor);
+
+        if !visitor.0.is_empty() {
+            push_log(category, metadata.level().as_str(), &visitor.0);
+        }
+    }
+}
 pub fn init_logging(app: &AppHandle) {
+    let buffer_layer = BufferLogLayer;
+
+    // Optional terminal stdout layer, gated behind RUST_LOG_STDOUT=1 / true
+    let stdout_enabled = std::env::var("RUST_LOG_STDOUT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let stdout_layer = if stdout_enabled {
+        Some(tracing_subscriber::fmt::layer())
+    } else {
+        None
+    };
+
     // 1. Configure rolling log file appender on disk
     if let Ok(app_dir) = crate::get_lyria_data_dir(app) {
         let log_dir = app_dir.join("logs");
@@ -70,15 +147,15 @@ pub fn init_logging(app: &AppHandle) {
             .with_writer(non_blocking)
             .with_ansi(false);
 
-        let stdout_layer = tracing_subscriber::fmt::layer();
-
         let _ = tracing_subscriber::registry()
             .with(stdout_layer)
             .with(file_layer)
+            .with(buffer_layer)
             .try_init();
     } else {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
+        let _ = tracing_subscriber::registry()
+            .with(stdout_layer)
+            .with(buffer_layer)
             .try_init();
     }
 
@@ -187,6 +264,13 @@ pub fn open_log_directory(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn sandbox_log(category: Option<String>, level: Option<String>, message: String) {
     let cat = category.unwrap_or_else(|| "JS Sandbox".to_string());
+    let lvl = level.unwrap_or_else(|| "INFO".to_string());
+    push_log(&cat, &lvl, &message);
+}
+
+#[tauri::command]
+pub fn client_log(category: Option<String>, level: Option<String>, message: String) {
+    let cat = category.unwrap_or_else(|| "Frontend".to_string());
     let lvl = level.unwrap_or_else(|| "INFO".to_string());
     push_log(&cat, &lvl, &message);
 }

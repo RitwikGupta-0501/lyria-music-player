@@ -104,6 +104,7 @@ commands.allow = [
     "get_explore_feed",
     "resolve_stream_url",
     "sandbox_log",
+    "client_log",
     "clear_debug_logs",
     "get_debug_logs"
 ]

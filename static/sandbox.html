@@ -28,15 +28,15 @@
             forwardLog('error', [`Uncaught JS Error: ${msg} at ${url}:${line}`]);
         };
 
-        // Log any CSP violations back to Rust so we know if scripts are trying to fetch something
+        // Log any CSP violations back to Rust logger so we know if scripts are probing blocked APIs
         document.addEventListener('securitypolicyviolation', function(e) {
-            console.error('CSP Violation detected:', e.violatedDirective, e.blockedURI);
+            console.warn('CSP Violation detected:', e.violatedDirective, e.blockedURI);
             if (window.__TAURI__ && window.__TAURI__.core) {
-                window.__TAURI__.core.invoke('sandbox_callback', {
-                    reqId: "csp_violation",
-                    payload: null,
-                    error: `CSP Violation: ${e.violatedDirective} on ${e.blockedURI}`
-                });
+                window.__TAURI__.core.invoke('sandbox_log', {
+                    category: 'JS Sandbox',
+                    level: 'WARN',
+                    message: `CSP Violation: ${e.violatedDirective} on ${e.blockedURI}`
+                }).catch(function() {});
             }
         });
 
