@@ -2,6 +2,7 @@
     import { libraryStore } from "$lib/stores/library.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
     import CardPlayButton from "$lib/components/common/CardPlayButton.svelte";
     import { Play, Heart } from "phosphor-svelte";
 
@@ -28,7 +29,7 @@
                 cover_art_url: s.cover_art_url || undefined,
                 file_path: s.file_path || s.local_file_path || undefined,
                 is_local: !!s.local_file_path,
-                provider_id: s.last_provider_id || "youtube-wasm",
+                provider_id: s.last_provider_id || settingsStore.getEffectiveRemoteProvider(),
                 duration_ms: s.duration_ms || 210000,
             }));
             audioStore.setQueue(queueTracks, 0);

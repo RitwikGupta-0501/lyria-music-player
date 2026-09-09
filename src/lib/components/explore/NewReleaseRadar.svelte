@@ -114,7 +114,7 @@
                                     title: album.title,
                                     artist: album.artist,
                                     cover_art_url: album.cover_art_url,
-                                    provider_id: album.provider_id || "youtube-wasm",
+                                    provider_id: album.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                 });
                             }}
                             title={isSaved ? "Saved" : "Save release"}

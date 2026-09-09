@@ -167,7 +167,7 @@
                                                         title: item.data.title,
                                                         artist: item.data.subtitle,
                                                         cover_art_url: item.data.cover_art_url,
-                                                        provider_id: item.data.provider_id || "youtube-wasm",
+                                                        provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                     });
                                                 } else if (item.data.item_type === "playlist") {
                                                     exploreStore.openPlaylist({
@@ -175,13 +175,13 @@
                                                         title: item.data.title,
                                                         author: item.data.subtitle,
                                                         cover_art_url: item.data.cover_art_url,
-                                                        provider_id: item.data.provider_id || "youtube-wasm",
+                                                        provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                     });
                                                 } else if (item.data.item_type === "artist") {
                                                     exploreStore.openArtist({
                                                         id: item.data.id,
                                                         name: item.data.title,
-                                                        provider_id: item.data.provider_id || "youtube-wasm",
+                                                        provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                     });
                                                 } else {
                                                     exploreStore.playTrack({
@@ -189,7 +189,7 @@
                                                         title: item.data.title,
                                                         artist: item.data.subtitle,
                                                         cover_art_url: item.data.cover_art_url,
-                                                        provider_id: item.data.provider_id || "youtube-wasm",
+                                                        provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                     });
                                                 }
                                             }}
@@ -201,13 +201,13 @@
                                                             title: item.data.title,
                                                             artist: item.data.subtitle,
                                                             cover_art_url: item.data.cover_art_url,
-                                                            provider_id: item.data.provider_id || "youtube-wasm",
+                                                            provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                         });
                                                     } else if (item.data.item_type === "artist") {
                                                         exploreStore.openArtist({
                                                             id: item.data.id,
                                                             name: item.data.title,
-                                                            provider_id: item.data.provider_id || "youtube-wasm",
+                                                            provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                         });
                                                     } else {
                                                         exploreStore.playTrack({
@@ -215,7 +215,7 @@
                                                             title: item.data.title,
                                                             artist: item.data.subtitle,
                                                             cover_art_url: item.data.cover_art_url,
-                                                            provider_id: item.data.provider_id || "youtube-wasm",
+                                                            provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                         });
                                                     }
                                                 }
@@ -240,13 +240,13 @@
                                                                     title: item.data.title,
                                                                     artist: item.data.subtitle,
                                                                     cover_art_url: item.data.cover_art_url,
-                                                                    provider_id: item.data.provider_id || "youtube-wasm",
+                                                                    provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                                 });
                                                             } else if (item.data.item_type === "artist") {
                                                                 exploreStore.openArtist({
                                                                     id: item.data.id,
                                                                     name: item.data.title,
-                                                                    provider_id: item.data.provider_id || "youtube-wasm",
+                                                                    provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                                 });
                                                             } else {
                                                                 exploreStore.playTrack({
@@ -254,7 +254,7 @@
                                                                     title: item.data.title,
                                                                     artist: item.data.subtitle,
                                                                     cover_art_url: item.data.cover_art_url,
-                                                                    provider_id: item.data.provider_id || "youtube-wasm",
+                                                                    provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                                 });
                                                             }
                                                         }}
