@@ -1,8 +1,15 @@
 # TODO
 
 ## Issues & Bugs
-- [ ] Fix duplicate album display: liking / favoriting a local album shows both the local and liked version concurrently
-- [ ] Replace hardcoded 'youtube-wasm' fallbacks with user's configured default provider
+- [x] Fix duplicate album display: liking / favoriting a local album shows both the local and liked version concurrently
+- [x] Replace hardcoded 'youtube-wasm' fallbacks with user's configured default provider
+
+## Observability & Diagnostics (v0.2.0)
+- [x] Discard development debug overlay (`#debug-overlay` in `app.html`)
+- [x] Real-time Debug Console window (`/debug`) with 4-tier log aggregation (Rust backend, WASM plugins, frontend, and JS sandbox)
+- [x] Origin-based badge coloring and high-visibility error/warning row accenting
+- [x] Mute raw terminal stdout by default, gated behind `RUST_LOG_STDOUT` environment variable
+- [x] Fix AppImage Wayland/EGL conflict: sanitize AppImage by excluding bundled `libwayland-client.so*` and GPU drivers in CI release pipeline
 
 ## Features & Improvements
 
@@ -80,7 +87,7 @@
   - Native metadata tagging (ID3, Vorbis, embedded album art)
   - Automatic indexing of downloaded files into local library database
 - [ ] Implement extension playback lifecycle hooks (`scrobble` / `integration`):
-  - i Forward playback events (`start`, `pause`, `progress_50`, `complete`) to extensions
+  - Forward playback events (`start`, `pause`, `progress_50`, `complete`) to extensions
   - Support Discord Rich Presence, Last.fm, and ListenBrainz extensions
 - [ ] Implement extension metadata scraper capability (`metadata`):
   - Add `get_artist_info` / `get_album_info` WASM export hooks
@@ -93,7 +100,7 @@
 - [ ] Design and generate custom Lyria application icon (replacing generic default Tauri logo across 32x32, 512x512, Windows .ico, and macOS .icns)
 
 ## Documentation & Organization
-- [ ] Update project README (reflect Lyria branding, architecture, and current capabilities)
+- [x] Update project README (reflect Lyria branding, architecture, and current capabilities)
 - [ ] Organize docs directory with proper segregation and hierarchy
 - [x] Create project release and version scope specification (docs/VERSION_SCOPE.md)
 - [ ] Write comprehensive project and developer documentation
