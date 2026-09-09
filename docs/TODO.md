@@ -10,10 +10,7 @@
 - [ ] Implement audio format and quality badging (e.g. FLAC 24-bit/96kHz, MP3 320kbps, OPUS) on tracks and player bar
 
 ## Desktop & OS Integration
-- [ ] Implement macOS packaging & distribution:
-  - Add `macos-14` Apple Silicon (`aarch64-apple-darwin`) matrix job to release workflow for `.dmg` and `.app` bundles
-  - Document unsigned release installation guide and Gatekeeper bypass (`xattr -cr /Applications/Lyria.app`)
-  - Optional: Set up Homebrew Cask recipe (`brew install --cask lyria`)
+- [ ] Set up macOS Homebrew Cask recipe (`brew install --cask lyria`)
 - [ ] Implement system tray integration with minimize-to-tray, close-to-tray, and quick playback controls
 - [ ] Implement Discord Rich Presence integration (native or extension-driven, configurable in Settings)
 

@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/RitwikGupta-0501/lyria-music-player?color=amber&label=release)](https://github.com/RitwikGupta-0501/lyria-music-player/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue)](#installation)
-[![License: MIT](https://img.shields.io/badge/license-MIT-emerald.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-emerald.svg)](LICENSE)
 
 </div>
 
@@ -61,7 +61,12 @@ Pre-compiled packages for **Windows** and **Linux** are available on the [**Rele
 - **Arch Linux:** Install via the pre-built `.pkg.tar.zst` release asset or the provided `PKGBUILD`.
 - **Debian / Ubuntu:** Native `.deb` package.
 
-*(macOS `.dmg` bundles are in active development).*
+#### macOS (Apple Silicon)
+- **Disk Image (`.dmg`):** Download `Lyria_<version>_aarch64.dmg` from [Releases](https://github.com/RitwikGupta-0501/lyria-music-player/releases) and drag **Lyria** into your `Applications` folder.
+- *Gatekeeper Notice:* As an open-source project without an Apple Developer subscription, macOS may prompt that the app is from an unidentified developer. Right-click (or Control-click) `Lyria.app` in `/Applications`, select **Open**, and click **Open** again. Or run in Terminal:
+  ```bash
+  xattr -cr /Applications/Lyria.app
+  ```
 
 ---
 
@@ -118,4 +123,4 @@ We welcome feedback, feature suggestions, and bug reports! If you encounter an i
 
 ## License
 
-Lyria is free, open-source software released under the [MIT License](LICENSE).
+Lyria is free, open-source software released under the [GNU General Public License v3.0](LICENSE).
