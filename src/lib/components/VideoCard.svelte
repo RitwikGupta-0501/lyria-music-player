@@ -45,7 +45,7 @@
             artist: video.artist || undefined,
             album: video.album || undefined,
             cover_art_url: video.cover_art_url || undefined,
-            provider_id: video.last_provider_id || video.provider_id || "youtube-wasm",
+            provider_id: video.last_provider_id || video.provider_id || settingsStore.getEffectiveRemoteProvider(),
             id: video.last_source_id || video.id || undefined,
             duration_ms: video.duration_ms || undefined,
         });

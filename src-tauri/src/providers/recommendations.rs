@@ -464,6 +464,9 @@ impl RecommendationCompiler {
 
     pub fn compute_adjacent_horizons(&self) -> Result<Vec<AdjacentHorizonPayload>, String> {
         let conn = self.open_read_conn()?;
+        let default_provider = queries::get_setting(&conn, "default_remote_provider").ok().flatten()
+            .filter(|p| p != "local" && !p.trim().is_empty())
+            .unwrap_or_else(|| "youtube-wasm".to_string());
         let top_artists = queries::get_heavy_rotation_7d(&conn, 5).unwrap_or_default();
         let dominant_artist = top_artists.artists.first().map(|a| a.artist.clone()).unwrap_or_else(|| "Your Library".to_string());
 
@@ -561,7 +564,7 @@ impl RecommendationCompiler {
                     seed_provenance: Some(def.genre.to_string()),
                     sources: vec![
                         TrackSourceInfo::Remote {
-                            provider_id: "youtube-wasm".to_string(),
+                            provider_id: default_provider.clone(),
                             remote_track_id: key,
                             stream_url: None,
                             quality_hint: None,
@@ -962,6 +965,10 @@ impl RecommendationCompiler {
 
     fn canonical_songs_to_federated(&self, songs: Vec<CanonicalSong>) -> Vec<FederatedTrack> {
         let artwork_dir = self.db_path.parent().and_then(|p| p.parent()).map(|p| p.join("artwork"));
+        let default_provider = self.open_read_conn().ok()
+            .and_then(|conn| queries::get_setting(&conn, "default_remote_provider").ok().flatten())
+            .filter(|p| p != "local" && !p.trim().is_empty())
+            .unwrap_or_else(|| "youtube-wasm".to_string());
 
         songs.into_iter().map(|s| {
             let mut resolved_cover = s.cover_art_url.clone();
@@ -986,7 +993,7 @@ impl RecommendationCompiler {
                         }
                     } else {
                         TrackSourceInfo::Remote {
-                            provider_id: if s.last_provider_id == "local" || s.last_provider_id.is_empty() { "youtube-wasm".to_string() } else { s.last_provider_id },
+                            provider_id: if s.last_provider_id == "local" || s.last_provider_id.is_empty() { default_provider.clone() } else { s.last_provider_id },
                             remote_track_id: s.last_source_id,
                             stream_url: None,
                             quality_hint: None,
@@ -996,7 +1003,7 @@ impl RecommendationCompiler {
                     }
                 } else {
                     TrackSourceInfo::Remote {
-                        provider_id: if s.last_provider_id == "local" || s.last_provider_id.is_empty() { "youtube-wasm".to_string() } else { s.last_provider_id },
+                        provider_id: if s.last_provider_id == "local" || s.last_provider_id.is_empty() { default_provider.clone() } else { s.last_provider_id },
                         remote_track_id: s.last_source_id,
                         stream_url: None,
                         quality_hint: None,
@@ -1014,7 +1021,7 @@ impl RecommendationCompiler {
                         }
                     } else {
                         TrackSourceInfo::Remote {
-                            provider_id: "youtube-wasm".to_string(),
+                            provider_id: default_provider.clone(),
                             remote_track_id: s.last_source_id,
                             stream_url: None,
                             quality_hint: None,
@@ -1024,7 +1031,7 @@ impl RecommendationCompiler {
                     }
                 } else {
                     TrackSourceInfo::Remote {
-                        provider_id: "youtube-wasm".to_string(),
+                        provider_id: default_provider.clone(),
                         remote_track_id: s.last_source_id,
                         stream_url: None,
                         quality_hint: None,

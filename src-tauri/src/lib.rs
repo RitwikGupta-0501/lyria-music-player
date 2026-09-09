@@ -1118,6 +1118,21 @@ async fn get_saved_albums(
     rx.await.map_err(|e| e.to_string())?
 }
 
+async fn resolve_effective_remote_provider(state: &AppState) -> String {
+    let (tx, rx) = oneshot::channel();
+    if state.db_tx.send(crate::db::DbRequest::GetSetting {
+        key: "default_remote_provider".to_string(),
+        resp: tx,
+    }).is_ok() {
+        if let Ok(Ok(Some(p))) = rx.await {
+            if p != "local" && !p.trim().is_empty() {
+                return p;
+            }
+        }
+    }
+    "youtube-wasm".to_string()
+}
+
 #[tauri::command]
 async fn toggle_save_playlist(
     id: String,
@@ -1128,7 +1143,10 @@ async fn toggle_save_playlist(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     let (tx, rx) = oneshot::channel();
-    let p_id = provider_id.unwrap_or_else(|| "youtube-wasm".to_string());
+    let p_id = match provider_id {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => resolve_effective_remote_provider(&state).await,
+    };
     state.db_tx.send(crate::db::DbRequest::ToggleSavedPlaylist {
         id,
         title,
@@ -1159,7 +1177,10 @@ async fn save_artist_metadata(
     provider_id: Option<String>,
 ) -> Result<(), String> {
     let (tx, rx) = oneshot::channel();
-    let p_id = provider_id.unwrap_or_else(|| "youtube-wasm".to_string());
+    let p_id = match provider_id {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => resolve_effective_remote_provider(&state).await,
+    };
     state.db_tx.send(crate::db::DbRequest::UpsertArtistMetadata {
         id,
         name,
@@ -1798,6 +1819,7 @@ pub fn run() {
             logger::copy_debug_log_to_clipboard,
             logger::open_log_directory,
             logger::sandbox_log,
+            logger::client_log,
             logger::set_log_collection_enabled,
             logger::get_log_collection_enabled,
         ]);

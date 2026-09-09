@@ -331,7 +331,7 @@ export class ExploreStore {
 
     searchQuery = $state("");
     activeSearchFilter = $state<string>("all"); // "all", "songs", "albums", "artists", "playlists"
-    activeSourceFilters = $state<string[]>(["local", "youtube-wasm"]);
+    activeSourceFilters = $state<string[]>(["local", settingsStore.getEffectiveRemoteProvider()]);
     isSourceMenuOpen = $state(false);
 
     rawSections = $state<SearchCategorySection[]>([]);
@@ -385,7 +385,7 @@ export class ExploreStore {
             album: s.album,
             file_path: s.file_path,
             cover_art_url: s.cover_art_url,
-            provider_id: s.last_provider_id || (s.file_path ? undefined : "youtube-wasm"),
+            provider_id: s.last_provider_id || (s.file_path ? undefined : settingsStore.getEffectiveRemoteProvider()),
             duration_ms: s.duration_ms,
             canonical_key: s.canonical_key,
             liked: true,
@@ -413,9 +413,7 @@ export class ExploreStore {
             return;
         }
 
-        const fallbackProvider = (settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
-            ? settingsStore.defaultRemoteProvider
-            : "youtube-wasm";
+        const fallbackProvider = settingsStore.getEffectiveRemoteProvider();
         const pId = (album.provider_id && album.provider_id !== "local")
             ? album.provider_id
             : fallbackProvider;
@@ -552,9 +550,7 @@ export class ExploreStore {
     }
 
     async openRadioMix(card: { id: string; title: string; subtitle?: string; covers?: string[]; seed: any }) {
-        const fallbackProvider = (settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
-            ? settingsStore.defaultRemoteProvider
-            : "youtube-wasm";
+        const fallbackProvider = settingsStore.getEffectiveRemoteProvider();
         const pId = (card.seed?.provider_id && card.seed?.provider_id !== "local")
             ? card.seed.provider_id
             : fallbackProvider;
@@ -648,9 +644,7 @@ export class ExploreStore {
     }
 
     async openHorizon(payload: AdjacentHorizonPayload) {
-        const fallbackProvider = (settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
-            ? settingsStore.defaultRemoteProvider
-            : "youtube-wasm";
+        const fallbackProvider = settingsStore.getEffectiveRemoteProvider();
         const pId = (payload.seed?.provider_id && payload.seed?.provider_id !== "local")
             ? payload.seed.provider_id
             : fallbackProvider;
@@ -738,7 +732,7 @@ export class ExploreStore {
     }
 
     async openPlaylist(playlist: { id: string; title?: string; author?: string; cover_art_url?: string | null; provider_id?: string }) {
-        const pId = playlist.provider_id || "youtube-wasm";
+        const pId = playlist.provider_id || settingsStore.getEffectiveRemoteProvider();
         // Instantly populate drawer stub so drawer opens immediately with title and cover art!
         this.activeDrawerCollection = {
             kind: 'playlist',
@@ -798,9 +792,7 @@ export class ExploreStore {
         const artistName = artist.name || artist.id;
         const pId = (artist.provider_id && artist.provider_id !== "local")
             ? artist.provider_id
-            : ((settingsStore.defaultRemoteProvider && settingsStore.defaultRemoteProvider !== "local")
-                ? settingsStore.defaultRemoteProvider
-                : "youtube-wasm");
+            : settingsStore.getEffectiveRemoteProvider();
 
         if ((artist as any).avatar_url && artistName) {
             invoke("save_artist_metadata", {
@@ -988,7 +980,7 @@ export class ExploreStore {
             .map(sec => {
                 // Filter items by source
                 const filteredItems = sec.items.filter(item => {
-                    const pid = item.data.provider_id || "youtube-wasm";
+                    const pid = item.data.provider_id || settingsStore.getEffectiveRemoteProvider();
                     return allowedSources.has(pid);
                 });
 
@@ -1142,7 +1134,7 @@ export class ExploreStore {
             const remotePromise = (async () => {
                 try {
                     const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
-                        providerId: "youtube-wasm",
+                        providerId: settingsStore.getEffectiveRemoteProvider(),
                         query: trimmed,
                         filter: filterArg,
                     });
@@ -1202,7 +1194,7 @@ export class ExploreStore {
                             name: item.data.name,
                             avatarUrl: item.data.avatar_url,
                             bio: null,
-                            providerId: "youtube-wasm",
+                            providerId: settingsStore.getEffectiveRemoteProvider(),
                         }).catch(() => {});
                     }
                 }
@@ -1279,7 +1271,7 @@ export class ExploreStore {
 
         try {
             const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
-                providerId: "youtube-wasm",
+                providerId: settingsStore.getEffectiveRemoteProvider(),
                 query,
                 filter: category,
             });
@@ -1490,7 +1482,7 @@ export class ExploreStore {
             this.isLoadingChartTab = true;
             try {
                 const data = await invoke<ModuleData>("fetch_provider_module", {
-                    providerId: "youtube-wasm",
+                    providerId: settingsStore.getEffectiveRemoteProvider(),
                     moduleId: "charts_viral",
                 });
                 if (data && data.items && data.items.length > 0) {
@@ -1498,8 +1490,8 @@ export class ExploreStore {
                         .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
                         .map(i => ({
                             ...i.data,
-                            provider_id: "youtube-wasm",
-                            provider_name: "YouTube Music",
+                            provider_id: settingsStore.getEffectiveRemoteProvider(),
+                            provider_name: "Remote Stream",
                         }));
                     if (tracks.length > 0) {
                         this.viralTracks = tracks;
@@ -1514,7 +1506,7 @@ export class ExploreStore {
             this.isLoadingChartTab = true;
             try {
                 const data = await invoke<ModuleData>("fetch_provider_module", {
-                    providerId: "youtube-wasm",
+                    providerId: settingsStore.getEffectiveRemoteProvider(),
                     moduleId: `charts_regional_${this.userRegion.countryCode}`,
                 });
                 if (data && data.items && data.items.length > 0) {
@@ -1522,8 +1514,8 @@ export class ExploreStore {
                         .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
                         .map(i => ({
                             ...i.data,
-                            provider_id: "youtube-wasm",
-                            provider_name: "YouTube Music",
+                            provider_id: settingsStore.getEffectiveRemoteProvider(),
+                            provider_name: "Remote Stream",
                         }));
                     if (tracks.length > 0) {
                         this.regionalTracks = tracks;
@@ -1538,7 +1530,7 @@ export class ExploreStore {
             this.isLoadingChartTab = true;
             try {
                 const data = await invoke<ModuleData>("fetch_provider_module", {
-                    providerId: "youtube-wasm",
+                    providerId: settingsStore.getEffectiveRemoteProvider(),
                     moduleId: "charts_top",
                 });
                 if (data && data.items && data.items.length > 0) {
@@ -1546,8 +1538,8 @@ export class ExploreStore {
                         .filter((i): i is { type: "Track"; data: TrackResult } => i.type === "Track")
                         .map(i => ({
                             ...i.data,
-                            provider_id: "youtube-wasm",
-                            provider_name: "YouTube Music",
+                            provider_id: settingsStore.getEffectiveRemoteProvider(),
+                            provider_name: "Remote Stream",
                         }));
                     if (tracks.length > 0) {
                         this.rankedTracks = tracks;
@@ -1567,7 +1559,7 @@ export class ExploreStore {
         this.categoryTracks = [];
 
         try {
-            const pId = category.provider_id || "youtube-wasm";
+            const pId = category.provider_id || settingsStore.getEffectiveRemoteProvider();
             const moduleId = category.id || `FEmusic_moods_and_genres_category:${category.endpoint_params || category.title}`;
             
             const data = await invoke<ModuleData>("fetch_provider_module", {
@@ -1619,13 +1611,13 @@ export class ExploreStore {
             console.error(`Failed to load category via endpoint: ${category.title}:`, e);
             try {
                 const fallbackTracks = await invoke<TrackResult[]>("search_provider", {
-                    providerId: category.provider_id || "youtube-wasm",
+                    providerId: category.provider_id || settingsStore.getEffectiveRemoteProvider(),
                     query: `Top ${category.title} Songs`,
                 });
                 if (fallbackTracks) {
                     this.categoryTracks = fallbackTracks.map(t => ({
                         ...t,
-                        provider_id: category.provider_id || "youtube-wasm",
+                        provider_id: category.provider_id || settingsStore.getEffectiveRemoteProvider(),
                     }));
                 }
             } catch (err) {
@@ -1659,7 +1651,7 @@ export class ExploreStore {
             return;
         }
 
-        const pId = providerId || track.provider_id || "youtube-wasm";
+        const pId = providerId || track.provider_id || settingsStore.getEffectiveRemoteProvider();
         const canonicalTrack = {
             id: track.id,
             remote_track_id: track.id,
@@ -1679,7 +1671,7 @@ export class ExploreStore {
         if (!spot) return;
         
         try {
-            const pId = spot.provider_id || "youtube-wasm";
+            const pId = spot.provider_id || settingsStore.getEffectiveRemoteProvider();
             const tracks = await invoke<TrackResult[]>("search_provider", {
                 providerId: pId,
                 query: `${spot.title} ${spot.artist}`,
@@ -1702,7 +1694,7 @@ export class ExploreStore {
     }
 
     async playAlbum(album: { id: string; title?: string; artist?: string; cover_art_url?: string | null; provider_id?: string }) {
-        const pId = album.provider_id || "youtube-wasm";
+        const pId = album.provider_id || settingsStore.getEffectiveRemoteProvider();
         const albumTitle = album.title || "Album";
         const albumArtist = album.artist || "Unknown Artist";
 
@@ -1778,7 +1770,7 @@ export class ExploreStore {
     }
 
     async playPlaylist(playlist: { id: string; title?: string; author?: string; cover_art_url?: string | null; provider_id?: string }) {
-        const pId = playlist.provider_id || "youtube-wasm";
+        const pId = playlist.provider_id || settingsStore.getEffectiveRemoteProvider();
         const playlistTitle = playlist.title || "Playlist";
         const playlistAuthor = playlist.author || "Curated Playlist";
 

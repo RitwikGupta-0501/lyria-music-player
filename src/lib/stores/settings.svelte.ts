@@ -22,6 +22,13 @@ export class SettingsStore {
     );
     defaultRemoteProvider = $derived(this.settings["default_remote_provider"] || "local");
 
+    getEffectiveRemoteProvider(): string {
+        if (this.defaultRemoteProvider && this.defaultRemoteProvider !== "local") {
+            return this.defaultRemoteProvider;
+        }
+        return "youtube-wasm";
+    }
+
     async init() {
         try {
             const allSettings = await invoke<Record<string, string>>("get_all_settings");

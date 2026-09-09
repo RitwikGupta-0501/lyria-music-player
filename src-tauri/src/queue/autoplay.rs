@@ -56,7 +56,18 @@ pub async fn resolve_autoplay_next_track(
 
         if !candidate_tracks.is_empty() {
             let selected = &candidate_tracks[0];
-            let provider_id = selected.isrc.as_deref().unwrap_or("youtube-wasm").to_string();
+            let fallback_provider = {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                if state.db_tx.send(crate::db::DbRequest::GetSetting {
+                    key: "default_remote_provider".to_string(),
+                    resp: tx,
+                }).is_ok() {
+                    rx.await.ok().and_then(|r| r.ok()).flatten().filter(|p| p != "local" && !p.trim().is_empty())
+                } else {
+                    None
+                }
+            }.unwrap_or_else(|| "youtube-wasm".to_string());
+            let provider_id = selected.isrc.as_deref().unwrap_or(&fallback_provider).to_string();
             let next_queue_track = QueueTrack {
                 instance_id: uuid::Uuid::new_v4().to_string(),
                 title: selected.title.clone(),
