@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**A clean, premium, offline-first desktop music player.**
+**A clean, lightweight, premium, offline-first desktop music player.**
 
 [![Release](https://img.shields.io/github/v/release/RitwikGupta-0501/lyria-music-player?color=amber&label=release)](https://github.com/RitwikGupta-0501/lyria-music-player/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue)](#installation)
@@ -14,7 +14,7 @@
 
 ## What is Lyria?
 
-**Lyria** is a clean, premium, offline-first desktop music player designed for listeners who value audio fidelity, aesthetic simplicity, and ownership of their music.
+**Lyria** is a clean, lightweight, premium, offline-first desktop music player designed for listeners who value audio fidelity, aesthetic simplicity, and ownership of their music.
 
 Built with Rust, Tauri, and Svelte, Lyria delivers a fast, distraction-free experience for your local music collection. It stays lean by default, while offering a sandboxed WebAssembly extension system to expand the player's capabilities—such as streaming from remote platforms, fetching metadata, or adding community integrations—without compromising the core offline player.
 
@@ -22,14 +22,16 @@ Built with Rust, Tauri, and Svelte, Lyria delivers a fast, distraction-free expe
 
 ## Why Lyria?
 
-Most modern music applications have evolved into heavy, web-wrapped platforms filled with clutter, forced online accounts, and background processes that eat away at memory and battery life. Classic offline audio players, on the other hand, often feel dated and rigid.
+In a desktop ecosystem dominated by heavy Electron-based music players that bundle full Chromium and Node.js runtimes—routinely consuming hundreds of megabytes of RAM just to idle—Lyria was built with a fundamental ideology: **software should be featherlight**.
 
-Lyria was designed to offer the best of both worlds:
+A music player should be a respectful background companion that launches instantly, sips minimal CPU and battery, and never competes with your workflow for memory. At the same time, classic offline audio players often feel dated, lack modern design polish, and cannot interface with modern music ecosystems.
 
-- **Offline-First & Private:** Your local library, metadata, and listening history stay entirely on your device. No sign-ins, no telemetry, no tracking.
-- **Fast & Lightweight:** Powered by a native Rust backend and modern desktop webviews, Lyria launches instantly, navigates smoothly, and uses minimal system resources.
-- **Clean & Premium Design:** A refined, dark-mode interface crafted with thoughtful typography, smooth animations, and zero visual noise.
-- **Modular & Extensible:** Instead of hardcoding third-party services into the core application, Lyria provides a sandboxed WebAssembly extension system. You choose which remote providers, scrobblers, or metadata sources to add.
+Lyria was created as the modern, lightweight alternative:
+
+- **Featherlight Alternative to Electron:** Built on a compiled Rust core and OS-native webviews via Tauri 2.0. Lyria uses a fraction of the memory of Electron applications, launches in milliseconds, and conserves battery life.
+- **Offline-First & Private:** Your local library, metadata, and listening history live entirely on your device. Zero sign-in walls, zero analytics, zero background tracking.
+- **Clean & Premium Design:** A distraction-free dark interface crafted with thoughtful typography, smooth micro-interactions, virtualized scrolling, and zero visual noise.
+- **Modular & Extensible:** Instead of bloating the core player with bundled third-party services, Lyria features a sandboxed WebAssembly extension system. You choose if and when to plug in remote streaming providers, scrobblers, or metadata sources.
 
 ---
 
