@@ -50,13 +50,18 @@ Lyria was created as the modern, lightweight alternative:
 
 ### Pre-built Releases
 
-Pre-compiled packages for Linux are available on the [**Releases**](https://github.com/RitwikGupta-0501/lyria-music-player/releases) page:
+Pre-compiled packages for **Windows** and **Linux** are available on the [**Releases**](https://github.com/RitwikGupta-0501/lyria-music-player/releases) page:
 
-- **Linux AppImage:** Download the `.AppImage`, make it executable (`chmod +x Lyria*.AppImage`), and run it directly on any modern distribution.
-- **Arch Linux:** Download the pre-built `.pkg.tar.zst` package or install via the provided `PKGBUILD`.
-- **Debian / Ubuntu:** `.deb` packages are available with each release.
+#### Windows
+- **Installer (`.exe`):** Standard desktop installer with desktop and Start Menu integration.
+- **MSI Package (`.msi`):** Windows Installer package for system-wide and enterprise deployments.
 
-*(Windows and macOS native installers are planned for upcoming milestones).*
+#### Linux
+- **AppImage:** Download the `.AppImage`, make it executable (`chmod +x Lyria*.AppImage`), and run it directly on any modern distribution.
+- **Arch Linux:** Install via the pre-built `.pkg.tar.zst` release asset or the provided `PKGBUILD`.
+- **Debian / Ubuntu:** Native `.deb` package.
+
+*(macOS `.dmg` bundles are in active development).*
 
 ---
 
