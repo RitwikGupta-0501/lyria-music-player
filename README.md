@@ -110,11 +110,14 @@ Lyria is actively developed. Follow along with our upcoming milestones in [docs/
 
 ---
 
-## Contributing
+## Contributing & Feedback
 
-Contributions, bug reports, and suggestions are welcome! Feel free to open an issue or submit a pull request on GitHub.
+We welcome feedback, feature suggestions, and bug reports! If you encounter an issue or have ideas to improve Lyria, please feel free to [open an issue on GitHub](https://github.com/RitwikGupta-0501/lyria-music-player/issues).
 
-For developer guidelines and technical architecture rules, please read [AGENTS.md](AGENTS.md).
+> [!NOTE]
+> **Code Contributions:** Direct code pull requests are currently on pause while we organize and finalize our developer documentation and contribution workflows. In the meantime, issue submissions, extension feedback, and feature discussions are warmly encouraged!
+
+For internal architecture rules and technical constraints, see [AGENTS.md](AGENTS.md).
 
 ---
 
