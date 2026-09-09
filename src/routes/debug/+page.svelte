@@ -2,7 +2,7 @@
     import { invoke } from "@tauri-apps/api/core";
     import { listen, type UnlistenFn } from "@tauri-apps/api/event";
     import { toastStore } from "$lib/stores/toast.svelte";
-    import { Copy, Check } from "phosphor-svelte";
+    import { Copy, Check, Play, Pause, Trash, FolderOpen, MagnifyingGlass } from "phosphor-svelte";
     import { onMount, onDestroy } from "svelte";
 
     interface LogEntry {
@@ -150,7 +150,6 @@
     <header class="debug-header">
         <div class="header-title-row">
             <div class="title-group">
-                <span class="pulse-dot" class:paused={isPaused}></span>
                 <h1 class="title">Lyria Debug Console</h1>
                 <span class="log-count">{filteredLogs.length} / {logs.length} logs</span>
             </div>
@@ -160,20 +159,33 @@
                     class="btn btn-secondary"
                     class:active={isPaused}
                     onclick={() => (isPaused = !isPaused)}
+                    title={isPaused ? "Resume log stream" : "Pause log stream"}
                 >
-                    {isPaused ? "▶ Resume" : "⏸ Pause"}
+                    {#if isPaused}
+                        <Play size={13} weight="fill" />
+                        <span>Resume</span>
+                    {:else}
+                        <Pause size={13} weight="fill" />
+                        <span>Pause</span>
+                    {/if}
                 </button>
-                <button class="btn btn-secondary" onclick={handleClear}>Clear</button>
-                <button class="btn btn-secondary copy-btn" class:copy-success={isCopySuccess} onclick={handleCopy}>
+                <button class="btn btn-secondary" onclick={handleClear} title="Clear debug log buffer">
+                    <Trash size={13} weight="regular" />
+                    <span>Clear</span>
+                </button>
+                <button class="btn btn-secondary copy-btn" class:copy-success={isCopySuccess} onclick={handleCopy} title="Copy logs to clipboard">
                     {#if isCopySuccess}
-                        <Check size={16} weight="bold" />
+                        <Check size={13} weight="bold" />
                         <span>Copied</span>
                     {:else}
-                        <Copy size={16} weight="regular" />
+                        <Copy size={13} weight="regular" />
                         <span>Copy Logs</span>
                     {/if}
                 </button>
-                <button class="btn btn-primary" onclick={handleOpenLogFolder}>Log Folder 📁</button>
+                <button class="btn btn-primary" onclick={handleOpenLogFolder} title="Open log folder in file manager">
+                    <FolderOpen size={13} weight="regular" />
+                    <span>Log Folder</span>
+                </button>
             </div>
         </div>
 
@@ -207,6 +219,7 @@
 
             <!-- Search Input -->
             <div class="search-box">
+                <MagnifyingGlass size={13} class="search-icon" />
                 <input
                     type="text"
                     placeholder="Search logs..."
@@ -215,10 +228,15 @@
                 />
             </div>
 
-            <!-- Auto Scroll Switch -->
-            <label class="auto-scroll-toggle">
-                <input type="checkbox" bind:checked={autoScroll} />
-                <span>Auto-Scroll</span>
+            <!-- Auto Scroll Checkbox -->
+            <label class="auto-scroll-toggle" title="Auto-scroll to latest log entries">
+                <span class="custom-checkbox" class:checked={autoScroll}>
+                    <input type="checkbox" bind:checked={autoScroll} />
+                    {#if autoScroll}
+                        <Check size={12} weight="bold" />
+                    {/if}
+                </span>
+                <span class="label-text">Auto-Scroll</span>
             </label>
         </div>
     </header>
@@ -246,7 +264,7 @@
     .copy-btn {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.45rem;
     }
 
     .copy-btn.copy-success {
@@ -262,36 +280,29 @@
     }
 
     @keyframes copySuccessPop {
-        0% {
-            transform: scale(1);
-        }
-        55% {
-            transform: scale(1.05);
-        }
-        100% {
-            transform: scale(1);
-        }
+        0% { transform: scale(1); }
+        55% { transform: scale(1.05); }
+        100% { transform: scale(1); }
     }
-
 
     .debug-page {
         display: flex;
         flex-direction: column;
         height: 100vh;
-        background: #090a0f;
-        color: #e2e8f0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--echo-void, #050507);
+        color: var(--echo-text-1, #eae8e3);
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
         user-select: text;
     }
 
     .debug-header {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        padding: 14px 18px;
-        background: rgba(18, 20, 29, 0.85);
-        backdrop-filter: blur(12px);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        gap: 12px;
+        padding: 14px 20px;
+        background: rgba(16, 16, 20, 0.85);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.08));
     }
 
     .header-title-row {
@@ -302,33 +313,24 @@
 
     .title-group {
         display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .pulse-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #10b981;
-        box-shadow: 0 0 8px #10b981;
-    }
-
-    .pulse-dot.paused {
-        background: #f59e0b;
-        box-shadow: 0 0 8px #f59e0b;
+        align-items: baseline;
+        gap: 12px;
     }
 
     .title {
         margin: 0;
-        font-size: 16px;
-        font-weight: 600;
+        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-size: 1.35rem;
+        font-weight: 500;
         letter-spacing: -0.01em;
+        color: var(--echo-text-1, #eae8e3);
     }
 
     .log-count {
-        font-size: 12px;
-        color: #64748b;
+        font-family: var(--lyria-font-mono, monospace);
+        font-size: 11px;
+        color: var(--echo-text-2, #7a7885);
+        letter-spacing: 0.02em;
     }
 
     .action-buttons {
@@ -338,21 +340,27 @@
     }
 
     .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         padding: 5px 12px;
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
         font-size: 12px;
         font-weight: 500;
         border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.1));
         cursor: pointer;
         transition: all 0.15s ease;
     }
 
     .btn-secondary {
-        background: rgba(255, 255, 255, 0.05);
-        color: #cbd5e1;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--echo-text-1, #cbd5e1);
+        border-color: var(--echo-border-strong, rgba(255, 255, 255, 0.12));
     }
     .btn-secondary:hover {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.09);
+        border-color: rgba(255, 255, 255, 0.22);
         color: #fff;
     }
     .btn-secondary.active {
@@ -370,6 +378,7 @@
     }
     .btn-primary:hover {
         background: var(--echo-primary-dark, #b58e62);
+        border-color: var(--echo-primary-dark, #b58e62);
     }
 
     .filters-row {
@@ -384,42 +393,54 @@
         display: flex;
         align-items: center;
         gap: 6px;
+        flex-wrap: wrap;
     }
 
     .pill {
-        padding: 4px 10px;
+        padding: 3px 10px;
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
         font-size: 11px;
         font-weight: 500;
-        border-radius: 20px;
+        border-radius: 9999px;
         background: rgba(255, 255, 255, 0.04);
-        color: #94a3b8;
-        border: 1px solid transparent;
+        border: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.08));
+        color: var(--echo-text-2, #7a7885);
         cursor: pointer;
+        transition: all 0.15s ease;
     }
     .pill:hover {
-        color: #f1f5f9;
         background: rgba(255, 255, 255, 0.08);
+        color: var(--echo-text-1, #eae8e3);
     }
     .pill.active {
-        background: rgba(226, 169, 115, 0.18);
-        color: #e2a973;
-        border-color: rgba(226, 169, 115, 0.3);
+        background: rgba(226, 169, 115, 0.15);
+        border-color: var(--echo-primary, #e2a973);
+        color: var(--echo-primary, #e2a973);
+        font-weight: 600;
     }
 
     .level-checks {
         display: flex;
+        align-items: center;
         gap: 4px;
     }
 
     .level-btn {
         padding: 3px 8px;
+        font-family: var(--lyria-font-mono, monospace);
         font-size: 10px;
         font-weight: 600;
         border-radius: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: transparent;
-        color: #475569;
+        border: 1px solid transparent;
         cursor: pointer;
+        background: transparent;
+        opacity: 0.35;
+        transition: all 0.15s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    .level-btn.active {
+        opacity: 1;
     }
     .level-btn.active.info { color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
     .level-btn.active.warn { color: #fbbf24; border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.1); }
@@ -427,18 +448,30 @@
     .level-btn.active.debug { color: #c084fc; border-color: rgba(192, 132, 252, 0.3); background: rgba(192, 132, 252, 0.1); }
 
     .search-box {
+        position: relative;
         flex: 1;
         min-width: 140px;
+        display: flex;
+        align-items: center;
+    }
+
+    :global(.search-box .search-icon) {
+        position: absolute;
+        left: 8px;
+        color: var(--echo-text-2, #7a7885);
+        pointer-events: none;
     }
 
     .search-input {
         width: 100%;
-        padding: 4px 10px;
+        padding: 5px 10px 5px 28px;
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
         font-size: 12px;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.08));
         border-radius: 6px;
-        color: #f1f5f9;
+        color: var(--echo-text-1, #eae8e3);
+        transition: border-color 0.15s ease;
     }
     .search-input:focus {
         outline: none;
@@ -446,30 +479,78 @@
     }
 
     .auto-scroll-toggle {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
         font-size: 12px;
-        color: #94a3b8;
+        color: var(--echo-text-2, #7a7885);
         cursor: pointer;
+        user-select: none;
+        transition: color 0.15s ease;
+    }
+
+    .auto-scroll-toggle:hover {
+        color: var(--echo-text-1, #eae8e3);
+    }
+
+    .auto-scroll-toggle .custom-checkbox {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--echo-border-strong, rgba(255, 255, 255, 0.15));
+        border-radius: 4px;
+        color: var(--echo-void, #050507);
+        transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .auto-scroll-toggle:hover .custom-checkbox {
+        border-color: rgba(255, 255, 255, 0.3);
+        background-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .auto-scroll-toggle .custom-checkbox.checked {
+        background-color: var(--echo-primary, #e2a973);
+        border-color: var(--echo-primary, #e2a973);
+    }
+
+    .auto-scroll-toggle input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        margin: 0;
+        pointer-events: none;
+    }
+
+    .auto-scroll-toggle:has(input:focus-visible) .custom-checkbox {
+        outline: 2px solid var(--echo-primary, #e2a973);
+        outline-offset: 2px;
     }
 
     .log-viewer {
         flex: 1;
         overflow-y: auto;
-        padding: 12px 18px;
-        font-family: "Cascadia Code", "Fira Code", Consolas, Monaco, monospace;
+        padding: 10px 18px;
+        font-family: var(--lyria-font-mono, "IBM Plex Mono", monospace);
         font-size: 12px;
         line-height: 1.6;
-        background: #090a0f;
+        background: var(--echo-void, #050507);
     }
 
     .empty-state {
         display: flex;
-        justify-content: center;
         align-items: center;
+        justify-content: center;
         height: 100%;
-        color: #475569;
+        font-family: var(--lyria-font-body, system-ui, sans-serif);
+        color: var(--echo-text-2, #64748b);
+        font-size: 14px;
     }
 
     .log-line {
@@ -506,7 +587,7 @@
     }
 
     .time {
-        color: #64748b;
+        color: var(--echo-text-2, #64748b);
         font-size: 11px;
         white-space: nowrap;
         font-variant-numeric: tabular-nums;
@@ -546,7 +627,7 @@
     .cat-badge.system   { color: #94a3b8; background: rgba(148, 163, 184, 0.1); }
 
     .msg {
-        color: #e2e8f0;
+        color: var(--echo-text-1, #e2e8f0);
         line-height: 1.5;
         flex: 1;
     }
