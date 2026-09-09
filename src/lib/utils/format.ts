@@ -147,3 +147,55 @@ export function getTrackDisplayMetric(track?: {
     // 4. Fallback -> cleanly hidden
     return null;
 }
+
+/**
+ * Canonical string normalization utility for robust cross-tier entity comparison (tracks, artists, albums).
+ * Handles null/undefined, applies Unicode NFKD normalization, strips combining diacritical marks,
+ * lowercases, and collapses multi-space runs and edge whitespace.
+ */
+export function normalizeCanonicalString(str?: string | null): string {
+    if (!str) return "";
+    return str
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+}
+
+/**
+ * Computes a standardized canonical key for an artist and title/album entity.
+ * Format: `<normalized_artist>::<normalized_title>`
+ */
+export function getCanonicalKey(artist?: string | null, title?: string | null): string {
+    const normArtist = normalizeCanonicalString(artist);
+    const normTitle = normalizeCanonicalString(title);
+    return `${normArtist}::${normTitle}`;
+}
+
+/**
+ * Checks if two entities (e.g., albums, tracks) match canonically by title and artist.
+ * If both titles match (normalized), and either artist is unpopulated or both artists match,
+ * the entities are considered a canonical match.
+ */
+export function isCanonicalEntityMatch(
+    entityA: { title?: string | null; artist?: string | null },
+    entityB: { title?: string | null; artist?: string | null }
+): boolean {
+    const titleA = normalizeCanonicalString(entityA.title);
+    const titleB = normalizeCanonicalString(entityB.title);
+    if (!titleA || !titleB || titleA !== titleB) {
+        return false;
+    }
+
+    const artistA = normalizeCanonicalString(entityA.artist);
+    const artistB = normalizeCanonicalString(entityB.artist);
+
+    // If both have artists, they must match
+    if (artistA && artistB) {
+        return artistA === artistB;
+    }
+
+    // If one or both lack an artist, matching titles are considered equal
+    return true;
+}
