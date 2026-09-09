@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-09
+
+### 🚀 Observability & Diagnostics
+* **Dedicated Real-Time Debug Console (`/debug`)**:
+  - 4-tier log aggregation capturing Rust backend tracing (`tracing-subscriber`), WASM plugin logs, frontend console telemetry, and sandboxed JS attestation events.
+  - Native multi-window architecture with high-visibility origin badges (`backend`, `wasm`, `frontend`, `sandbox`) and distinct error/warning row accenting.
+  - Discarded legacy development `#debug-overlay` DOM injection in favor of native telemetry window.
+  - Terminal stdout muted by default in production, gated behind `RUST_LOG_STDOUT=1`.
+
+### 🛠️ Fixes & Improvements
+* **Library Deduplication**:
+  - Fixed duplicate album rendering when favoriting local albums via canonical normalization (`normalizeCanonicalString`, `getCanonicalKey`, `isCanonicalEntityMatch`).
+* **Configurable Provider Fallbacks**:
+  - Eliminated hardcoded `'youtube-wasm'` fallbacks across Explore feeds, Search, Queue, and Recommendation actors.
+  - Dynamic fallback resolution to user's configured default remote provider (`settingsStore.getEffectiveRemoteProvider()`).
+* **Universal Linux Packaging Hardening**:
+  - Sanitized AppImage release pipeline by excluding bundled `libwayland-client.so*` and host GPU drivers to prevent Wayland/EGL conflicts.
+
+### 📚 Documentation & Governance
+* Re-anchored project README around a clean, premium, lightweight, offline-first desktop music player identity.
+* Consolidated agent governance and system rules into a unified `AGENTS.md`.
+* Documented native Windows (`.exe`, `.msi`) and Linux distribution channels.
+
+---
+
 ## [0.1.1] - 2026-09-07
 
 ### 🚀 Features & Enhancements
