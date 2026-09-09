@@ -45,8 +45,6 @@
 ## Agent Directives & Tool Usage Strategy
 - **Code Modification:** When modifying code, always prioritize targeted structural replacement tools over rewriting full files to maintain speed and token efficiency.
 - **Verification Autonomy:** Proactively run linters (`cargo clippy`, `bun run check`) and unit tests (`cargo test`, `bun test`) after modifying files to ensure type integrity and memory budgets are respected.
-- **Attribution Trailers:** Every commit generated must include proper attribution trailers:
-  `Co-authored-by: <AgentName> <noreply@...>`
 
 ## Protected Directories (DO NOT EDIT)
 - Auto-generated IPC state bindings or bridge interfaces.
