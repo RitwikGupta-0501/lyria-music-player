@@ -10,6 +10,10 @@ on:
     - cron: "0 0 * * 0"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
@@ -54,8 +58,16 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Frontend unit tests
+        run: bun test
+
       - name: Frontend type & integrity check
         run: bun run check
+
+      - name: Run backend tests
+        run: |
+          cd src-tauri
+          cargo test
 
       - name: Compile backend release dependencies
         env:
@@ -93,6 +105,37 @@ jobs:
       - name: Compile backend release dependencies
         env:
           RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+        run: |
+          cd src-tauri
+          cargo build --release
+
+  check-macos:
+    name: Check & Cache (macOS)
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-all-crates: true
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile backend release dependencies
         run: |
           cd src-tauri
           cargo build --release

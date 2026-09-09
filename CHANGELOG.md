@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configured DMG disk image packaging with customized installer window dimensions.
   - Documented Gatekeeper security bypass procedures (`xattr -cr /Applications/Lyria.app`) for open-source distributions.
 
+### ⚙️ Continuous Integration & Quality Gates
+* Added Apple Silicon macOS (`macos-14`) job to CI workflow to maintain warm build caches across all platforms.
+* Added automated test suite runs (`bun test`, `cargo test`) to CI pipeline.
+* Configured smart concurrency cancellation for PRs while ensuring cache persistence on `main`.
+
 ### ⚖️ Licensing
 * Aligned all repository manifests (`package.json`, `PKGBUILD`, release workflows, and README) to **GNU General Public License v3.0 (GPL-3.0)**, matching root `LICENSE`.
 
