@@ -160,39 +160,3 @@ jobs:
           echo "Uploading $ARCH_PKG to release ${GITHUB_REF_NAME}..."
           gh release upload "${GITHUB_REF_NAME}" "$ARCH_PKG" --clobber
           rm -rf "$STAGING_DIR"
-
-      - name: Sanitize & Re-upload Universal AppImage
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          APPIMAGE=$(find src-tauri/target -name "*.AppImage" | head -n 1)
-          if [ -z "$APPIMAGE" ]; then
-            echo "Error: No .AppImage file found in src-tauri/target!" >&2
-            exit 1
-          fi
-
-          echo "Found AppImage to sanitize: $APPIMAGE"
-          chmod +x "$APPIMAGE"
-
-          # Extract AppImage
-          "$APPIMAGE" --appimage-extract
-
-          # Scrub conflicting host libraries
-          echo "Scrubbing host-dependent display and GPU libraries..."
-          rm -f squashfs-root/usr/lib/libwayland*.so*
-          rm -f squashfs-root/usr/lib/libEGL*.so*
-          rm -f squashfs-root/usr/lib/libGL*.so*
-          rm -f squashfs-root/usr/lib/libgbm*.so*
-          rm -f squashfs-root/usr/lib/libdrm*.so*
-
-          # Repack using official appimagetool
-          curl -sSL https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -o appimagetool
-          chmod +x appimagetool
-
-          ARCH=x86_64 ./appimagetool --comp zstd squashfs-root "$APPIMAGE"
-          rm -rf squashfs-root appimagetool
-
-          echo "Re-uploading sanitized $APPIMAGE to release ${GITHUB_REF_NAME}..."
-          gh release upload "${GITHUB_REF_NAME}" "$APPIMAGE" --clobber

@@ -1,7 +1,7 @@
 # Maintainer: Ritwik Gupta <https://github.com/RitwikGupta-0501>
 pkgname=lyria-bin
 _pkgname=lyria
-pkgver=0.1.1
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Minimal, algorithmically-driven local audio player"
 arch=('x86_64')
