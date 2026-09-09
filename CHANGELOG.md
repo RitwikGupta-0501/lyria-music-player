@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-09-10
+
+### 📦 Packaging & Distribution
+* **Linux AppImage Display Sanitization**:
+  - Restored AppImage post-build sanitization step in release workflow to scrub host-conflicting display and graphics libraries (`libwayland*`, `libEGL*`, `libGL*`, `libgbm*`, `libdrm*`).
+  - Resolves `Could not create default EGL display: EGL_BAD_PARAMETER` startup crashes on Wayland and NVIDIA systems (CachyOS/Arch, Fedora, openSUSE, Ubuntu 24.04+).
+
+### ⚙️ Continuous Integration & Quality Gates
+* Added Apple Silicon macOS (`macos-14`) job to CI workflow to maintain warm build caches across all platforms.
+* Added automated test suite runs (`bun test`, `cargo test`) to CI pipeline.
+* Configured smart concurrency cancellation for PRs while ensuring cache persistence on `main`.
+
+---
+
 ## [0.2.1] - 2026-09-10
 
 ### 📦 Packaging & Distribution
