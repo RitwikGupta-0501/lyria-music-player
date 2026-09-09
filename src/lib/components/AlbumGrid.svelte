@@ -9,6 +9,7 @@ import { exploreStore } from "$lib/stores/explore.svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { onMount } from "svelte";
     import LibraryHeader from "./LibraryHeader.svelte";
+    import { isCanonicalEntityMatch } from "$lib/utils/format";
 
     let {
         activeView = $bindable("albums"),
@@ -26,7 +27,23 @@ import { exploreStore } from "$lib/stores/explore.svelte";
     let allAlbums = $derived.by(() => {
         const local = libraryStore.albums;
         const saved = libraryStore.savedAlbums;
-        return [...saved, ...local];
+
+        const localIds = new Set<string>();
+        for (const a of local) {
+            localIds.add(String(a.id));
+        }
+
+        const remoteSavedOnly = saved.filter(s => {
+            // Explicitly exclude any saved entry tagged with provider_id "local"
+            if (s.provider_id === "local") return false;
+            // Exclude if ID matches a local album ID
+            if (localIds.has(String(s.id))) return false;
+            // Exclude if title and artist match any local album canonically
+            const matchesLocal = local.some(localAlbum => isCanonicalEntityMatch(localAlbum, s));
+            return !matchesLocal;
+        });
+
+        return [...remoteSavedOnly, ...local];
     });
 
     let rows = $derived.by(() => {

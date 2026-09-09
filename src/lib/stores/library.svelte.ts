@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { toastStore } from "./toast.svelte";
 import { settingsStore } from "./settings.svelte";
+import { normalizeCanonicalString, isCanonicalEntityMatch } from "$lib/utils/format";
 
 export interface SavedAlbum {
     id: string;
@@ -27,10 +28,10 @@ export function getCanonicalKey(
     fallbackArtist?: string | null
 ): string {
     if (track.canonical_key && track.canonical_key.trim()) {
-        return track.canonical_key.trim().toLowerCase();
+        return normalizeCanonicalString(track.canonical_key);
     }
-    const artist = (track.artist || fallbackArtist || "unknown").trim().toLowerCase();
-    const title = (track.title || "unknown").trim().toLowerCase();
+    const artist = normalizeCanonicalString(track.artist || fallbackArtist || "unknown");
+    const title = normalizeCanonicalString(track.title || "unknown");
     return `${artist}::${title}`;
 }
 
@@ -232,32 +233,28 @@ export class LibraryStore {
 
     isLikedSong(canonicalKey: string): boolean {
         if (!canonicalKey) return false;
-        return this.likedSongs.some(s => s.canonical_key.toLowerCase() === canonicalKey.toLowerCase());
+        const target = normalizeCanonicalString(canonicalKey);
+        return this.likedSongs.some(s => normalizeCanonicalString(s.canonical_key) === target);
     }
 
-        isAlbumSaved(id: string, title?: string, artist?: string): boolean {
+    isAlbumSaved(id: string, title?: string, artist?: string): boolean {
+        const cleanId = String(id);
+        const query = { title, artist };
         return this.savedAlbums.some(a => {
-            if (a.id === id) return true;
-            if (title && a.title.toLowerCase().trim() === title.toLowerCase().trim()) {
-                if (!artist || !a.artist || a.artist.toLowerCase().trim() === artist.toLowerCase().trim()) {
-                    return true;
-                }
-            }
+            if (String(a.id) === cleanId) return true;
+            if (isCanonicalEntityMatch(a, query)) return true;
             return false;
         });
     }
 
     isPlaylistSaved(id: string, title?: string, author?: string): boolean {
         const cleanId = id ? String(id).replace(/^(VL|playlist:)/, "") : "";
+        const query = { title, artist: author };
         return this.savedPlaylists.some(p => {
-            if (p.id === id) return true;
+            if (String(p.id) === cleanId || String(p.id) === String(id)) return true;
             const cleanPId = p.id ? String(p.id).replace(/^(VL|playlist:)/, "") : "";
             if (cleanId && cleanPId && cleanId === cleanPId) return true;
-            if (title && p.title.toLowerCase().trim() === title.toLowerCase().trim()) {
-                if (!author || !p.author || p.author.toLowerCase().trim() === author.toLowerCase().trim()) {
-                    return true;
-                }
-            }
+            if (isCanonicalEntityMatch({ title: p.title, artist: p.author }, query)) return true;
             return false;
         });
     }
