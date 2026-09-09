@@ -2,6 +2,7 @@ import { audioStore } from "./audio.svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { toastStore } from "./toast.svelte";
+import { settingsStore } from "./settings.svelte";
 
 export interface SavedAlbum {
     id: string;
@@ -213,7 +214,7 @@ export class LibraryStore {
                 title: playlist.title,
                 author: playlist.author || null,
                 coverArtUrl: playlist.cover_art_url || null,
-                providerId: playlist.provider_id || "youtube-wasm",
+                providerId: playlist.provider_id || settingsStore.getEffectiveRemoteProvider(),
             });
             await this.fetchSavedPlaylists();
             if (isSaved) {

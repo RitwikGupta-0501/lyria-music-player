@@ -55,7 +55,7 @@
                 title: title,
                 author: author,
                 cover_art_url: playlist.cover_art_url,
-                provider_id: playlist.provider_id || "youtube-wasm",
+                provider_id: playlist.provider_id || settingsStore.getEffectiveRemoteProvider(),
             });
         } else if (typeof playlist.id === "number") {
             libraryStore.playPlaylist(playlist.id);
@@ -69,7 +69,7 @@
             title: title,
             author: author || null,
             cover_art_url: playlist.cover_art_url || null,
-            provider_id: playlist.provider_id || "youtube-wasm",
+            provider_id: playlist.provider_id || settingsStore.getEffectiveRemoteProvider(),
         });
     }
 </script>

@@ -7,6 +7,7 @@
         type LocalTrack,
     } from "$lib/stores/library.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
+    import { settingsStore } from "$lib/stores/settings.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
     import {
         Playlist as PlaylistIcon,
@@ -59,7 +60,7 @@
             album: s.album,
             file_path: s.local_file_path || s.file_path,
             cover_art_url: s.cover_art_url,
-            provider_id: s.last_provider_id || (s.local_file_path || s.file_path ? undefined : "youtube-wasm"),
+            provider_id: s.last_provider_id || (s.local_file_path || s.file_path ? undefined : settingsStore.getEffectiveRemoteProvider()),
             duration_ms: s.duration_ms,
             canonical_key: s.canonical_key,
             liked: true,
@@ -240,7 +241,7 @@
         const current = displayTracks[index];
 
         if (isRemote) {
-            const pId = current.provider_id || collection.provider_id || "youtube-wasm";
+            const pId = current.provider_id || collection.provider_id || settingsStore.getEffectiveRemoteProvider();
             const trackPayload = {
                 id: current.id,
                 title: current.title,
@@ -347,7 +348,7 @@
             await audioStore.play();
         } else {
             if (isRemote) {
-                const pId = collection.provider_id || "youtube-wasm";
+                const pId = collection.provider_id || settingsStore.getEffectiveRemoteProvider();
                 const queueTracks = displayTracks.map((t: any) => ({
                     id: t.id,
                     title: t.title,
@@ -377,7 +378,7 @@
         if (displayTracks.length === 0) return;
         const shuffled = [...displayTracks].sort(() => Math.random() - 0.5);
         if (isRemote) {
-            const pId = collection.provider_id || "youtube-wasm";
+            const pId = collection.provider_id || settingsStore.getEffectiveRemoteProvider();
             const queueTracks = shuffled.map((t: any) => ({
                 id: t.id,
                 title: t.title,
@@ -531,7 +532,7 @@
                                     title: collectionTitle,
                                     author: collectionSubtitle || null,
                                     cover_art_url: collection.cover_art_url || null,
-                                    provider_id: collection.provider_id || "youtube-wasm",
+                                    provider_id: collection.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                 });
                             } else {
                                 libraryStore.toggleSaveAlbum({
@@ -539,7 +540,7 @@
                                     title: collectionTitle,
                                     artist: collectionSubtitle || null,
                                     cover_art_url: collection.cover_art_url || null,
-                                    provider_id: collection.provider_id || "youtube-wasm",
+                                    provider_id: collection.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                 });
                             }
                         }} 

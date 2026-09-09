@@ -47,7 +47,7 @@
                 artist: track.artist || undefined,
                 album: track.album || undefined,
                 cover_art_url: track.cover_art_url || undefined,
-                provider_id: track.last_provider_id || track.provider_id || "youtube-wasm",
+                provider_id: track.last_provider_id || track.provider_id || settingsStore.getEffectiveRemoteProvider(),
                 id: track.last_source_id || track.id || undefined,
                 duration_ms: track.duration_ms || undefined,
             });

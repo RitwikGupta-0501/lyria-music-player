@@ -96,7 +96,7 @@
                                 title: spot.title,
                                 artist: spot.artist,
                                 cover_art_url: spot.cover_art_url,
-                                provider_id: spot.provider_id || "youtube-wasm",
+                                provider_id: spot.provider_id || settingsStore.getEffectiveRemoteProvider(),
                             })}
                         />
                     </div>

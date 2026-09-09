@@ -101,7 +101,7 @@ export class AudioStore {
         this.lastLoggedInstanceId = t.instanceId;
 
         const isRemote = t.source.type === "Remote";
-        const providerId = isRemote ? (t.source.provider_id || "youtube-wasm") : "local";
+        const providerId = isRemote ? (t.source.provider_id || settingsStore.getEffectiveRemoteProvider()) : "local";
         const sourceId = isRemote ? (t.source.remote_track_id || t.instanceId) : String(t.source.track_id || t.instanceId);
         const coverArtUrl = isRemote ? (t.source.cover_art_url || null) : null;
         const durationMs = isRemote ? (t.source.duration_ms || null) : (this.duration ? Math.round(this.duration * 1000) : null);
@@ -405,7 +405,7 @@ export class AudioStore {
         );
 
         if (!providerId || (providerId === 'local' && isRemote)) {
-            providerId = isRemote ? (settingsStore.defaultRemoteProvider || 'youtube-wasm') : 'local';
+            providerId = isRemote ? settingsStore.getEffectiveRemoteProvider() : 'local';
         }
 
         if (typeof rawRemoteId === 'string' && providerId && rawRemoteId.startsWith(`remote-${providerId}-`)) {

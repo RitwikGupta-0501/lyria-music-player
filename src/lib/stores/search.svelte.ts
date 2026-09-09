@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { audioStore } from "./audio.svelte";
 import { toastStore } from "./toast.svelte";
 import { homeStore } from "./home.svelte";
+import { settingsStore } from "./settings.svelte";
 
 export interface ResolvedUrlResult {
     provider_id: string;
@@ -81,7 +82,7 @@ class SearchStore {
 
             // 2. Parallel Remote Extension Search
             const providers: any[] = await invoke("get_providers");
-            const enabled = providers.filter(p => p.status === 'enabled' && (p.capabilities?.includes('search') || p.id === 'youtube-wasm'));
+            const enabled = providers.filter(p => p.status === 'enabled' && (p.capabilities?.includes('search') || p.id === settingsStore.getEffectiveRemoteProvider()));
 
             const promises = enabled.map(p =>
                 invoke<any[]>("search_provider", { providerId: p.id, query })
@@ -185,7 +186,7 @@ class SearchStore {
     }
 
     async playRemoteTrack(track: any) {
-        const providerId = track.provider_id || "youtube-wasm";
+        const providerId = track.provider_id || settingsStore.getEffectiveRemoteProvider();
         try {
             const trackPayload = {
                 id: track.id,

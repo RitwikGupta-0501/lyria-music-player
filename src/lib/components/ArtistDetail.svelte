@@ -40,7 +40,7 @@
 
     function playTopTracks() {
         if (!artist || artist.top_tracks.length === 0) return;
-        const pId = artist.provider_id || "youtube-wasm";
+        const pId = artist.provider_id || settingsStore.getEffectiveRemoteProvider();
         const queueTracks = artist.top_tracks.map(t => ({
             id: t.id,
             title: t.title,
@@ -56,7 +56,7 @@
 
     function shuffleTopTracks() {
         if (!artist || artist.top_tracks.length === 0) return;
-        const pId = artist.provider_id || "youtube-wasm";
+        const pId = artist.provider_id || settingsStore.getEffectiveRemoteProvider();
         const shuffled = [...artist.top_tracks].sort(() => Math.random() - 0.5);
         const queueTracks = shuffled.map(t => ({
             id: t.id,
