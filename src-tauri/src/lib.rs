@@ -1591,6 +1591,13 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    window.app_handle().exit(0);
+                }
+            }
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             logger::init_logging(&handle);
@@ -1846,6 +1853,7 @@ pub fn run() {
                         let _ = handle.join();
                     }
                 };
+                std::process::exit(0);
             }
         });
 }
