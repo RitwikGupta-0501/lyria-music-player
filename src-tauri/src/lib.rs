@@ -1579,6 +1579,8 @@ async fn clear_recommendations_cache(state: State<'_, AppState>) -> Result<(), S
 }
 
 pub fn run() {
+    println!("Lyria starting up...");
+
     let (audio_tx, audio_rx) = mpsc::channel();
     let (db_tx, db_rx) = mpsc::channel();
 
@@ -1588,6 +1590,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {
+                    println!("Lyria shutting down...");
                     tracing::info!("Main window close requested, initiating shutdown");
                     window.app_handle().exit(0);
                 }
@@ -1711,6 +1714,7 @@ pub fn run() {
                 warmup_all_eligible_providers(&state).await;
             });
             
+            println!("Lyria started. Check Debug Console (Settings > Advanced or /debug) for detailed logs.");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1851,6 +1855,7 @@ pub fn run() {
                     }
                 };
                 tracing::info!("Lyria shutdown complete");
+                println!("Lyria shutdown complete.");
                 std::process::exit(0);
             }
         });
