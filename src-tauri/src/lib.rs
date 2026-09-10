@@ -1579,12 +1579,6 @@ async fn clear_recommendations_cache(state: State<'_, AppState>) -> Result<(), S
 }
 
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
-
-    tracing::info!("Lyria starting up");
-
     let (audio_tx, audio_rx) = mpsc::channel();
     let (db_tx, db_rx) = mpsc::channel();
 
@@ -1594,6 +1588,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {
+                    tracing::info!("Main window close requested, initiating shutdown");
                     window.app_handle().exit(0);
                 }
             }
@@ -1601,6 +1596,7 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
             logger::init_logging(&handle);
+            tracing::info!("Lyria starting up");
             
             // Setup shared reqwest client with strict redirect/SSRF policy and timeouts
             let redirect_policy = reqwest::redirect::Policy::custom(|attempt| {
@@ -1836,6 +1832,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                tracing::info!("Lyria shutting down: stopping background threads");
                 let state: State<'_, AppState> = app.state();
                 if let Ok(tx) = state.audio_tx.lock() {
                     let _ = tx.send(AudioCommand::Quit);
@@ -1853,6 +1850,7 @@ pub fn run() {
                         let _ = handle.join();
                     }
                 };
+                tracing::info!("Lyria shutdown complete");
                 std::process::exit(0);
             }
         });
