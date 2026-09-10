@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Emitter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use std::sync::atomic::AtomicBool;
 
@@ -125,6 +126,9 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for BufferLogLayer {
 pub fn init_logging(app: &AppHandle) {
     let buffer_layer = BufferLogLayer;
 
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+
     // Optional terminal stdout layer, gated behind RUST_LOG_STDOUT=1 / true
     let stdout_enabled = std::env::var("RUST_LOG_STDOUT")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -148,12 +152,14 @@ pub fn init_logging(app: &AppHandle) {
             .with_ansi(false);
 
         let _ = tracing_subscriber::registry()
+            .with(env_filter)
             .with(stdout_layer)
             .with(file_layer)
             .with(buffer_layer)
             .try_init();
     } else {
         let _ = tracing_subscriber::registry()
+            .with(env_filter)
             .with(stdout_layer)
             .with(buffer_layer)
             .try_init();
