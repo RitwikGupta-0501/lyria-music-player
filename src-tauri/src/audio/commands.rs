@@ -170,3 +170,15 @@ pub async fn set_mute(state: State<'_, AppState>, mute: bool) -> Result<(), Stri
     tx.send(AudioCommand::SetMute(mute)).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[derive(serde::Serialize)]
+pub struct AudioDiagnostics {
+    pub underrun_count: u64,
+}
+
+#[tauri::command]
+pub fn get_audio_diagnostics() -> Result<AudioDiagnostics, String> {
+    Ok(AudioDiagnostics {
+        underrun_count: super::symphonia_source::get_global_underruns(),
+    })
+}

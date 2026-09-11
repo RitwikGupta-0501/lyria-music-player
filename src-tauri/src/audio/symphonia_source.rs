@@ -1,5 +1,11 @@
 use std::{fs::File, path::Path, time::Duration, io::{Read, Seek, SeekFrom}};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+pub static TOTAL_UNDERRUNS: AtomicU64 = AtomicU64::new(0);
+
+pub fn get_global_underruns() -> u64 {
+    TOTAL_UNDERRUNS.load(Ordering::Relaxed)
+}
 use std::sync::Arc;
 use std::thread;
 
@@ -58,9 +64,14 @@ pub struct SymphoniaSource {
     total_duration: Option<Duration>,
     abort_flag: Arc<AtomicBool>,
     eof_flag: Arc<AtomicBool>,
+    pub underrun_count: Arc<AtomicU64>,
 }
 
 impl SymphoniaSource {
+    pub fn underrun_count(&self) -> u64 {
+        self.underrun_count.load(Ordering::Relaxed)
+    }
+
     pub fn from_path(path: &Path, audio_config: crate::audio::AudioEngineConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Self::open(Box::new(File::open(path)?), path.extension().and_then(|e| e.to_str()), None, audio_config)
     }
@@ -379,6 +390,8 @@ impl SymphoniaSource {
             }
         });
 
+        let underrun_count = Arc::new(AtomicU64::new(0));
+
         Ok(Self {
             consumer,
             channels,
@@ -386,6 +399,7 @@ impl SymphoniaSource {
             total_duration,
             abort_flag,
             eof_flag,
+            underrun_count,
         })
     }
 }
@@ -400,6 +414,8 @@ impl Iterator for SymphoniaSource {
                 if self.eof_flag.load(Ordering::Acquire) {
                     None // Track actually ended
                 } else {
+                    self.underrun_count.fetch_add(1, Ordering::Relaxed);
+                    TOTAL_UNDERRUNS.fetch_add(1, Ordering::Relaxed);
                     Some(0) // Underrun masked with silence; never blocks!
                 }
             }

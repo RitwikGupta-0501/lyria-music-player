@@ -19,3 +19,6 @@ designs/
 
 # Some Files
 TASKS.md
+# Benchmarking artifacts
+benchmarks/baseline.json
+/reports/
