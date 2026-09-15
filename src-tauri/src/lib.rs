@@ -1726,6 +1726,7 @@ pub fn run() {
             audio::commands::seek_audio,
             audio::commands::set_volume,
             audio::commands::set_mute,
+            audio::commands::get_audio_diagnostics,
             get_providers,
             toggle_provider,
             delete_provider,

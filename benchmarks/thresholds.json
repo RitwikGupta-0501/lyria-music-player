@@ -1,0 +1,10 @@
+{
+  "host_idle_anon_mb": 25.0,
+  "total_idle_pss_mb": 120.0,
+  "scan_peak_anon_mb": 45.0,
+  "playback_audio_thread_cpu_pct": 5.0,
+  "playback_anon_growth_mb": 8.0,
+  "settle_leak_anon_mb": 5.0,
+  "max_fd_count": 128,
+  "max_temp_file_mb": 0.0
+}
