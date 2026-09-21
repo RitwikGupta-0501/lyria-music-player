@@ -79,8 +79,11 @@ export class AudioStore {
     private _stagedAutoplayTrack: QueueTrack | null = null;
 
     private unlistenSync: UnlistenFn | null = null;
-    private unlistenTrackEnded: UnlistenFn | null = null;
+    private unlistenTrackAdvanced: UnlistenFn | null = null;
     private unlistenQueueChanged: UnlistenFn | null = null;
+    private unlistenMediaPlayPause: UnlistenFn | null = null;
+    private unlistenMediaNext: UnlistenFn | null = null;
+    private unlistenMediaPrev: UnlistenFn | null = null;
     private _volumeSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
     // ══════════════════════════════════════════
@@ -121,9 +124,24 @@ export class AudioStore {
     // LIFECYCLE
     // ══════════════════════════════════════════
 
+    async handleQueueCompletion() {
+        if (this.queueCompletionBehavior === "collapse_idle") {
+            this.currentTime = 0;
+            this.duration = 0;
+            this.currentTrack = "None";
+            await this.clearQueue();
+        } else if (this.queueCompletionBehavior === "pause_end") {
+            this.playbackState = "Paused";
+            this.currentTime = this.duration;
+        } else {
+            // "retain_stopped" (Default): Retain track info & duration for replay, reset position to 0
+            this.currentTime = 0;
+        }
+    }
+
     async init() {
         // Listen to playback sync events (backend → frontend)
-        this.unlistenSync = await listen<PlayerSyncPayload>("player-sync", (e) => {
+        this.unlistenSync = await listen<PlayerSyncPayload>("player-sync", async (e) => {
             const payload = e.payload;
 
             this._syncPosition = payload.position;
@@ -151,17 +169,7 @@ export class AudioStore {
             }
 
             if (payload.state === "Stopped") {
-                if (this.queueCompletionBehavior === "collapse_idle") {
-                    this.currentTime = 0;
-                    this.duration = 0;
-                    this.currentTrack = "None";
-                } else if (this.queueCompletionBehavior === "pause_end") {
-                    this.playbackState = "Paused";
-                    this.currentTime = this.duration;
-                } else {
-                    // "retain_stopped" (Default): Retain track info & duration for replay, reset position to 0
-                    this.currentTime = 0;
-                }
+                await this.handleQueueCompletion();
             }
         });
 
@@ -178,8 +186,19 @@ export class AudioStore {
             }
         );
 
+        // Listen to OS & hardware media keys (MPRIS on Linux, SMTC on Windows, NowPlaying on macOS)
+        this.unlistenMediaPlayPause = await listen("media-play-pause", () => {
+            this.togglePlay();
+        });
+        this.unlistenMediaNext = await listen("media-next", () => {
+            this.skipForward();
+        });
+        this.unlistenMediaPrev = await listen("media-prev", () => {
+            this.skipBackward();
+        });
+
         // Track advancement detection (for gapless playback)
-        this.unlistenTrackEnded = await listen("track-advanced", async () => {
+        this.unlistenTrackAdvanced = await listen("track-advanced", async () => {
             // Re-anchor the playback clock immediately on track transition
             this._autoAdvancing = true;
             this.currentTime = 0;
@@ -226,8 +245,11 @@ export class AudioStore {
 
     destroy() {
         if (this.unlistenSync) this.unlistenSync();
-        if (this.unlistenTrackEnded) this.unlistenTrackEnded();
+        if (this.unlistenTrackAdvanced) this.unlistenTrackAdvanced();
         if (this.unlistenQueueChanged) this.unlistenQueueChanged();
+        if (this.unlistenMediaPlayPause) this.unlistenMediaPlayPause();
+        if (this.unlistenMediaNext) this.unlistenMediaNext();
+        if (this.unlistenMediaPrev) this.unlistenMediaPrev();
         this.stopClock();
         if (this._volumeSaveTimer) clearTimeout(this._volumeSaveTimer);
     }
@@ -294,6 +316,14 @@ export class AudioStore {
         }
     }
 
+    async togglePlay() {
+        if (this.playbackState === "Playing") {
+            await this.pause();
+        } else {
+            await this.play();
+        }
+    }
+
     async stop() {
         this._isPlaying = false;
         this.stopClock();
@@ -356,21 +386,11 @@ export class AudioStore {
     }
 
     async setTrackClickBehavior(behavior: "interrupt" | "clear" | "append") {
-        this.trackClickBehavior = behavior;
-        try {
-            await invoke("set_setting", { key: "track_click_behavior", value: behavior });
-        } catch (e) {
-            console.error("Failed to save track click behavior:", e);
-        }
+        await settingsStore.setTrackClickBehavior(behavior);
     }
 
     async setQueueCompletionBehavior(behavior: "retain_stopped" | "pause_end" | "collapse_idle") {
-        this.queueCompletionBehavior = behavior;
-        try {
-            await invoke("set_setting", { key: "queue_completion_behavior", value: behavior });
-        } catch (e) {
-            console.error("Failed to save queue completion behavior:", e);
-        }
+        await settingsStore.setQueueCompletionBehavior(behavior);
     }
 
     // ══════════════════════════════════════════
@@ -532,6 +552,9 @@ export class AudioStore {
 
     async clearQueue() {
         this._stagedAutoplayTrack = null;
+        this.queue = [];
+        this.currentPosition = 0;
+        this.currentQueueId = null;
         try {
             await invoke("clear_queue");
         } catch (e) {

@@ -435,7 +435,7 @@ impl RecommendationCompiler {
             let p_id_clone = p_id.clone();
             tasks.push(tokio::spawn(async move {
                 let res = tokio::time::timeout(
-                    std::time::Duration::from_millis(4000),
+                    std::time::Duration::from_millis(3000),
                     p_mgr_clone.get_radio(&p_id_clone, &seed_clone)
                 ).await;
                 (p_id_clone, res)
@@ -446,10 +446,13 @@ impl RecommendationCompiler {
         let mut seen_canonical = std::collections::HashSet::new();
 
         for task in tasks {
-            if let Ok((_pid, Ok(Ok(radio_res)))) = task.await {
-                for track in radio_res.tracks {
+            if let Ok((pid, Ok(Ok(radio_res)))) = task.await {
+                for mut track in radio_res.tracks {
                     let c_key = format!("{}::{}", track.artist.trim().to_lowercase(), track.title.trim().to_lowercase());
                     if seen_canonical.insert(c_key) {
+                        if track.provider_id.is_none() {
+                            track.provider_id = Some(pid.clone());
+                        }
                         all_tracks.push(track);
                     }
                 }
@@ -1134,6 +1137,7 @@ mod tests {
             quality_hint: None,
             duration_ms: None,
             plays: None,
+            provider_id: Some("test-provider".into()),
         };
 
         // Cache valid with 3600s TTL

@@ -35,13 +35,26 @@ host_fn!(pub host_log (input: String) -> () {
     Ok(())
 });
 
+
+fn run_async_host<F, T>(f: F) -> Result<T, extism::Error>
+where
+    F: std::future::Future<Output = Result<T, extism::Error>> + Send + 'static,
+    T: Send + 'static,
+{
+    let rt = tokio::runtime::Handle::current();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    rt.spawn(async move {
+        let res = f.await;
+        let _ = tx.send(res);
+    });
+    rx.recv().map_err(|e| extism::Error::msg(e.to_string()))?
+}
+
 host_fn!(pub host_http_request (user_data: Arc<Client>; json_input: String) -> String {
     let req: HttpRequest = serde_json::from_str(&json_input).map_err(|e| extism::Error::msg(e.to_string()))?;
     let client = user_data.get()?.lock().unwrap().clone();
     
-    let rt = tokio::runtime::Handle::current();
-    
-    let res = rt.block_on(async {
+    let res = run_async_host(async move {
         let mut builder = match req.method.as_str() {
             "GET" => client.get(&req.url),
             "POST" => client.post(&req.url),
@@ -77,9 +90,7 @@ host_fn!(pub host_telemetry_request (user_data: Arc<Client>; json_input: String)
     let req: HttpRequest = serde_json::from_str(&json_input).map_err(|e| extism::Error::msg(e.to_string()))?;
     let client = user_data.get()?.lock().unwrap().clone();
     
-    let rt = tokio::runtime::Handle::current();
-    
-    let res = rt.block_on(async {
+    let res = run_async_host(async move {
         let mut builder = match req.method.as_str() {
             "GET" => client.get(&req.url),
             "POST" => client.post(&req.url),
@@ -118,9 +129,7 @@ host_fn!(pub host_storage_get (user_data: Arc<Sender<DbRequest>>; json_input: St
     let req: StorageRequest = serde_json::from_str(&json_input).map_err(|e| extism::Error::msg(e.to_string()))?;
     let db_tx = user_data.get()?.lock().unwrap().clone();
     
-    let rt = tokio::runtime::Handle::current();
-    
-    let res = rt.block_on(async {
+    let res = run_async_host(async move {
         let (tx, rx) = oneshot::channel();
         db_tx.send(DbRequest::GetProviderStorage {
             provider_id: req.provider_id,
@@ -139,9 +148,7 @@ host_fn!(pub host_storage_set (user_data: Arc<Sender<DbRequest>>; json_input: St
     let db_tx = user_data.get()?.lock().unwrap().clone();
     
     if let Some(value) = req.value {
-        let rt = tokio::runtime::Handle::current();
-        
-        rt.block_on(async {
+        run_async_host(async move {
             let (tx, rx) = oneshot::channel();
             db_tx.send(DbRequest::SetProviderStorage {
                 provider_id: req.provider_id,
@@ -162,12 +169,12 @@ use tauri::Manager;
 host_fn!(pub host_execute_webview_js (user_data: Arc<tauri::AppHandle>; script: String) -> String {
     let app = user_data.get()?.lock().unwrap().clone();
     let state = app.state::<crate::AppState>();
+    let sandbox_mgr = state.sandbox_manager.clone();
     
-    let rt = tokio::runtime::Handle::current();
-    let res = rt.block_on(async {
+    let res = run_async_host(async move {
         match tokio::time::timeout(
             std::time::Duration::from_secs(15), 
-            crate::sandbox::sandbox_vm::execute_javascript(&app, &state.sandbox_manager, &script)
+            crate::sandbox::sandbox_vm::execute_javascript(&app, &sandbox_mgr, &script)
         ).await {
             Ok(Ok(result)) => {
                 crate::logger::push_log("JS Sandbox", "DEBUG", "JS execution completed successfully");
@@ -186,3 +193,21 @@ host_fn!(pub host_execute_webview_js (user_data: Arc<tauri::AppHandle>; script: 
     
     Ok(res)
 });
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_run_async_host_inside_tokio_worker() {
+        // Calling run_async_host inside a Tokio worker thread must NOT panic.
+        // Before the fix, calling Handle::current().block_on inside a worker thread
+        // threw: "Cannot start a runtime from within a runtime".
+        let result = run_async_host(async {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            Ok::<u32, extism::Error>(42)
+        });
+        assert_eq!(result.unwrap(), 42);
+    }
+}

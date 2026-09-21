@@ -236,6 +236,8 @@ pub struct TrackResult {
     pub isrc: Option<String>,
     #[serde(default)]
     pub plays: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -621,6 +623,7 @@ impl ProviderManager {
                                         duration_ms: None,
                                         isrc: None,
                                         plays: None,
+                                        provider_id: top.provider_id.or_else(|| Some(provider_id.to_string())),
                                     });
                                 }
                             }
@@ -1024,6 +1027,7 @@ mod provider_unit_tests {
             duration_ms: Some(180000),
             isrc: None,
             plays: None,
+            provider_id: None,
         });
 
         let json_track = serde_json::to_string(&track_item).unwrap();
