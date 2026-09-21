@@ -343,6 +343,7 @@ export class AudioStore {
 
         try {
             await invoke("seek_audio", { position });
+            this.queueNextAudio();
         } catch (e) {
             console.error("Seek failed:", e);
         }
@@ -577,9 +578,16 @@ export class AudioStore {
                 }
             }
 
+            const prevTrackId = this.currentQueueTrack?.instanceId;
+            const prevPosition = this.currentPosition;
             const event = await invoke<QueueChangePayload>("skip_forward", { count });
             if (event.current_track) {
                 const t = event.current_track;
+                // If repeat mode is Off and we were already at queue terminus (did not advance), do not replay the last track
+                if (this.repeatMode === "Off" && prevPosition === event.current_position && prevTrackId === t.instanceId && prevPosition >= this.queue.length - 1) {
+                    return;
+                }
+
                 try {
                     await invoke("load_audio", {
                         source: t.source,

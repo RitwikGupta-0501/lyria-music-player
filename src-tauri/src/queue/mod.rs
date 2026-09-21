@@ -217,13 +217,18 @@ impl QueueState {
             return None;
         }
 
+        if self.repeat_mode == RepeatMode::One {
+            return self.tracks.get(self.current_position).cloned();
+        }
+
         let next_pos = match self.mode {
             QueueMode::Normal => {
                 let next = self.current_position + 1;
                 if next >= self.tracks.len() {
                     match self.repeat_mode {
                         RepeatMode::Off => None,
-                        RepeatMode::All | RepeatMode::One => Some(0),
+                        RepeatMode::All => Some(0),
+                        RepeatMode::One => unreachable!(),
                     }
                 } else {
                     Some(next)
@@ -235,10 +240,11 @@ impl QueueState {
                     if next_cursor >= shuffle.order.len() {
                         match self.repeat_mode {
                             RepeatMode::Off => None,
-                            RepeatMode::All | RepeatMode::One => {
+                            RepeatMode::All => {
                                 // For peek, we just loop around to 0
                                 shuffle.order.first().and_then(|id| self.tracks.iter().position(|t| &t.instance_id == id))
                             }
+                            RepeatMode::One => unreachable!(),
                         }
                     } else {
                         shuffle.order.get(next_cursor).and_then(|id| self.tracks.iter().position(|t| &t.instance_id == id))
@@ -331,12 +337,16 @@ impl QueueState {
     // ══════════════════════════════════════════════════════════
 
     fn next_normal(&mut self) -> Result<Option<usize>, String> {
+        if self.repeat_mode == RepeatMode::One {
+            return Ok(Some(self.current_position));
+        }
+
         let pos = self.current_position + 1;
         if pos >= self.tracks.len() {
             match self.repeat_mode {
                 RepeatMode::Off => Ok(None),
                 RepeatMode::All => Ok(Some(0)),
-                RepeatMode::One => Ok(Some(self.current_position)),
+                RepeatMode::One => unreachable!(),
             }
         } else {
             Ok(Some(pos))
@@ -344,6 +354,10 @@ impl QueueState {
     }
 
     fn next_shuffle(&mut self) -> Result<Option<usize>, String> {
+        if self.repeat_mode == RepeatMode::One {
+            return Ok(Some(self.current_position));
+        }
+
         let shuffle = self.shuffle_state.as_mut()
             .ok_or_else(|| "Shuffle state missing".to_string())?;
 
@@ -364,7 +378,7 @@ impl QueueState {
                         Ok(None)
                     }
                 },
-                RepeatMode::One => Ok(Some(self.current_position)),
+                RepeatMode::One => unreachable!(),
             }
         } else {
             shuffle.cursor = next_cursor;
@@ -378,12 +392,16 @@ impl QueueState {
     }
 
     fn prev_normal(&mut self) -> Result<Option<usize>, String> {
+        if self.repeat_mode == RepeatMode::One {
+            return Ok(Some(self.current_position));
+        }
+
         let pos = self.current_position as i32 - 1;
         if pos < 0 {
             match self.repeat_mode {
                 RepeatMode::Off => Ok(None),
                 RepeatMode::All => Ok(Some(self.tracks.len().saturating_sub(1))),
-                RepeatMode::One => Ok(Some(self.current_position)),
+                RepeatMode::One => unreachable!(),
             }
         } else {
             Ok(Some(pos as usize))
@@ -391,6 +409,10 @@ impl QueueState {
     }
 
     fn prev_shuffle(&mut self) -> Result<Option<usize>, String> {
+        if self.repeat_mode == RepeatMode::One {
+            return Ok(Some(self.current_position));
+        }
+
         let shuffle = self.shuffle_state.as_mut()
             .ok_or_else(|| "Shuffle state missing".to_string())?;
 
@@ -408,7 +430,7 @@ impl QueueState {
                         .ok_or_else(|| "Track not found in queue".to_string())?;
                     Ok(Some(idx))
                 },
-                RepeatMode::One => Ok(Some(self.current_position)),
+                RepeatMode::One => unreachable!(),
             }
         } else {
             shuffle.cursor = prev_cursor as usize;
@@ -574,6 +596,44 @@ mod tests {
         queue.repeat_mode = RepeatMode::One;
 
         let track = queue.next().unwrap().unwrap();
+        assert_eq!(track.instance_id, "2");
+        assert_eq!(queue.current_position, 1);  // Stays on current
+    }
+
+    #[test]
+    fn test_next_repeat_one_mid_queue() {
+        let mut queue = QueueState::new();
+        queue
+            .set_queue(vec![make_track("1"), make_track("2"), make_track("3")], 0)
+            .unwrap();
+        queue.repeat_mode = RepeatMode::One;
+
+        let track = queue.next().unwrap().unwrap();
+        assert_eq!(track.instance_id, "1");
+        assert_eq!(queue.current_position, 0);  // Stays on track 1
+    }
+
+    #[test]
+    fn test_peek_next_repeat_one() {
+        let mut queue = QueueState::new();
+        queue
+            .set_queue(vec![make_track("1"), make_track("2"), make_track("3")], 0)
+            .unwrap();
+        queue.repeat_mode = RepeatMode::One;
+
+        let peeked = queue.peek_next().unwrap();
+        assert_eq!(peeked.instance_id, "1");  // Pre-buffers current track, not track 2
+    }
+
+    #[test]
+    fn test_prev_repeat_one_mid_queue() {
+        let mut queue = QueueState::new();
+        queue
+            .set_queue(vec![make_track("1"), make_track("2"), make_track("3")], 1)
+            .unwrap();
+        queue.repeat_mode = RepeatMode::One;
+
+        let track = queue.prev().unwrap().unwrap();
         assert_eq!(track.instance_id, "2");
         assert_eq!(queue.current_position, 1);  // Stays on current
     }
