@@ -1,6 +1,8 @@
-# Lyria
-
 <div align="center">
+
+<img src="static/lyria.svg" alt="Lyria Logo" width="120" height="120" />
+
+# Lyria
 
 **A clean, lightweight, premium, offline-first desktop music player.**
 
