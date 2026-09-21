@@ -302,6 +302,7 @@ pub fn start_audio_thread(
             match rx.try_recv() {
                 Ok(cmd) => match cmd {
                     AudioCommand::Load { source, title, artist, album, duration_hint } => {
+                        seek_generation += 1;
                         is_seeking = false;
                         queued_tracks.clear();
                         if let Some(s) = &sink {

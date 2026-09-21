@@ -137,7 +137,9 @@ impl SymphoniaSource {
         let (download, content_length) = runtime_handle.block_on(async {
             use stream_download::source::SourceStream;
             
-            let mut clean_client_builder = reqwest::Client::builder();
+            let mut clean_client_builder = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .read_timeout(std::time::Duration::from_secs(10));
             if let Some(h) = headers {
                 let mut header_map = reqwest::header::HeaderMap::new();
                 for (k, v) in h {
@@ -151,16 +153,22 @@ impl SymphoniaSource {
             }
             let clean_client = clean_client_builder.build().unwrap_or(client.clone());
 
-            let stream = HttpStream::new(clean_client, url.clone()).await?;
-            let content_length = stream.content_length();
-            let settings = Settings::default().prefetch_bytes(32 * 1024); // 32KB buffer for instant startup (<100ms)
-            
-            // Use TempStorageProvider instead of BoundedStorageProvider to avoid subtraction overflow
-            // panics when the MP4 demuxer seeks backward from the end of the file.
-            let storage = stream_download::storage::temp::TempStorageProvider::new();
-            
-            let download = StreamDownload::from_stream(stream, storage, settings).await?;
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((download, content_length))
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                let stream = HttpStream::new(clean_client, url.clone()).await?;
+                let content_length = stream.content_length();
+                let settings = Settings::default().prefetch_bytes(32 * 1024); // 32KB buffer for instant startup (<100ms)
+                
+                // Use TempStorageProvider instead of BoundedStorageProvider to avoid subtraction overflow
+                // panics when the MP4 demuxer seeks backward from the end of the file.
+                let storage = stream_download::storage::temp::TempStorageProvider::new();
+                
+                let download = StreamDownload::from_stream(stream, storage, settings).await?;
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>((download, content_length))
+            })
+            .await
+            .map_err(|_| -> Box<dyn std::error::Error + Send + Sync> {
+                "HTTP stream connection timed out after 10s".into()
+            })?
         })?;
         let wrapper = StreamMediaSource::new(download, content_length); // Pass the fetched content length
         Self::open(Box::new(wrapper), None, seek_to, audio_config)
@@ -298,6 +306,14 @@ impl SymphoniaSource {
 
                 let packet = match format.next_packet() {
                     Ok(p) => p,
+                    Err(SymphoniaError::DecodeError(e)) => {
+                        tracing::warn!("Recoverable packet error in format reader, skipping: {e}");
+                        continue;
+                    }
+                    Err(SymphoniaError::ResetRequired) => {
+                        decoder.reset();
+                        continue;
+                    }
                     Err(_) => {
                         // Flush the remaining buffer if resampling
                         if let Some(resamp) = resampler.as_mut() {

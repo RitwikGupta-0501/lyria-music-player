@@ -987,7 +987,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
             if entry_path.is_file() {
                 if let Some(ext) = entry_path.extension().and_then(|s| s.to_str()) {
                     let ext = ext.to_lowercase();
-                    if ext == "mp3" || ext == "flac" || ext == "wav" || ext == "m4a" || ext == "ogg" {
+                    if is_supported_audio_extension(&ext) {
                         let mut title = entry_path.file_name().unwrap_or_default().to_string_lossy().to_string();
                         let mut artist = None;
                         let mut album = None;
@@ -1861,3 +1861,27 @@ pub fn run() {
             }
         });
 }
+
+/// Check if a lowercase file extension is supported by the local library scanner.
+#[inline]
+pub fn is_supported_audio_extension(ext: &str) -> bool {
+    matches!(ext, "mp3" | "flac" | "wav" | "m4a" | "ogg" | "opus")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_supported_audio_extensions_includes_opus() {
+        assert!(is_supported_audio_extension("opus"));
+        assert!(is_supported_audio_extension("mp3"));
+        assert!(is_supported_audio_extension("flac"));
+        assert!(is_supported_audio_extension("wav"));
+        assert!(is_supported_audio_extension("m4a"));
+        assert!(is_supported_audio_extension("ogg"));
+        assert!(!is_supported_audio_extension("txt"));
+        assert!(!is_supported_audio_extension("exe"));
+    }
+}
+
