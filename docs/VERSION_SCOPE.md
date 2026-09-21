@@ -75,7 +75,7 @@ graph LR
 ---
 
 ## 🔧 Version 0.3.0 — Stable Core
-> **Status:** In Progress 🟡  
+> **Status:** Shipped ✅  
 > **Theme:** Fix all confirmed critical bugs across the audio engine, autoplay core loop, queue state machine, and frontend/backend contract. Every item in this scope is a **code-verified existing defect**. No new features.
 
 ### Scope & Deliverables
@@ -112,39 +112,40 @@ graph LR
 * [x] **Fix OS hardware media keys completely unresponsive** (Completed) (`src-tauri/src/audio/media_controls.rs:59-67`, `src/lib/stores/audio.svelte.ts:190-198`):
   * `media_controls.rs` emits `"media-play-pause"`, `"media-next"`, `"media-prev"` — zero listeners exist in the Svelte frontend. Claimed feature since v0.1.0.
   * Wire listeners in `AudioStore` to `togglePlay()`, `skipForward()`, `skipBackward()`, and clean up unlisteners in `destroy()`.
-* **Fix `.opus` files excluded from local library scanner** (`src-tauri/src/lib.rs:990`):
-  * Extension filter `mp3 | flac | wav | m4a | ogg` omits `opus` despite first-class decoder support. One-line fix.
-* **Fix in-flight seek vs. track load race condition** (`src-tauri/src/audio/mod.rs`):
+* [x] **Fix `.opus` files excluded from local library scanner** (Completed in v0.3.0) (`src-tauri/src/lib.rs:990`):
+  * Extension filter `mp3 | flac | wav | m4a | ogg` omits `opus` despite first-class decoder support. Added `is_supported_audio_extension` with `opus` support.
+* [x] **Fix in-flight seek vs. track load race condition** (Completed in v0.3.0) (`src-tauri/src/audio/mod.rs`):
   * `AudioCommand::Load` does not increment `seek_generation`; a stale seek result can be applied to a newly loaded track.
-  * Increment `seek_generation` inside the `Load` arm.
-* **Fix gapless queue destruction on seek** (`src-tauri/src/audio/mod.rs:426`, `src/lib/stores/audio.svelte.ts:307-319`):
-  * `AudioCommand::Seek` calls `queued_tracks.clear()`, destroying the pre-buffered next track; `AudioStore.seek()` never re-triggers `queueNextAudio()`.
-  * Preserve queue metadata across seek; call `queueNextAudio()` post-seek in the frontend.
-* **Fix remote stream HTTP fetch blocking audio thread without timeout** (`src-tauri/src/audio/symphonia_source.rs:137-164`):
-  * `runtime_handle.block_on(HttpStream::new(...))` has no connect/read timeout, permanently deadlocking the audio thread on a stalled CDN.
-  * Wrap with `tokio::time::timeout`.
-* **Fix `RepeatMode::One` only loops at queue terminus, not mid-queue** (`src-tauri/src/queue/mod.rs:333-344, 220-231`):
-  * `next_normal()` only checks `RepeatMode::One` when `pos >= tracks.len()`; `peek_next()` unconditionally returns `position + 1` in Normal mode, pre-buffering the wrong track into the gapless sink.
-  * Evaluate `RepeatMode::One` before incrementing position in both `next_normal()` and `peek_next()`.
-* **Fix manual "Next" replaying last track indefinitely on `RepeatMode::Off`** (`src-tauri/src/queue/mod.rs`):
-  * At terminus with repeat off, `next()` returns `Ok(None)` but leaves `current_position` unchanged; subsequent `skip_forward` returns the same last track.
-* **Fix HLS always picks first (lowest quality) variant from master playlist** (`src-tauri/src/audio/hls.rs:64`):
-  * `pl.variants.first()` is used despite the comment stating highest-bandwidth should be selected.
-  * Replace with `.iter().max_by_key(|v| v.bandwidth.unwrap_or(0))`.
-* **Fix non-fatal decode errors treated as EOF → premature song cutoff** (`src-tauri/src/audio/symphonia_source.rs:299-328`):
-  * Any error from `format.next_packet()` triggers `eof_clone = true`, cutting songs on recoverable mid-file packet errors.
-  * Distinguish `SymphoniaError::IoError(UnexpectedEof)` from recoverable errors; skip damaged frames.
-* [x] **Fix autoplay inner timeout (4000ms) exceeding outer deadline (3500ms)** (Completed) (`src-tauri/src/providers/recommendations.rs:437-438`, `src-tauri/src/queue/autoplay.rs:43-44`):
+  * Incremented `seek_generation` inside the `Load` arm.
+* [x] **Fix gapless queue destruction on seek** (Completed in v0.3.0) (`src-tauri/src/audio/mod.rs:426`, `src/lib/stores/audio.svelte.ts:337-350`):
+  * `AudioCommand::Seek` calls `queued_tracks.clear()`, destroying the pre-buffered next track; `AudioStore.seek()` never re-triggered `queueNextAudio()`.
+  * Re-triggered `this.queueNextAudio()` post-seek in the frontend store.
+* [x] **Fix remote stream HTTP fetch blocking audio thread without timeout** (Completed in v0.3.0) (`src-tauri/src/audio/symphonia_source.rs:137-164`):
+  * `runtime_handle.block_on(HttpStream::new(...))` had no connect/read timeout, permanently deadlocking the audio thread on a stalled CDN.
+  * Configured client timeouts (5s connect, 10s read) and wrapped with `tokio::time::timeout(10s)`.
+* [x] **Fix `RepeatMode::One` only loops at queue terminus, not mid-queue** (Completed in v0.3.0) (`src-tauri/src/queue/mod.rs:333-344, 220-231`):
+  * `next_normal()` only checked `RepeatMode::One` when `pos >= tracks.len()`; `peek_next()` unconditionally returned `position + 1` in Normal mode, pre-buffering the wrong track into the gapless sink.
+  * Evaluated `RepeatMode::One` before incrementing position in `next_normal()`, `next_shuffle()`, `prev_normal()`, `prev_shuffle()`, and `peek_next()`.
+* [x] **Fix manual "Next" replaying last track indefinitely on `RepeatMode::Off`** (Completed in v0.3.0) (`src-tauri/src/queue/commands.rs`, `src/lib/stores/audio.svelte.ts`):
+  * At terminus with repeat off, `next()` returns `Ok(None)` leaving `current_position` unchanged; subsequent `skip_forward` returned the same last track, causing frontend to reload and replay it forever.
+  * Suppressed `load_audio` re-dispatch on terminal skip when RepeatMode is Off.
+* [x] **Fix HLS always picks first (lowest quality) variant from master playlist** (Completed in v0.3.0) (`src-tauri/src/audio/hls.rs:64`):
+  * `pl.variants.first()` was used despite the comment stating highest-bandwidth should be selected.
+  * Replaced with `.iter().max_by_key(|v| v.bandwidth)`.
+* [x] **Fix non-fatal decode errors treated as EOF → premature song cutoff** (Completed in v0.3.0) (`src-tauri/src/audio/symphonia_source.rs:299-328`):
+  * Any error from `format.next_packet()` triggered `eof_clone = true`, cutting songs on recoverable mid-file packet errors.
+  * Treated `SymphoniaError::DecodeError` and `ResetRequired` as recoverable, skipping damaged frames instead of terminating playback.
+* [x] **Fix autoplay inner timeout (4000ms) exceeding outer deadline (3500ms)** (Completed in v0.3.0) (`src-tauri/src/providers/recommendations.rs:437-438`, `src-tauri/src/queue/autoplay.rs:43-44`):
   * Per-provider tasks (4s) outlive the outer autoplay deadline (3.5s); their results are always discarded.
   * Reduced inner provider timeout to 3000ms.
-* **Fix debug log viewer duplicating all buffered logs on open** (`src-tauri/src/logger.rs:173-194`):
+* [x] **Fix debug log viewer duplicating all buffered logs on open** (Completed in v0.3.0) (`src/routes/debug/+page.svelte:72-80`):
   * 2Hz background emitter starts with `last_sent_id = 0`, firing simultaneously with the initial `get_debug_logs` fetch, duplicating all entries in the UI.
-  * Track per-client `last_sent_id`; deduplicate by `id` on the frontend.
+  * Deduplicated batch log entries by `id` on the frontend.
 
 #### 🟡 P1-Minor — Correctness (trivial, no risk)
 
-* **Reconcile Markov scoring comment vs. implementation** (`src-tauri/src/db/queries.rs:1969`):
-  * Comment claims `weight 30`; code awards `score += 15.0`. Update comment to match implementation.
+* [x] **Reconcile Markov scoring comment vs. implementation** (Completed in v0.3.0) (`src-tauri/src/db/queries.rs:1969`):
+  * Updated comment to `// 3. Genre / Lexical Affinity (weight 15)` to match `score += 15.0;`.
 
 ---
 

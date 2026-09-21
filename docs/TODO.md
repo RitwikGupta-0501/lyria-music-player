@@ -6,11 +6,10 @@
 - [x] Handle audio hardware disconnection & device drop (Fixed in v0.3.0 - BUG-04):
   - Replaced panicking `.expect()` / `.unwrap()` calls in `src-tauri/src/audio/mod.rs` with `recreate_sink` fallback and `Option<Sink>`.
   - Emits `device-disconnected` to frontend and drops frames cleanly instead of crashing when DAC/headphones are removed or missing.
-- [ ] Fix in-flight seek vs. track load race condition (`AudioCommand::Load` must increment `seek_generation` in `src-tauri/src/audio/mod.rs`)
-- [ ] Fix gapless queue loss and state desync on seek (`src-tauri/src/audio/mod.rs:426`, `src/lib/stores/audio.svelte.ts:307-319`):
-  - When seeking, `audio/mod.rs` executes `queued_tracks.clear()` and stops/recreates the `rodio::Sink`, destroying the pre-buffered next track.
-  - `AudioStore.seek()` in `audio.svelte.ts` never triggers `queueNextAudio()` after seeking.
-  - When the current track reaches the end, the sink is empty and `queued_tracks` is empty, causing gapless transition to fail and triggering an abrupt fallback `track-ended` event.
+- [x] Fix in-flight seek vs. track load race condition (Fixed in v0.3.0):
+  - `AudioCommand::Load` increments `seek_generation` in `src-tauri/src/audio/mod.rs`, discarding any stale background seek results.
+- [x] Fix gapless queue loss and state desync on seek (Fixed in v0.3.0) (`src-tauri/src/audio/mod.rs:426`, `src/lib/stores/audio.svelte.ts:337-350`):
+  - `AudioStore.seek()` in `audio.svelte.ts` re-triggers `this.queueNextAudio()` after seeking, rebuilding the gapless pre-buffer in the recreated sink.
 - [x] Fix multichannel/surround audio corruption in `OpusSymphoniaDecoder` (Fixed in v0.3.0 - BUG-05) (`src-tauri/src/audio/opus_decoder.rs:25, 68-73`):
   - Clamped decoder channel mapping to stereo (2 channels) for multichannel surround streams (5.1 / 7.1).
   - Symphonia `SignalSpec` and output sample buffer allocation now match (2 channels), preventing out-of-bounds heap memory reads and segmentation faults.
@@ -21,16 +20,14 @@
 - [x] Wire up terminal `track-ended` event and emit `player-sync` Stopped upon queue exhaustion (Fixed in v0.3.0 - BUG-06):
   - In `src-tauri/src/audio/mod.rs:241-250`, the audio thread clears `current_track_path` and emits `track-ended`, but never emits `player-sync` with state `"Stopped"`.
   - The Svelte frontend (`src/lib/stores/audio.svelte.ts`) does not listen to `track-ended`, leaving the player bar and media controls permanently stuck in `"Playing"` at 100% position after the queue drains.
-- [ ] Fix premature audio cutoff on non-fatal decode errors in `SymphoniaSource` (`src-tauri/src/audio/symphonia_source.rs:299-328`):
-  - In the background decoding loop, `format.next_packet()` breaking on any error treats recoverable packet/decode errors as EOF (`eof_clone.store(true)`), abruptly cutting off the song.
-  - Distinguish between fatal EOF (`SymphoniaError::IoError(UnexpectedEof)`) and recoverable packet decode errors so playback skips damaged frames rather than stopping.
+- [x] Fix premature audio cutoff on non-fatal decode errors in `SymphoniaSource` (Fixed in v0.3.0) (`src-tauri/src/audio/symphonia_source.rs:299-328`):
+  - In the background decoding loop, recoverable decode errors (`SymphoniaError::DecodeError` and `ResetRequired`) are logged and skipped rather than treated as terminal EOF.
 - [ ] Implement Offline Resilience & Network Disconnect Handling:
   - Add reactive frontend connectivity monitoring (`navigator.onLine`, `window.addEventListener('online' | 'offline')`) and display a subtle offline status badge in the UI.
   - On remote stream resolution failure due to network loss, gracefully fall back to local library seed tracks or cached media rather than halting with unhandled socket errors.
   - In `symphonia_source.rs`, distinguish transient socket read disconnects from true EOF and implement a short reconnect window (e.g. 5-10s) before terminating playback.
-- [ ] Enforce connection and read timeouts on remote stream initialization (`src-tauri/src/audio/symphonia_source.rs:137-164`):
-  - `from_url_internal` executes `runtime_handle.block_on(HttpStream::new(...))` synchronously on the audio OS thread without connect or read timeouts.
-  - A stalled remote CDN response indefinitely freezes the audio thread, deadlocking player commands (`pause`, `stop`, `seek`) and OS media controls.
+- [x] Enforce connection and read timeouts on remote stream initialization (Fixed in v0.3.0) (`src-tauri/src/audio/symphonia_source.rs:137-164`):
+  - Configured reqwest client with 5s connection and 10s read timeouts, and wrapped `HttpStream::new` in `tokio::time::timeout(10s)` to prevent deadlocking the audio OS thread on stalled CDNs.
 - [ ] Implement auto-advance on corrupted / deleted audio paths in `SymphoniaSource::from_path`
 - [ ] Implement comprehensive audio subsystem unit tests (benchmarking is not equivalent to functional tests; test decoding, seeking, underruns, and gapless callbacks in `src-tauri/src/audio`)
 - [ ] Implement gapless playback and configurable crossfade (1-5s) between consecutive tracks
@@ -64,18 +61,17 @@
 - [x] Fix "Clear Player When Finished" / `collapse_idle` not clearing the queue (`src/lib/stores/audio.svelte.ts:127-140`):
   - When `queueCompletionBehavior` is set to `"collapse_idle"`, the `Stopped` handler resets `currentTime = 0`, `duration = 0`, and `currentTrack = "None"`, but never calls `this.clearQueue()` or invokes `clear_queue`.
   - Extracted dedicated `handleQueueCompletion()` function and execute `await this.clearQueue()` when `collapse_idle` triggers on `Stopped` state.
-- [ ] Add `.opus` extension to local library scanner (`src-tauri/src/lib.rs:990`):
-  - `scan_local_directory` checks `ext == "mp3" || ext == "flac" || ext == "wav" || ext == "m4a" || ext == "ogg"`, ignoring `.opus` files despite first-class OPUS decoder support in the audio pipeline.
+- [x] Add `.opus` extension to local library scanner (Fixed in v0.3.0) (`src-tauri/src/lib.rs:990`):
+  - Extracted `is_supported_audio_extension` recognizing `opus` alongside `mp3`, `flac`, `wav`, `m4a`, and `ogg`.
 - [ ] Implement pagination / infinite scrolling for Library collections (`src/lib/stores/library.svelte.ts:84-115`):
   - `fetchAlbums`, `fetchPlaylists`, and `fetchLikedSongs` hardcode `{ limit: 500, offset: 0 }` with no pagination continuation.
   - Libraries exceeding 500 albums, playlists, or liked tracks are silently truncated in the UI.
 - [ ] Implement automatic filesystem watcher for music folders (background auto-indexing of newly added files)
 - [ ] Implement multi-select and batch actions (Shift/Ctrl-click to queue, add to playlist, or delete)
-- [ ] Fix `RepeatMode::One` auto-advance loop bug in `QueueState` (`src-tauri/src/queue/mod.rs`):
-  - In `next_normal()` and `next_shuffle()`, evaluate `RepeatMode::One` before incrementing position to ensure tracks repeat anywhere in the queue, not just at queue terminus.
-  - Fix gapless pre-buffering in `QueueState::peek_next()` (`src-tauri/src/queue/mod.rs:220-231`): `QueueMode::Normal` unconditionally returns `self.current_position + 1`, causing `queueNextAudio()` to pre-buffer the *next* track into the audio sink and gaplessly advance instead of repeating when `RepeatMode::One` is active.
-- [ ] Fix manual "Next" replaying last track on `RepeatMode::Off` (`src/lib/stores/audio.svelte.ts` / `commands.rs`):
-  - When at queue terminus with repeat off, `queue.next()` returns `Ok(None)` leaving `current_position` unchanged; `skip_forward` then returns that last track, causing frontend to reload and replay it forever.
+- [x] Fix `RepeatMode::One` auto-advance loop bug in `QueueState` (Fixed in v0.3.0) (`src-tauri/src/queue/mod.rs`):
+  - In `next_normal()`, `next_shuffle()`, `prev_normal()`, `prev_shuffle()`, and `peek_next()`, evaluate `RepeatMode::One` before incrementing position to ensure tracks repeat anywhere in the queue.
+- [x] Fix manual "Next" replaying last track on `RepeatMode::Off` (Fixed in v0.3.0) (`src/lib/stores/audio.svelte.ts` / `commands.rs`):
+  - In `audioStore.skipForward()`, detect when already at queue terminus with `RepeatMode::Off` and do not re-dispatch `load_audio`, avoiding infinite replaying of the last song.
 - [ ] Implement the 3-Second "Previous" Rule (restart if > 3s, skip previous if <= 3s) in `audioStore.skipBackward()` (`src/lib/stores/audio.svelte.ts:578-599`).
 - [ ] Implement `remove_from_queue` Tauri command and `QueueState::remove_track` (`src-tauri/src/queue/mod.rs`, `commands.rs`):
   - Currently `QueueState` only implements `add_track`, `set_queue`, `clear`, and `reorder`. There is no backend method or Tauri command to remove individual tracks from the active queue.
@@ -103,7 +99,7 @@
   - Reduced inner per-provider task timeout to 3000ms so individual timeouts fire before the 3500ms batch deadline in `autoplay.rs`.
 - [ ] Implement unit test suite for `queue::autoplay` and Markov candidate scoring (`autoplay.rs`, `db::queries.rs`):
   - Unit tests for waterfall fallback, remote deduplication, provider fallback selection, recency gates, 3-track library size relaxation, affinity vector weights, and Boltzmann temperature bounds
-- [ ] Reconcile code comment (`// 3. Genre / Lexical Affinity (weight 30)`) with implemented scoring weight (+15.0) in `src-tauri/src/db/queries.rs:1969`
+- [x] Reconcile code comment (`// 3. Genre / Lexical Affinity (weight 15)`) with implemented scoring weight (+15.0) in `src-tauri/src/db/queries.rs:1969` (Fixed in v0.3.0)
 
 ## Display Modes
 - [ ] Implement compact floating mini-player mode (always-on-top picture-in-picture widget)
@@ -169,17 +165,16 @@
   - Add theme selection dropdown in Settings
 
 ## Frontend Store & Svelte 5 Lifecycle
-- [ ] Fix log duplication in real-time debug viewer (`src-tauri/src/logger.rs:173-194`, `src/routes/debug/+page.svelte:64-80`):
-  - On mount, `/debug` fetches the initial 500 logs via `get_debug_logs`. Simultaneously, the 2Hz background emitter in `logger.rs` fires with `last_sent_id = 0`, collecting and emitting all buffered logs.
-  - The Svelte listener unconditionally appends `logs = [...logs, ...e.payload]`, immediately duplicating all logs in the UI upon opening the window. Implement deduplication by `id` on the frontend and track per-client `last_sent_id`.
+- [x] Fix log duplication in real-time debug viewer (Fixed in v0.3.0) (`src/routes/debug/+page.svelte:72-80`):
+  - Deduplicate log entries by `id` on the frontend before appending batch updates, preventing log duplication on window open.
 - [ ] Migrate root layout from deprecated `<slot />` to Svelte 5 snippet props (`src/routes/+layout.svelte:54`):
   - Replace `<slot />` with `let { children } = $props();` and `{@render children()}` to eliminate Svelte 5 rune migration warnings and ensure proper reactive scope propagation.
 - [x] Fix fatal runtime mutation of `$derived` runes in `AudioStore` (Fixed in v0.3.0 - BUG-04) (`src/lib/stores/audio.svelte.ts:358-372`):
   - `trackClickBehavior` and `queueCompletionBehavior` are defined at lines 57-58 using `$derived(settingsStore...)`.
   - In `setTrackClickBehavior` and `setQueueCompletionBehavior`, direct assignments (`this.trackClickBehavior = behavior;`) throw fatal Svelte 5 runtime exceptions (`Cannot assign to a derived variable`).
   - Route setting changes exclusively through `settingsStore.setSetting(...)`.
-- [ ] Synchronize UI state on queue exhaustion (`src/lib/stores/audio.svelte.ts`):
-  - Listen to `track-ended` or handle `player-sync` Stopped to reset `playbackState = "Stopped"`, `currentTime = 0`, and clear active player pill state when the queue drains.
+- [x] Synchronize UI state on queue exhaustion (Fixed in v0.3.0 - BUG-06) (`src/lib/stores/audio.svelte.ts`):
+  - Handled `player-sync` Stopped to reset `playbackState = "Stopped"`, `currentTime = 0`, and clear active player state when the queue drains.
 
 ## Database Layer & Concurrency
 - [ ] Configure SQLite WAL mode and busy timeout in `schema.rs`:

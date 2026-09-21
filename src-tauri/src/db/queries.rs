@@ -1966,7 +1966,7 @@ pub fn get_markov_autoplay_candidate(
                 score += 20.0;
             }
 
-            // 3. Genre / Lexical Affinity (weight 30)
+            // 3. Genre / Lexical Affinity (weight 15)
             if let Some(cand_artist) = &c.track.artist {
                 if !s_artist_lower.is_empty() {
                     let first_s = s_artist_lower.split_whitespace().next().unwrap_or("");
