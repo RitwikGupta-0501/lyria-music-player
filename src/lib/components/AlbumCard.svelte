@@ -53,18 +53,24 @@
             provider_id: album.provider_id || "local",
         });
     }
+
+    let imageFailed = $state(false);
+    $effect(() => {
+        if (artUrl) imageFailed = false;
+    });
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="album-card group {selected ? 'selected' : ''}" {onclick}>
     <div class="art-container">
-        {#if artUrl}
+        {#if artUrl && !imageFailed}
             <img
                 src={artUrl}
                 alt={album.title}
                 class="art-img"
                 loading="lazy"
+                onerror={() => (imageFailed = true)}
             />
         {:else}
             <div class="art-placeholder">

@@ -56,6 +56,9 @@
 - [ ] Set up macOS Homebrew Cask recipe (`brew install --cask lyria`)
 - [ ] Implement system tray integration with minimize-to-tray, close-to-tray, and quick playback controls
 - [ ] Implement Discord Rich Presence integration (native or extension-driven, configurable in Settings)
+- [x] Fix artwork directory permission and Tauri asset protocol scope mismatch (Fixed in v0.3.0) (`src-tauri/tauri.conf.json:26-31`, `src-tauri/src/lib.rs:81-95, 1342-1352`):
+  - In `tauri.conf.json`, expanded `assetProtocol.scope` to include `"$DATA/Lyria/artwork/**"`.
+  - In `src-tauri/src/lib.rs`, dynamically registered the resolved artwork directory via `app.asset_protocol_scope().allow_directory(...)` at startup, resolving HTTP 403 / scope violation errors.
 
 ## Library & Queue Management
 - [x] Fix "Clear Player When Finished" / `collapse_idle` not clearing the queue (`src/lib/stores/audio.svelte.ts:127-140`):
@@ -85,6 +88,11 @@
   - Connect runtime queue mutations to debounced SQLite persistence using `queue::recovery::periodic_save` or `DbRequest::SaveQueueState`.
   - Ensure playback queue, shuffle order, and cursor position survive application restarts and sudden crashes.
   - Implement SQLite persistence unit/integration tests in `src-tauri/src/queue/persistence.rs`.
+- [x] Fix Queue row layout and indentation inconsistency (Fixed in v0.3.0) (`src/lib/components/QueueSidebar.svelte:211-233, 451-490`):
+  - Restored missing scoped CSS rules for `.row-info`, `.row-title`, `.row-artist`, and `.playing-indicator`.
+  - Added `flex-shrink: 0`, fixed width (`28px`), and centered alignment to `.row-num` so single-digit, multi-digit, and playing visualizer (`<EqualizerWave />` / `<Pause />`) states do not cause horizontal layout shifting or indentation jitter.
+  - Applied `flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;` to `.row-info` and child text spans to prevent long titles from squeezing `.row-num`.
+
 ## Infinite Core Loop & Autoplay
 - [x] Fix Autoplay provider misattribution and 2-track infinite loop (`src-tauri/src/queue/autoplay.rs:48-70`, `src-tauri/src/providers/recommendations.rs:448-456`):
   - Preserved provider IDs in `compile_federated_radio` and attached to `TrackResult.provider_id`.
@@ -116,6 +124,12 @@
 - [ ] Extend Global Search (<kbd>Ctrl+K</kbd> / <kbd>Cmd+K</kbd>) into full Command Palette:
   - Add quick slash commands (`/play`, `/shuffle`, `/liked`, `/queue`, `/clear`)
   - Support instant command shortcuts and direct navigation
+- [x] Fix duplicate entries in Heavy Rotation shelf (Fixed in v0.3.0) (`src-tauri/src/db/queries.rs:1200-1258`, `src/lib/stores/home.svelte.ts:287-305`):
+  - In `get_heavy_rotation_7d` (`queries.rs`), albums and artists are deduplicated by canonical keys and primary artist names before returning `HeavyRotationShelf`.
+  - In `homeStore.updateArtistMetadata()` (`home.svelte.ts`), replaced loose substring matching with exact normalized canonical entity matching to prevent card conflation.
+- [x] Implement throttled background prefetching for Heavy Rotation artist and album artwork (Fixed in v0.3.0) (`src/lib/stores/home.svelte.ts`):
+  - Added deferred, polite background worker (`prefetchHeavyRotationArtworks`) fetching top-5 viewport items with 250ms spacing.
+  - Checks in-memory and SQLite cache first to eliminate redundant network roundtrips and avoid rate-limiting.
 
 ## Context Menus & Action Controls
 - [ ] Implement global custom right-click context menu system (tracks, albums, artists, playlists, and queue)
@@ -175,6 +189,8 @@
   - Route setting changes exclusively through `settingsStore.setSetting(...)`.
 - [x] Synchronize UI state on queue exhaustion (Fixed in v0.3.0 - BUG-06) (`src/lib/stores/audio.svelte.ts`):
   - Handled `player-sync` Stopped to reset `playbackState = "Stopped"`, `currentTime = 0`, and clear active player state when the queue drains.
+- [x] Fix broken fallback image placeholders on cards and track rows (Fixed in v0.3.0) (`AlbumCard.svelte`, `TrackCard.svelte`, `PlaylistCard.svelte`, `TrackRow.svelte`, `CollectionDetail.svelte`, `PlayerBar.svelte`, `ArtistCard.svelte`, `ArtistDetail.svelte`):
+  - Added reactive `imageFailed` / `onerror` handlers across all cards, rows, headers, and player controls to gracefully fallback to vector placeholders (`Disc`, `MusicNotes`, `PlaylistIcon`, or artist initials) when images fail to load.
 
 ## Database Layer & Concurrency
 - [ ] Configure SQLite WAL mode and busy timeout in `schema.rs`:
@@ -188,6 +204,10 @@
 - [ ] Offload high-frequency and heavy read queries from `db_tx` to dedicated concurrent read connections:
   - Migrate library queries (`search_library`, `get_local_tracks`, explore feed queries) to `open_read_conn` or a scoped read-connection pool using `tokio::task::spawn_blocking`
   - Prevent UI query serialization behind long-running batch write operations (`InsertTracks`)
+- [x] Extend "Delete Data" / Factory Reset with granular deletion options and multi-step modal (Fixed in v0.3.0) (`src-tauri/src/db/queries.rs:324-375`, `src-tauri/src/lib.rs:1318-1355`, `src/lib/components/settings/DataPurgeModal.svelte`, `src/lib/components/settings/DataTab.svelte`):
+  - Upgraded backend `factory_reset` to comprehensively wipe all 21 application tables and cache directories.
+  - Implemented `purge_data(categories: Vec<DataCategory>)` supporting granular selection across: Local Library, Playback History & Analytics, Saved Playlists & Liked Songs, Artwork Cache, Extensions & Sandbox Storage, and Application Settings & Flags.
+  - Replaced native `confirm()` with interactive `DataPurgeModal.svelte` featuring granular category selection and a two-stage red confirmation step.
 
 ## Branding & Visual Identity
 - [x] Design and generate custom Lyria application icon (Completed in v0.3.0):

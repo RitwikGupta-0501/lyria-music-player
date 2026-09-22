@@ -321,13 +321,76 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), Stri
     Ok(())
 }
 
-pub fn factory_reset(conn: &Connection) -> Result<(), String> {
-    let _ = conn.execute("DELETE FROM tracks", []);
-    let _ = conn.execute("DELETE FROM settings", []);
-    let _ = conn.execute("DELETE FROM albums", []);
-    let _ = conn.execute("DELETE FROM playlists", []);
-    let _ = conn.execute("DELETE FROM playlist_tracks", []);
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DataCategory {
+    LocalLibrary,
+    PlaybackHistory,
+    PlaylistsAndLikes,
+    ArtworkCache,
+    Extensions,
+    Settings,
+    Queue,
+}
+
+pub fn purge_data(conn: &Connection, categories: &[DataCategory]) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    for category in categories {
+        match category {
+            DataCategory::LocalLibrary => {
+                let _ = tx.execute("DELETE FROM tracks", []);
+                let _ = tx.execute("DELETE FROM albums", []);
+            }
+            DataCategory::PlaybackHistory => {
+                let _ = tx.execute("DELETE FROM playback_events", []);
+                let _ = tx.execute("DELETE FROM song_telemetry", []);
+                let _ = tx.execute("DELETE FROM recommendation_cache", []);
+                let _ = tx.execute("DELETE FROM feed_cache", []);
+                let _ = tx.execute("DELETE FROM artist_metadata", []);
+            }
+            DataCategory::PlaylistsAndLikes => {
+                let _ = tx.execute("DELETE FROM playlists", []);
+                let _ = tx.execute("DELETE FROM playlist_tracks", []);
+                let _ = tx.execute("DELETE FROM saved_albums", []);
+                let _ = tx.execute("DELETE FROM saved_playlists", []);
+            }
+            DataCategory::ArtworkCache => {
+                // Filesystem cleanup handled in Tauri command layer
+            }
+            DataCategory::Extensions => {
+                let _ = tx.execute("DELETE FROM provider_storage", []);
+                let _ = tx.execute("DELETE FROM extension_metrics", []);
+                let _ = tx.execute("DELETE FROM providers", []);
+            }
+            DataCategory::Settings => {
+                let _ = tx.execute("DELETE FROM settings", []);
+                let _ = tx.execute("DELETE FROM feature_flags", []);
+            }
+            DataCategory::Queue => {
+                let _ = tx.execute("DELETE FROM queue_state", []);
+                let _ = tx.execute("DELETE FROM queued_tracks", []);
+                let _ = tx.execute("DELETE FROM shuffle_order", []);
+                let _ = tx.execute("DELETE FROM queue_history", []);
+                let _ = tx.execute("DELETE FROM queue_snapshots", []);
+            }
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn factory_reset(conn: &Connection) -> Result<(), String> {
+    purge_data(conn, &[
+        DataCategory::LocalLibrary,
+        DataCategory::PlaybackHistory,
+        DataCategory::PlaylistsAndLikes,
+        DataCategory::ArtworkCache,
+        DataCategory::Extensions,
+        DataCategory::Settings,
+        DataCategory::Queue,
+    ])
 }
 
 pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<usize, String> {
@@ -1193,8 +1256,29 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
         }
     }
 
+    // Deduplicate and aggregate artists that mapped to the same canonical name
+    let mut deduped_artists: HashMap<String, HeavyRotationArtistItem> = HashMap::new();
+    for item in artists {
+        let key = item.artist.trim().to_lowercase();
+        let entry = deduped_artists.entry(key).or_insert_with(|| HeavyRotationArtistItem {
+            artist: item.artist.clone(),
+            total_plays: 0,
+            total_duration_ms: 0,
+            avatar_url: item.avatar_url.clone(),
+        });
+        entry.total_plays += item.total_plays;
+        entry.total_duration_ms += item.total_duration_ms;
+        if entry.avatar_url.is_none() && item.avatar_url.is_some() {
+            entry.avatar_url = item.avatar_url;
+        }
+    }
+    let mut artists: Vec<HeavyRotationArtistItem> = deduped_artists.into_values().collect();
+    artists.sort_by(|a, b| b.total_plays.cmp(&a.total_plays).then_with(|| b.total_duration_ms.cmp(&a.total_duration_ms)));
+    artists.truncate(limit);
+
     // 2. Top Albums in last 7 days (with fallback to all-time telemetry)
     let mut album_map: HashMap<(String, String), (i64, Option<String>)> = HashMap::new();
+    let mut album_display: HashMap<(String, String), (String, String)> = HashMap::new();
 
     if let Ok(mut albums_stmt) = conn.prepare(
         "SELECT st.album, st.artist, MAX(st.cover_art_url) as art_url, COUNT(pe.id) as play_cnt
@@ -1215,8 +1299,14 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
             for r in rows.flatten() {
                 let (raw_album, raw_artist, cover, pc) = r;
                 if let Some(clean_alb) = crate::db::canonical::clean_album_title_for_display(&raw_album) {
-                    let clean_art = crate::db::canonical::clean_artist_for_display(&raw_artist);
-                    let entry = album_map.entry((clean_alb, clean_art)).or_insert((0, None));
+                    let primary_art = crate::db::canonical::split_artist_names(&raw_artist)
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| raw_artist.clone());
+                    let clean_art = crate::db::canonical::clean_artist_for_display(&primary_art);
+                    let key = (clean_alb.to_lowercase(), clean_art.to_lowercase());
+                    album_display.entry(key.clone()).or_insert((clean_alb, clean_art));
+                    let entry = album_map.entry(key).or_insert((0, None));
                     entry.0 += pc;
                     if entry.1.is_none() && cover.is_some() {
                         entry.1 = cover;
@@ -1245,14 +1335,17 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
                 for r in fb_rows.flatten() {
                     let (raw_album, raw_artist, cover, pc) = r;
                     if let Some(clean_alb) = crate::db::canonical::clean_album_title_for_display(&raw_album) {
-                        let clean_art = crate::db::canonical::clean_artist_for_display(&raw_artist);
-                        let key = (clean_alb, clean_art);
-                        if !album_map.contains_key(&key) {
-                            let entry = album_map.entry(key).or_insert((0, None));
-                            entry.0 += pc;
-                            if entry.1.is_none() && cover.is_some() {
-                                entry.1 = cover;
-                            }
+                        let primary_art = crate::db::canonical::split_artist_names(&raw_artist)
+                            .into_iter()
+                            .next()
+                            .unwrap_or_else(|| raw_artist.clone());
+                        let clean_art = crate::db::canonical::clean_artist_for_display(&primary_art);
+                        let key = (clean_alb.to_lowercase(), clean_art.to_lowercase());
+                        album_display.entry(key.clone()).or_insert((clean_alb, clean_art));
+                        let entry = album_map.entry(key).or_insert((0, None));
+                        entry.0 += pc;
+                        if entry.1.is_none() && cover.is_some() {
+                            entry.1 = cover;
                         }
                     }
                 }
@@ -1260,10 +1353,11 @@ pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<Heavy
         }
     }
 
-    let mut albums: Vec<HeavyRotationAlbumItem> = album_map.into_iter().map(|((alb, art), (plays, cover))| {
+    let mut albums: Vec<HeavyRotationAlbumItem> = album_map.into_iter().map(|(key, (plays, cover))| {
+        let (display_alb, display_art) = album_display.remove(&key).unwrap_or(key);
         HeavyRotationAlbumItem {
-            album_title: alb,
-            artist: art,
+            album_title: display_alb,
+            artist: display_art,
             cover_art_url: cover,
             total_plays: plays,
         }
@@ -1473,7 +1567,42 @@ mod tests {
         assert!(is_liked);
     }
 
-    
+    #[test]
+    fn test_purge_data_granular_categories() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db_in_memory(&conn).unwrap();
+
+        conn.execute("INSERT INTO albums (title, artist) VALUES ('Album 1', 'Artist 1')", []).unwrap();
+        conn.execute("INSERT INTO tracks (title, artist, file_path) VALUES ('Track 1', 'Artist 1', '/t1.mp3')", []).unwrap();
+        conn.execute("INSERT INTO settings (key, value) VALUES ('volume', '0.8')", []).unwrap();
+        conn.execute("INSERT INTO playback_events (canonical_key, provider_id, source_id, duration_ms, played_at) VALUES ('art::song', 'local', 't1', 200, datetime('now'))", []).unwrap();
+
+        // 1. Purge only settings
+        purge_data(&conn, &[DataCategory::Settings]).unwrap();
+        let settings_count: i64 = conn.query_row("SELECT COUNT(*) FROM settings", [], |r| r.get(0)).unwrap();
+        assert_eq!(settings_count, 0);
+
+        // Tracks and history must still exist
+        let tracks_count: i64 = conn.query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0)).unwrap();
+        assert_eq!(tracks_count, 1);
+        let events_count: i64 = conn.query_row("SELECT COUNT(*) FROM playback_events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events_count, 1);
+
+        // 2. Purge local library
+        purge_data(&conn, &[DataCategory::LocalLibrary]).unwrap();
+        let tracks_count_after: i64 = conn.query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0)).unwrap();
+        assert_eq!(tracks_count_after, 0);
+
+        // Playback history still untouched
+        let events_count_after: i64 = conn.query_row("SELECT COUNT(*) FROM playback_events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events_count_after, 1);
+
+        // 3. Factory reset purges everything
+        factory_reset(&conn).unwrap();
+        let events_count_final: i64 = conn.query_row("SELECT COUNT(*) FROM playback_events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events_count_final, 0);
+    }
+
     #[test]
     fn test_phase1_heavy_rotation_and_cold_start() {
         let conn = Connection::open_in_memory().unwrap();
@@ -1589,6 +1718,148 @@ mod tests {
                 bio TEXT,
                 provider_id TEXT NOT NULL DEFAULT 'youtube-wasm',
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS playlist_tracks (
+                id INTEGER PRIMARY KEY,
+                playlist_id INTEGER NOT NULL,
+                track_id INTEGER NOT NULL,
+                position INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS saved_albums (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                artist TEXT,
+                cover_art_url TEXT,
+                provider_id TEXT NOT NULL,
+                saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS saved_playlists (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                author TEXT,
+                cover_art_url TEXT,
+                provider_id TEXT NOT NULL,
+                saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS provider_storage (
+                provider_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (provider_id, key)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS feature_flags (
+                flag_key TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recommendation_cache (
+                id INTEGER PRIMARY KEY,
+                canonical_seed TEXT NOT NULL,
+                cache_payload TEXT NOT NULL,
+                expires_at TIMESTAMP NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS feed_cache (
+                id INTEGER PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                cached_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS queue_state (
+                id INTEGER PRIMARY KEY,
+                current_position INTEGER NOT NULL DEFAULT 0,
+                repeat_mode TEXT NOT NULL DEFAULT 'off',
+                queue_mode TEXT NOT NULL DEFAULT 'normal'
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS queued_tracks (
+                id INTEGER PRIMARY KEY,
+                queue_state_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                instance_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                artist TEXT,
+                album TEXT,
+                cover_art_url TEXT,
+                duration_ms INTEGER,
+                isrc TEXT,
+                source_type TEXT NOT NULL,
+                track_id INTEGER,
+                file_path TEXT,
+                album_id INTEGER,
+                provider_id TEXT,
+                remote_track_id TEXT,
+                stream_url TEXT,
+                quality_hint TEXT,
+                FOREIGN KEY (queue_state_id) REFERENCES queue_state(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shuffle_order (
+                queue_state_id INTEGER NOT NULL,
+                shuffled_index INTEGER NOT NULL,
+                original_index INTEGER NOT NULL,
+                PRIMARY KEY (queue_state_id, shuffled_index),
+                FOREIGN KEY (queue_state_id) REFERENCES queue_state(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS queue_history (
+                id INTEGER PRIMARY KEY,
+                canonical_key TEXT NOT NULL,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS queue_snapshots (
+                id INTEGER PRIMARY KEY,
+                snapshot_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                payload_json TEXT NOT NULL
             )",
             [],
         )?;

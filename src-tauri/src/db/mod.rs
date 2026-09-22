@@ -101,6 +101,7 @@ pub enum DbRequest {
     GetAllSettings { resp: oneshot::Sender<Result<std::collections::HashMap<String, String>, String>> },
     SetSetting { key: String, value: String, resp: oneshot::Sender<Result<(), String>> },
     FactoryReset { resp: oneshot::Sender<Result<(), String>> },
+    PurgeData { categories: Vec<queries::DataCategory>, resp: oneshot::Sender<Result<(), String>> },
     InsertTracks { tracks: Vec<TrackData>, resp: oneshot::Sender<Result<usize, String>> },
     LoadAudioCache { path: String, resp: oneshot::Sender<Result<(), String>> },
     RemoveTrackByPath { path: String, resp: oneshot::Sender<Result<(), String>> },
@@ -297,6 +298,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::FactoryReset { resp } => {
                     let _ = resp.send(queries::factory_reset(&conn));
+                }
+                DbRequest::PurgeData { categories, resp } => {
+                    let _ = resp.send(queries::purge_data(&conn, &categories));
                 }
                 DbRequest::InsertTracks { tracks, resp } => {
                     let _ = resp.send(queries::insert_tracks(&mut conn, tracks));

@@ -1315,28 +1315,57 @@ async fn remove_track_by_path(state: State<'_, AppState>, path: String) -> Resul
 }
 
 #[tauri::command]
-async fn factory_reset(app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+async fn purge_data(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    categories: Vec<db::queries::DataCategory>,
+) -> Result<(), String> {
+    let app_data_dir = get_lyria_data_dir(&app_handle)?;
+
+    if categories.contains(&db::queries::DataCategory::ArtworkCache) {
+        let artwork_dir = app_data_dir.join("artwork");
+        let _ = std::fs::remove_dir_all(&artwork_dir);
+        let _ = std::fs::create_dir_all(&artwork_dir);
+        let _ = app_handle.asset_protocol_scope().allow_directory(&artwork_dir, false);
+    }
+
+    if categories.contains(&db::queries::DataCategory::Extensions) {
+        let extensions_dir = app_data_dir.join("extensions");
+        let _ = std::fs::remove_dir_all(&extensions_dir);
+        let _ = std::fs::create_dir_all(&extensions_dir);
+    }
+
+    if categories.contains(&db::queries::DataCategory::Queue) {
+        if let Ok(tx) = state.audio_tx.lock() {
+            let _ = tx.send(AudioCommand::Stop);
+        }
+        if let Ok(mut q) = state.queue.lock() {
+            let _ = q.clear();
+        }
+    }
+
     let (tx, rx) = oneshot::channel();
-    state.db_tx.send(DbRequest::FactoryReset { resp: tx }).map_err(|e| e.to_string())?;
+    state.db_tx.send(DbRequest::PurgeData { categories, resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())??;
 
-    let app_data_dir = get_lyria_data_dir(&app_handle)?;
-    let extensions_dir = app_data_dir.join("extensions");
-    let artwork_dir = app_data_dir.join("artwork");
-    
-    let _ = std::fs::remove_dir_all(&extensions_dir);
-    let _ = std::fs::remove_dir_all(&artwork_dir);
-
-    if let Ok(tx) = state.audio_tx.lock() {
-        let _ = tx.send(AudioCommand::Stop);
-    }
-    
-    // Also clear the queue state explicitly
-    if let Ok(mut q) = state.queue.lock() {
-        let _ = q.clear();
-    }
-
     Ok(())
+}
+
+#[tauri::command]
+async fn factory_reset(app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    purge_data(
+        app_handle,
+        state,
+        vec![
+            db::queries::DataCategory::LocalLibrary,
+            db::queries::DataCategory::PlaybackHistory,
+            db::queries::DataCategory::PlaylistsAndLikes,
+            db::queries::DataCategory::ArtworkCache,
+            db::queries::DataCategory::Extensions,
+            db::queries::DataCategory::Settings,
+            db::queries::DataCategory::Queue,
+        ],
+    ).await
 }
 
 #[tauri::command]
@@ -1622,9 +1651,12 @@ pub fn run() {
             let app_data_dir = get_lyria_data_dir(app.handle()).expect("Failed to get app data dir");
             let db_dir = app_data_dir.join("database");
             let extensions_dir = app_data_dir.join("extensions");
+            let artwork_dir = app_data_dir.join("artwork");
             
             std::fs::create_dir_all(&db_dir).expect("Failed to create database directory");
             std::fs::create_dir_all(&extensions_dir).expect("Failed to create extensions directory");
+            std::fs::create_dir_all(&artwork_dir).expect("Failed to create artwork directory");
+            let _ = app.asset_protocol_scope().allow_directory(&artwork_dir, false);
             
             let db_path = db_dir.join("echo_library.db");
             let conn = db::schema::init_db(&db_path).expect("Failed to initialize SQLite");
@@ -1787,6 +1819,7 @@ pub fn run() {
             get_all_settings,
             set_setting,
             factory_reset,
+            purge_data,
             remove_track_by_path,
             // Queue commands (Phase 2)
             queue::commands::set_queue,

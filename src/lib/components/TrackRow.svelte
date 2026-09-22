@@ -52,6 +52,10 @@
     let isActive = $derived(isCurrentTrack(track, audioStore.currentQueueTrack));
 
     let coverSrc = $derived(resolveCoverArt(track?.cover_art_url));
+    let imageFailed = $state(false);
+    $effect(() => {
+        if (coverSrc) imageFailed = false;
+    });
     let initial = $derived(getInitial(showArtist ? track?.artist : track?.title));
     let metric = $derived(getTrackDisplayMetric(track));
     let albumName = $derived(showAlbum ? sanitizeAlbumName(track?.album) : null);
@@ -105,8 +109,8 @@
     <!-- 2. Track Cover Art Thumbnail -->
     {#if showCoverArt}
         <div class="row-art-wrapper">
-            {#if coverSrc}
-                <img src={coverSrc} alt={track?.title || "Track art"} class="row-squircle" loading="lazy" />
+            {#if coverSrc && !imageFailed}
+                <img src={coverSrc} alt={track?.title || "Track art"} class="row-squircle" loading="lazy" onerror={() => (imageFailed = true)} />
             {:else}
                 <div class="typographic-art-squircle">
                     <span>{initial}</span>

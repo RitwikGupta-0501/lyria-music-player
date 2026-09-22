@@ -26,7 +26,8 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPDATA/artwork/**"
+          "$APPDATA/artwork/**",
+          "$DATA/Lyria/artwork/**"
         ]
       }
     }

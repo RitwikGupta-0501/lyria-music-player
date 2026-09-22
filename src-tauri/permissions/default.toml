@@ -55,6 +55,7 @@ commands.allow = [
     "get_all_settings",
     "set_setting",
     "factory_reset",
+    "purge_data",
     "remove_track_by_path",
     "set_queue",
     "add_to_queue",
