@@ -30,14 +30,14 @@ impl HlsStream {
 
         let mut start_idx = 0;
         if let Some(pos) = seek_to {
-            let pos_secs = pos.as_secs_f32();
-            let mut acc = 0.0;
+            let pos_secs = pos.as_secs_f64();
+            let mut acc: f64 = 0.0;
             for (i, seg) in segments.iter().enumerate() {
-                if acc + seg.duration > pos_secs {
+                if acc + (seg.duration as f64) > pos_secs {
                     start_idx = i;
                     break;
                 }
-                acc += seg.duration;
+                acc += seg.duration as f64;
             }
         }
 

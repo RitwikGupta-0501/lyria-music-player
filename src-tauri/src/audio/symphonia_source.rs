@@ -319,8 +319,12 @@ impl SymphoniaSource {
                         if let Some(resamp) = resampler.as_mut() {
                             let in_len = input_buffers[0].len();
                             if in_len > 0 {
-                                // pad with zeroes to chunk_size
+                                // Fade out the remaining valid samples to avoid a pop
                                 for ch in &mut input_buffers {
+                                    for (i, sample) in ch.iter_mut().enumerate().take(in_len) {
+                                        let fade = 1.0 - (i as f32 / in_len as f32);
+                                        *sample *= fade;
+                                    }
                                     ch.resize(chunk_size, 0.0);
                                 }
                                 if let Ok(resampled) = resamp.process(&input_buffers, None) {
