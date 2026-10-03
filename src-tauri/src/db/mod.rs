@@ -194,6 +194,10 @@ pub enum DbRequest {
         cooldown_sec: i64,
         resp: oneshot::Sender<Result<(), String>>,
     },
+    SaveQueueState {
+        queue_state: crate::queue::QueueState,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
     Quit,
 }
 
@@ -458,6 +462,10 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                             backoff_until = CASE WHEN consecutive_failures >= 2 THEN datetime('now', '+' || ?2 || ' seconds') ELSE backoff_until END",
                         rusqlite::params![provider_id, cooldown_sec],
                     ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveQueueState { queue_state, resp } => {
+                    let res = crate::queue::persistence::save_queue_state(&mut conn, &queue_state).map(|_| ());
                     let _ = resp.send(res);
                 }
                 DbRequest::Quit => {

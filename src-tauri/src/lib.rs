@@ -1840,6 +1840,7 @@ pub fn run() {
             // Queue commands (Phase 2)
             queue::commands::set_queue,
             queue::commands::add_to_queue,
+            queue::commands::remove_from_queue,
             queue::commands::clear_queue,
             queue::commands::skip_forward,
             queue::commands::skip_backward,

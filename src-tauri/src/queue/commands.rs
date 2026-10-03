@@ -24,8 +24,20 @@ fn queue_to_event(queue: &QueueState) -> QueueChangeEvent {
     }
 }
 
+
+fn broadcast_queue_change(app_handle: &AppHandle, state: &State<'_, crate::AppState>, queue: &QueueState) {
+    let event = queue_to_event(queue);
+    let _ = app_handle.emit("queue-changed", &event);
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let _ = state.db_tx.send(crate::db::DbRequest::SaveQueueState {
+        queue_state: queue.clone(),
+        resp: tx,
+    });
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // QUEUE MANAGEMENT COMMANDS
+
 // ════════════════════════════════════════════════════════════════════════════════
 
 /// Set queue and start playing at index
@@ -60,13 +72,37 @@ pub async fn set_queue(
         start_index
     );
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
 
 /// Add single track to end of queue
+
+/// Remove track from queue
+#[tauri::command]
+pub async fn remove_from_queue(
+    app_handle: AppHandle,
+    state: State<'_, crate::AppState>,
+    instance_id: String,
+) -> Result<QueueChangeEvent, String> {
+    let mut queue = state.queue.lock().map_err(|e| {
+        let err = e.to_string();
+        telemetry::record_error("remove_from_queue", &err);
+        err
+    })?;
+
+    queue.remove_track(&instance_id).map_err(|e| {
+        telemetry::record_error("remove_from_queue", &e);
+        e
+    })?;
+
+    broadcast_queue_change(&app_handle, &state, &queue);
+
+    Ok(queue_to_event(&queue))
+}
+
 #[tauri::command]
 pub async fn add_to_queue(
     app_handle: AppHandle,
@@ -76,8 +112,8 @@ pub async fn add_to_queue(
     let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
     queue.add_track(track)?;
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -108,8 +144,8 @@ pub async fn clear_queue(
         }
     }
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -142,8 +178,8 @@ pub async fn skip_forward(
 
     tracing::debug!("Skipped forward {} track(s)", count);
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -161,8 +197,8 @@ pub async fn skip_backward(
         queue.prev()?;
     }
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -177,8 +213,8 @@ pub async fn jump_to_position(
     let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
     queue.jump_to_position(position)?;
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -193,8 +229,8 @@ pub async fn jump_to_track(
     let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
     queue.jump_to_instance_id(instance_id)?;
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -236,8 +272,8 @@ pub async fn reorder_queue(
 
     tracing::debug!("Queue reordered: {} -> {}", from_index, to_index);
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -266,8 +302,8 @@ pub async fn set_repeat_mode(
     let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
     queue.repeat_mode = repeat_mode;
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -292,8 +328,8 @@ pub async fn set_shuffle(
 
     tracing::info!("Shuffle toggled: {}", if enabled { "ON" } else { "OFF" });
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }
@@ -376,8 +412,8 @@ pub async fn reshuffle(
         }
     }
 
+    broadcast_queue_change(&app_handle, &state, &queue);
     let event = queue_to_event(&queue);
-    let _ = app_handle.emit("queue-changed", &event);
 
     Ok(event)
 }

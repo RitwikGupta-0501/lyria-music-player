@@ -88,6 +88,36 @@ impl Default for QueueState {
 }
 
 impl QueueState {
+    pub fn remove_track(&mut self, instance_id: &str) -> Result<(), String> {
+        let mut index = None;
+        for (i, track) in self.tracks.iter().enumerate() {
+            if track.instance_id == instance_id {
+                index = Some(i);
+                break;
+            }
+        }
+        
+        let index = index.ok_or_else(|| "Track not found in queue".to_string())?;
+        
+        self.tracks.remove(index);
+        
+        if self.current_position > index {
+            self.current_position -= 1;
+        } else if self.current_position == index && self.current_position >= self.tracks.len() && !self.tracks.is_empty() {
+            self.current_position = self.tracks.len() - 1;
+        } else if self.tracks.is_empty() {
+            self.current_position = 0;
+        }
+        
+        if let Some(shuffle) = &mut self.shuffle_state {
+            if let Some(pos) = shuffle.order.iter().position(|id| id == instance_id) {
+                shuffle.order.remove(pos);
+            }
+        }
+        
+        Ok(())
+    }
+
     /// Create empty queue
     pub fn new() -> Self {
         QueueState {

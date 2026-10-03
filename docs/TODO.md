@@ -76,14 +76,14 @@
 - [x] Fix manual "Next" replaying last track on `RepeatMode::Off` (Fixed in v0.3.0) (`src/lib/stores/audio.svelte.ts` / `commands.rs`):
   - In `audioStore.skipForward()`, detect when already at queue terminus with `RepeatMode::Off` and do not re-dispatch `load_audio`, avoiding infinite replaying of the last song.
 - [ ] Implement the 3-Second "Previous" Rule (restart if > 3s, skip previous if <= 3s) in `audioStore.skipBackward()` (`src/lib/stores/audio.svelte.ts:578-599`).
-- [ ] Implement `remove_from_queue` Tauri command and `QueueState::remove_track` (`src-tauri/src/queue/mod.rs`, `commands.rs`):
+- [x] Implement `remove_from_queue` Tauri command and `QueueState::remove_track` (`src-tauri/src/queue/mod.rs`, `commands.rs`):
   - Currently `QueueState` only implements `add_track`, `set_queue`, `clear`, and `reorder`. There is no backend method or Tauri command to remove individual tracks from the active queue.
 - [ ] Fix cursor corruption and order desync in `QueueState::reorder()` during active shuffle (`src-tauri/src/queue/mod.rs:162-170`):
   - When `self.mode == QueueMode::Shuffle`, `self.current_position` is completely ignored during reordering. If tracks are moved while shuffle is active, toggling shuffle off (`set_shuffle(false)`) causes the queue cursor to jump to a completely arbitrary track or out-of-bounds index.
   - Also synchronize `shuffle_state.order` with the reordered positions.
 - [ ] Deterministic Seeded PRNG for Shuffle (`src-tauri/src/queue/mod.rs:430-448`):
   - `regenerate_shuffle_order` calculates a timestamp `seed` and stores it in `ShuffleState.seed`, but shuffles using unseeded `rand::thread_rng()`. Replace with deterministic `rand::rngs::StdRng::seed_from_u64(seed)` to enable reproducible queue session recovery.
-- [ ] Wire up runtime queue state persistence & background snapshotting:
+- [x] Wire up runtime queue state persistence & background snapshotting:
   - `recover_on_startup` is executed on boot in `lib.rs:1633`, but `save_queue_state` is never called on any queue mutations (`add_track`, `set_queue`, `reorder`, `skip_forward`, `set_shuffle`), leaving persistence completely dormant.
   - Connect runtime queue mutations to debounced SQLite persistence using `queue::recovery::periodic_save` or `DbRequest::SaveQueueState`.
   - Ensure playback queue, shuffle order, and cursor position survive application restarts and sudden crashes.
