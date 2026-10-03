@@ -136,6 +136,10 @@ pub fn save_queue_as_playlist(
         .map_err(|e| format!("Failed to create playlist: {}", e))?;
     let playlist_id = tx.last_insert_rowid();
 
+    let mut get_track_stmt = tx.prepare("SELECT id FROM tracks WHERE file_path = ?1").map_err(|e| e.to_string())?;
+    let mut insert_track_stmt = tx.prepare("INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)").map_err(|e| e.to_string())?;
+    let mut insert_pt_stmt = tx.prepare("INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)").map_err(|e| e.to_string())?;
+
     for (idx, track) in tracks.iter().enumerate() {
         let position = (idx + 1) as i64;
         let track_id = match &track.source {
@@ -143,10 +147,8 @@ pub fn save_queue_as_playlist(
                 if *track_id > 0 {
                     *track_id
                 } else {
-                    let mut stmt = tx.prepare("SELECT id FROM tracks WHERE file_path = ?1").map_err(|e| e.to_string())?;
-                    stmt.query_row([file_path], |row| row.get(0)).unwrap_or_else(|_| {
-                        let _ = tx.execute(
-                            "INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)",
+                    get_track_stmt.query_row([file_path], |row| row.get(0)).unwrap_or_else(|_| {
+                        let _ = insert_track_stmt.execute(
                             rusqlite::params![&track.title, &track.artist, track.track_number, file_path],
                         );
                         tx.last_insert_rowid()
@@ -155,27 +157,25 @@ pub fn save_queue_as_playlist(
             }
             crate::queue::TrackSourceInfo::Remote { provider_id, remote_track_id, .. } => {
                 let uri = format!("remote://{}/{}", provider_id, remote_track_id);
-                let existing_id: Result<i64, _> = tx.query_row("SELECT id FROM tracks WHERE file_path = ?1", [&uri], |row| row.get(0));
-                match existing_id {
-                    Ok(id) => id,
-                    Err(_) => {
-                        let _ = tx.execute(
-                            "INSERT INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, NULL, ?3, ?4)",
-                            rusqlite::params![&track.title, &track.artist, track.track_number, &uri],
-                        );
-                        tx.last_insert_rowid()
-                    }
-                }
+                get_track_stmt.query_row([&uri], |row| row.get(0)).unwrap_or_else(|_| {
+                    let _ = insert_track_stmt.execute(
+                        rusqlite::params![&track.title, &track.artist, track.track_number, &uri],
+                    );
+                    tx.last_insert_rowid()
+                })
             }
         };
 
         if track_id > 0 {
-            tx.execute(
-                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+            let _ = insert_pt_stmt.execute(
                 rusqlite::params![&playlist_id, &track_id, &position],
-            ).map_err(|e| e.to_string())?;
+            );
         }
     }
+
+    drop(get_track_stmt);
+    drop(insert_track_stmt);
+    drop(insert_pt_stmt);
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(playlist_id)
@@ -399,6 +399,8 @@ pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<us
     
     // Pre-prepare inside the transaction to avoid compiling on every loop
     let mut album_select = tx.prepare("SELECT id FROM albums WHERE title = ?1 AND artist = ?2").map_err(|e| e.to_string())?;
+    let mut album_insert = tx.prepare("INSERT OR IGNORE INTO albums (title, artist) VALUES (?1, ?2)").map_err(|e| e.to_string())?;
+    let mut track_insert = tx.prepare("INSERT OR IGNORE INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, ?3, ?4, ?5)").map_err(|e| e.to_string())?;
     let mut album_cache: std::collections::HashMap<(String, String), Option<i64>> = std::collections::HashMap::new();
 
     for track in tracks {
@@ -409,25 +411,22 @@ pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<us
         let album_id = if let Some(&id) = album_cache.get(&cache_key) {
             id
         } else {
-            let _ = tx.execute(
-                "INSERT OR IGNORE INTO albums (title, artist) VALUES (?1, ?2)",
-                (&album_title, &album_artist),
-            );
-            let id: Option<i64> = album_select.query_row((&album_title, &album_artist), |row| row.get(0)).ok();
+            let _ = album_insert.execute(rusqlite::params![&album_title, &album_artist]);
+            let id: Option<i64> = album_select.query_row(rusqlite::params![&album_title, &album_artist], |row| row.get(0)).ok();
             album_cache.insert(cache_key, id);
             id
         };
 
-        let res = tx.execute(
-            "INSERT OR IGNORE INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, ?3, ?4, ?5)",
-            (&track.title, &track.artist, &album_id, &track.track_number, &track.file_path),
-        );
-        
-        if res.is_ok() && res.unwrap() > 0 {
-            added += 1;
+        if let Ok(count) = track_insert.execute(rusqlite::params![&track.title, &track.artist, &album_id, &track.track_number, &track.file_path]) {
+            if count > 0 {
+                added += 1;
+            }
         }
     }
+    
     drop(album_select);
+    drop(album_insert);
+    drop(track_insert);
     tx.commit().map_err(|e| e.to_string())?;
     Ok(added)
 }

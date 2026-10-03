@@ -2,6 +2,8 @@ use rusqlite::{Connection, Result as SqlResult};
 
 pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     let conn = Connection::open(db_path)?;
+    conn.execute("PRAGMA journal_mode = WAL", [])?;
+    conn.execute("PRAGMA synchronous = NORMAL", [])?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.execute(
@@ -344,6 +346,14 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         )",
         [],
     )?;
+
+    // Foreign Key Cascade Optimization Indexes
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track ON playlist_tracks(track_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queued_tracks_qsid ON queued_tracks(queue_state_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_shuffle_order_qsid ON shuffle_order(queue_state_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_snapshots_qsid ON queue_snapshots(queue_state_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_song_telemetry_track ON song_telemetry(local_track_id)", [])?;
 
     Ok(conn)
 }

@@ -657,8 +657,11 @@ async fn get_home_local_shelves(
             cold_start_seeds: Vec::new(),
         });
     }
-    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
-    state.recommendation_compiler.get_local_shelves(mood_filter)
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.get_local_shelves(mood_filter.as_deref()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
@@ -680,8 +683,12 @@ async fn get_home_remote_shelves(
         *lock = Some(new_token.clone());
     }
 
-    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
-    let seeds = state.recommendation_compiler.get_daily_discover_seeds(mood_filter)?;
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+    let compiler = state.recommendation_compiler.clone();
+    let seeds = tokio::task::spawn_blocking(move || compiler.get_daily_discover_seeds(mood_filter.as_deref()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))?;
+    
     Ok(state.recommendation_compiler.get_federated_daily_discover(seeds, new_token).await)
 }
 
@@ -696,8 +703,11 @@ async fn get_home_radios(
     {
         return Ok(Vec::new());
     }
-    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
-    state.recommendation_compiler.compile_algorithmic_radios(mood_filter)
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.compile_algorithmic_radios(mood_filter.as_deref()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
@@ -709,14 +719,20 @@ async fn get_home_adjacent_horizons(
     {
         return Ok(Vec::new());
     }
-    state.recommendation_compiler.compute_adjacent_horizons()
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.compute_adjacent_horizons())
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
 async fn get_home_adjacent_horizon(
     state: State<'_, AppState>,
 ) -> Result<Option<providers::recommendations::AdjacentHorizonPayload>, String> {
-    state.recommendation_compiler.compute_adjacent_horizon()
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.compute_adjacent_horizon())
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
@@ -1833,6 +1849,7 @@ pub fn run() {
             queue::commands::set_repeat_mode,
             queue::commands::set_shuffle,
             queue::commands::get_queue,
+            queue::commands::get_queue_page,
             queue::commands::get_queue_length,
             queue::commands::get_current_track,
             queue::commands::reshuffle,

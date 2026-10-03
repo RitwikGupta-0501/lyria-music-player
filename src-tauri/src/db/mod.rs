@@ -168,6 +168,32 @@ pub enum DbRequest {
         seed_duration_ms: Option<u64>,
         resp: oneshot::Sender<Result<Option<LocalTrack>, String>>,
     },
+    SetDedupOverride {
+        key_a: String,
+        key_b: String,
+        should_merge: bool,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    SaveRecommendationCache {
+        seed_canonical_key: String,
+        provider_id: String,
+        shelf_type: String,
+        payload_json: String,
+        ttl_seconds: u64,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    ClearRecommendationCache {
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    RecordProviderSuccess {
+        provider_id: String,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    RecordProviderFailure {
+        provider_id: String,
+        cooldown_sec: i64,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
     Quit,
 }
 
@@ -385,6 +411,53 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                         seed_file_path.as_deref(),
                         seed_duration_ms,
                     ).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SetDedupOverride { key_a, key_b, should_merge, resp } => {
+                    let k1 = crate::db::canonical::canonical_override_key(&key_a, &key_b).0;
+                    let k2 = crate::db::canonical::canonical_override_key(&key_a, &key_b).1;
+                    let res = conn.execute(
+                        "INSERT INTO dedup_overrides (canonical_key_a, canonical_key_b, should_merge)
+                         VALUES (?1, ?2, ?3)
+                         ON CONFLICT(canonical_key_a, canonical_key_b) DO UPDATE SET should_merge = excluded.should_merge",
+                        rusqlite::params![k1, k2, if should_merge { 1 } else { 0 }],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveRecommendationCache { seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds, resp } => {
+                    let res = conn.execute(
+                        "INSERT INTO recommendation_cache (seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds, fetched_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+                         ON CONFLICT(seed_canonical_key, provider_id, shelf_type) DO UPDATE SET
+                            payload_json = excluded.payload_json,
+                            ttl_seconds = excluded.ttl_seconds,
+                            fetched_at = CURRENT_TIMESTAMP",
+                        rusqlite::params![seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds as i64],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::ClearRecommendationCache { resp } => {
+                    let res = conn.execute("DELETE FROM recommendation_cache;", []).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::RecordProviderSuccess { provider_id, resp } => {
+                    let res = conn.execute(
+                        "INSERT INTO extension_metrics (provider_id, consecutive_failures, backoff_until)
+                         VALUES (?1, 0, NULL)
+                         ON CONFLICT(provider_id) DO UPDATE SET consecutive_failures = 0, backoff_until = NULL",
+                        rusqlite::params![provider_id],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::RecordProviderFailure { provider_id, cooldown_sec, resp } => {
+                    let res = conn.execute(
+                        "INSERT INTO extension_metrics (provider_id, consecutive_failures, backoff_until)
+                         VALUES (?1, 1, datetime('now', '+' || ?2 || ' seconds'))
+                         ON CONFLICT(provider_id) DO UPDATE SET
+                            consecutive_failures = consecutive_failures + 1,
+                            backoff_until = CASE WHEN consecutive_failures >= 2 THEN datetime('now', '+' || ?2 || ' seconds') ELSE backoff_until END",
+                        rusqlite::params![provider_id, cooldown_sec],
+                    ).map_err(|e| e.to_string()).map(|_| ());
                     let _ = resp.send(res);
                 }
                 DbRequest::Quit => {
