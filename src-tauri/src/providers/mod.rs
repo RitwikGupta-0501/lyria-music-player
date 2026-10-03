@@ -463,14 +463,14 @@ impl ProviderManager {
     }
 
     pub fn invalidate_plugin_cache(&self, provider_id: &str) {
-        let cache = self.plugin_cache.lock().unwrap();
+        let mut cache = self.plugin_cache.lock().unwrap();
         if cache.remove(provider_id).is_some() {
             tracing::warn!("Evicted failed plugin instance from cache for provider: {}", provider_id);
         }
     }
 
     pub fn clear_all_plugin_cache(&self) {
-        let cache = self.plugin_cache.lock().unwrap();
+        let mut cache = self.plugin_cache.lock().unwrap();
         cache.clear();
         tracing::info!("Evicted all active plugin instances from cache");
     }
