@@ -26,7 +26,7 @@ pub fn recover_on_startup(conn: &Connection) -> Result<QueueState, String> {
 }
 
 /// Periodically save queue state (called by background task)
-pub fn periodic_save(conn: &Connection, queue: &QueueState) -> Result<(), String> {
+pub fn periodic_save(conn: &mut Connection, queue: &QueueState) -> Result<(), String> {
     // Only save if there's content worth saving
     if queue.length() > 0 {
         persistence::save_queue_state(conn, queue)?;

@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, State};
 /// Event payload sent to frontend when queue changes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueChangeEvent {
-    pub tracks: Vec<QueueTrack>,
+    pub queue_length: usize,
     pub current_position: usize,
     pub current_track: Option<QueueTrack>,
     pub repeat_mode: RepeatMode,
@@ -16,7 +16,7 @@ pub struct QueueChangeEvent {
 /// Convert QueueState to event payload
 fn queue_to_event(queue: &QueueState) -> QueueChangeEvent {
     QueueChangeEvent {
-        tracks: queue.get_all().to_vec(),
+        queue_length: queue.length(),
         current_position: queue.current_position,
         current_track: queue.current_track().cloned(),
         repeat_mode: queue.repeat_mode,
@@ -309,6 +309,24 @@ pub async fn get_queue(state: State<'_, crate::AppState>) -> Result<QueueChangeE
     Ok(queue_to_event(&queue))
 }
 
+/// Get a paginated chunk of the queue tracks
+#[tauri::command]
+pub async fn get_queue_page(
+    state: State<'_, crate::AppState>,
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<QueueTrack>, String> {
+    let queue = state.queue.lock().map_err(|e| e.to_string())?;
+    let tracks = queue.get_all();
+    
+    if offset >= tracks.len() {
+        return Ok(Vec::new());
+    }
+    
+    let end = std::cmp::min(offset + limit, tracks.len());
+    Ok(tracks[offset..end].to_vec())
+}
+
 /// Get queue length
 #[tauri::command]
 pub async fn get_queue_length(state: State<'_, crate::AppState>) -> Result<usize, String> {
@@ -396,7 +414,7 @@ mod tests {
 
         let event = queue_to_event(&queue);
 
-        assert_eq!(event.tracks.len(), 2);
+        assert_eq!(event.queue_length, 2);
         assert_eq!(event.current_position, 0);
         assert_eq!(event.queue_mode, QueueMode::Normal);
         assert_eq!(event.repeat_mode, RepeatMode::Off);

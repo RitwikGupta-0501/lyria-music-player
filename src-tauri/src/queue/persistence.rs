@@ -6,8 +6,10 @@ use crate::queue::{QueueState, QueueTrack, TrackSourceInfo, RepeatMode, QueueMod
 /// This allows cross-session queue recovery for local tracks only; remote entries
 /// are stored so the sidebar can display them, but they will be pruned on hydration
 /// if the stream URL is no longer resolvable.
-pub fn save_queue_state(conn: &Connection, queue: &QueueState) -> Result<i64, String> {
-    conn.execute(
+pub fn save_queue_state(conn: &mut Connection, queue: &QueueState) -> Result<i64, String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
         "INSERT INTO queue_state (current_position, repeat_mode, queue_mode, updated_at)
          VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
         params![
@@ -18,12 +20,12 @@ pub fn save_queue_state(conn: &Connection, queue: &QueueState) -> Result<i64, St
     )
     .map_err(|e| e.to_string())?;
 
-    let queue_state_id = conn.last_insert_rowid();
+    let queue_state_id = tx.last_insert_rowid();
 
     for (i, track) in queue.tracks.iter().enumerate() {
         match &track.source {
             TrackSourceInfo::Local { track_id, .. } => {
-                conn.execute(
+                tx.execute(
                     "INSERT INTO queued_tracks
                      (queue_state_id, instance_id, track_id, position)
                      VALUES (?, ?, ?, ?)",
@@ -32,7 +34,7 @@ pub fn save_queue_state(conn: &Connection, queue: &QueueState) -> Result<i64, St
                 .map_err(|e| e.to_string())?;
             }
             TrackSourceInfo::Remote { provider_id, remote_track_id, stream_url, quality_hint, cover_art_url, duration_ms } => {
-                conn.execute(
+                tx.execute(
                     "INSERT INTO queued_tracks
                      (queue_state_id, instance_id, track_id, position,
                       stream_url, provider_id, remote_track_id, quality_hint, cached_title, cached_artist, cover_art_url, duration_ms)
@@ -59,7 +61,7 @@ pub fn save_queue_state(conn: &Connection, queue: &QueueState) -> Result<i64, St
     // Save shuffle order if present
     if let Some(shuffle) = &queue.shuffle_state {
         for (i, instance_id) in shuffle.order.iter().enumerate() {
-            conn.execute(
+            tx.execute(
                 "INSERT INTO shuffle_order (queue_state_id, instance_id, position, seed)
                  VALUES (?, ?, ?, ?)",
                 params![queue_state_id, instance_id, i as i32, shuffle.seed as i32],
@@ -67,6 +69,8 @@ pub fn save_queue_state(conn: &Connection, queue: &QueueState) -> Result<i64, St
             .map_err(|e| e.to_string())?;
         }
     }
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(queue_state_id)
 }
@@ -152,34 +156,53 @@ type RawTrackRow = (String, i64, Option<String>, Option<String>, Option<String>,
 /// Local tracks (track_id > 0) are joined with the library; remote tracks use cached metadata.
 fn hydrate_tracks(conn: &Connection, rows: Vec<RawTrackRow>) -> Result<Vec<QueueTrack>, String> {
     let mut tracks = Vec::new();
+    
+    let local_track_ids: Vec<i64> = rows.iter().filter_map(|r| if r.1 > 0 { Some(r.1) } else { None }).collect();
+    let mut local_track_map = std::collections::HashMap::new();
+    
+    if !local_track_ids.is_empty() {
+        for chunk in local_track_ids.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let query = format!("SELECT id, title, artist, album_id, track_number, file_path FROM tracks WHERE id IN ({})", placeholders);
+            
+            let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+            let params_slice: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            
+            let track_iter = stmt.query_map(params_slice.as_slice(), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?, // id
+                    row.get::<_, String>(1)?, // title
+                    row.get::<_, Option<String>>(2)?, // artist
+                    row.get::<_, Option<i64>>(3)?, // album_id
+                    row.get::<_, Option<i64>>(4)?, // track_number
+                    row.get::<_, String>(5)?, // file_path
+                ))
+            }).map_err(|e| e.to_string())?;
+            
+            for (id, title, artist, album_id, track_number, file_path) in track_iter.flatten() {
+                local_track_map.insert(id, (title, artist, album_id, track_number, file_path));
+            }
+        }
+    }
 
     for (instance_id, track_id, stream_url, provider_id, remote_track_id, quality_hint, cached_title, cached_artist, cover_art_url, duration_ms) in rows {
         if track_id > 0 {
-            // Local track — hydrate from library
-            match conn.query_row(
-                "SELECT title, artist, album_id, track_number, file_path FROM tracks WHERE id = ?",
-                params![track_id],
-                |row| {
-                    Ok(QueueTrack {
-                        instance_id: instance_id.clone(),
-                        title: row.get(0)?,
-                        artist: row.get(1)?,
-                        track_number: row.get(3)?,
-                        source: TrackSourceInfo::Local {
-                            track_id,
-                            file_path: row.get(4)?,
-                            album_id: row.get(2)?,
-                        },
-                    })
-                },
-            ) {
-                Ok(t) => tracks.push(t),
-                Err(e) => tracing::warn!("Skipping orphaned local track {}: {}", track_id, e),
+            if let Some((title, artist, album_id, track_number, file_path)) = local_track_map.get(&track_id) {
+                tracks.push(QueueTrack {
+                    instance_id,
+                    title: title.clone(),
+                    artist: artist.clone(),
+                    track_number: *track_number,
+                    source: TrackSourceInfo::Local {
+                        track_id,
+                        file_path: file_path.clone(),
+                        album_id: *album_id,
+                    },
+                });
+            } else {
+                tracing::warn!("Skipping orphaned local track {}", track_id);
             }
         } else {
-            // Remote track — use cached metadata from DB row
-            // `remote_track_id` is required for modern remote tracks, but older DBs might not have it.
-            // If missing, we fallback to empty string (though ideally they'd just be orphaned).
             if let Some(pid) = provider_id {
                 tracks.push(QueueTrack {
                     instance_id,
