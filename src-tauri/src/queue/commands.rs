@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, State};
 /// Event payload sent to frontend when queue changes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueChangeEvent {
+    pub tracks: Vec<QueueTrack>,
     pub queue_length: usize,
     pub current_position: usize,
     pub current_track: Option<QueueTrack>,
@@ -16,6 +17,7 @@ pub struct QueueChangeEvent {
 /// Convert QueueState to event payload
 fn queue_to_event(queue: &QueueState) -> QueueChangeEvent {
     QueueChangeEvent {
+        tracks: queue.get_all().to_vec(),
         queue_length: queue.length(),
         current_position: queue.current_position,
         current_track: queue.current_track().cloned(),

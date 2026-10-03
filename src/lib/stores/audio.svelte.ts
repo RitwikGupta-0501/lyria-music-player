@@ -91,7 +91,7 @@ export class AudioStore {
     // ══════════════════════════════════════════
 
     currentQueueTrack = $derived(
-        this.currentQueueId
+        this.currentQueueId && Array.isArray(this.queue)
             ? this.queue.find((t) => t.instanceId === this.currentQueueId) || null
             : null
     );
@@ -178,7 +178,7 @@ export class AudioStore {
             "queue-changed",
             (e) => {
                 const payload = e.payload;
-                this.queue = payload.tracks;
+                this.queue = payload.tracks ?? [];
                 this.currentPosition = payload.current_position;
                 this.currentQueueId = payload.current_track?.instanceId || null;
                 this.repeatMode = payload.repeat_mode;
