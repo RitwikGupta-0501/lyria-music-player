@@ -310,7 +310,7 @@ impl ProviderManager {
 
     async fn get_or_create_plugin(&self, provider_id: &str, timeout_secs: u64) -> Result<Arc<std::sync::Mutex<Plugin>>, SandboxError> {
         {
-            let mut cache = self.plugin_cache.lock().unwrap();
+            let cache = self.plugin_cache.lock().unwrap();
             if let Some(plugin) = cache.get(provider_id) {
                 return Ok(plugin.clone());
             }
@@ -463,14 +463,14 @@ impl ProviderManager {
     }
 
     pub fn invalidate_plugin_cache(&self, provider_id: &str) {
-        let mut cache = self.plugin_cache.lock().unwrap();
+        let cache = self.plugin_cache.lock().unwrap();
         if cache.remove(provider_id).is_some() {
             tracing::warn!("Evicted failed plugin instance from cache for provider: {}", provider_id);
         }
     }
 
     pub fn clear_all_plugin_cache(&self) {
-        let mut cache = self.plugin_cache.lock().unwrap();
+        let cache = self.plugin_cache.lock().unwrap();
         cache.clear();
         tracing::info!("Evicted all active plugin instances from cache");
     }
