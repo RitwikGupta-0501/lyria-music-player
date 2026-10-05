@@ -322,10 +322,10 @@
 
     .title {
         margin: 0;
-        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 1.35rem;
-        font-weight: 500;
-        letter-spacing: -0.01em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         color: var(--echo-text-1, #eae8e3);
     }
 

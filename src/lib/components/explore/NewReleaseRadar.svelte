@@ -1,7 +1,7 @@
 <script lang="ts">
     import { exploreStore } from "$lib/stores/explore.svelte";
     import AlbumCard from "$lib/components/AlbumCard.svelte";
-    import { Sparkle, CaretLeft, CaretRight } from "phosphor-svelte";
+    import { Disc, CaretLeft, CaretRight } from "phosphor-svelte";
     import SectionHeaderSkeleton from "$lib/components/common/SectionHeaderSkeleton.svelte";
 
     let currentPage = $state(0);
@@ -37,7 +37,7 @@
     <div class="new-release-radar">
         <div class="section-header">
             <div class="header-title-group">
-                <Sparkle size={20} weight="bold" class="section-icon" />
+                <Disc size={20} weight="bold" class="section-icon" />
                 <h2>New Releases</h2>
             </div>
             {#if totalPages > 1}
@@ -103,11 +103,11 @@
     }
 
     h2 {
-        font-family: var(--echo-font-heading, serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         color: #fff;
     }
 

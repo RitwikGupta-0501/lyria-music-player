@@ -2,7 +2,7 @@
     import { onMount, onDestroy } from "svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { Play, Sparkle, Disc } from "phosphor-svelte";
+    import { Play, Disc } from "phosphor-svelte";
     import CarouselControls from "$lib/components/common/CarouselControls.svelte";
     import PillButton from "$lib/components/common/PillButton.svelte";
 
@@ -58,7 +58,7 @@
         <section 
             class="hero-spotlight-card" 
             class:is-glass={settingsStore.glassyPlayerBar}
-            aria-label="Editorial Spotlight"
+            aria-label="Featured Release"
             onmouseenter={() => isHoveringHero = true}
             onmouseleave={() => isHoveringHero = false}
         >
@@ -72,8 +72,8 @@
             <div class="hero-content">
                 <div class="hero-left">
                     <div class="hero-eyebrow">
-                        <Sparkle size={13} weight="fill" />
-                        <span>EDITORIAL SPOTLIGHT</span>
+                        <Disc size={13} weight="fill" />
+                        <span>FEATURED RELEASE</span>
                     </div>
                     <h1 class="hero-title">{spot.title}</h1>
                     <p class="hero-artist">{spot.artist}</p>
@@ -197,10 +197,10 @@
         letter-spacing: 0.08em;
     }
     .hero-title {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--lyria-font-heading);
         font-size: 2.1rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         line-height: 1.15;
         margin: 0;
         color: #FFFFFF;

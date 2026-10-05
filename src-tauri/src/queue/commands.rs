@@ -80,8 +80,6 @@ pub async fn set_queue(
     Ok(event)
 }
 
-/// Add single track to end of queue
-
 /// Remove track from queue
 #[tauri::command]
 pub async fn remove_from_queue(
@@ -95,9 +93,8 @@ pub async fn remove_from_queue(
         err
     })?;
 
-    queue.remove_track(&instance_id).map_err(|e| {
-        telemetry::record_error("remove_from_queue", &e);
-        e
+    queue.remove_track(&instance_id).inspect_err(|e| {
+        telemetry::record_error("remove_from_queue", e);
     })?;
 
     broadcast_queue_change(&app_handle, &state, &queue);

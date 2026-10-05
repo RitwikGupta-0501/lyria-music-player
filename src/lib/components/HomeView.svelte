@@ -3,7 +3,7 @@
     import { homeStore } from "$lib/stores/home.svelte";
     import { flagsStore } from "$lib/stores/flags.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
-    import { ArrowClockwise, Sparkle, Compass, FolderOpen, Play } from "phosphor-svelte";
+    import { ArrowClockwise, Compass, FolderOpen, Play } from "phosphor-svelte";
 
     import QuickPicksGrid from "./home/QuickPicksGrid.svelte";
     import DailyDiscoverCarousel from "./home/DailyDiscoverCarousel.svelte";
@@ -18,13 +18,6 @@
     onMount(() => {
         homeStore.init();
     });
-
-    function getGreeting(): string {
-        const hour = new Date().getHours();
-        if (hour < 12) return "Good morning";
-        if (hour < 18) return "Good afternoon";
-        return "Good evening";
-    }
 </script>
 
 <div class="home-view">
@@ -32,8 +25,7 @@
     <header class="home-header">
         <div class="header-top">
             <div class="header-left">
-                <h1>{getGreeting()}</h1>
-                
+                <h1>Listen Now</h1>
             </div>
             <div class="header-actions">
                 <button 
@@ -67,8 +59,7 @@
     {#if homeStore.phase1Loaded && !homeStore.hasTelemetry}
         <section class="welcome-hero-card">
             <div class="welcome-badge">
-                <Sparkle size={16} weight="fill" />
-                <span>Algorithmic Cockpit</span>
+                <span>LOCAL & FEDERATED AUDIO</span>
             </div>
             <h2>Welcome to Lyria</h2>
             <p>Start playing music from your local library or explore global releases. Lyria learns from your unique listening telemetry and generates dynamic daily mixes automatically.</p>
@@ -171,11 +162,11 @@
 
 <style>
     .home-view {
-        padding: 3rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
-        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
+        padding: 2.5rem 2.5rem var(--player-clearance, 7.5rem) 2.5rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 7.5rem);
         display: flex;
         flex-direction: column;
-        gap: 3rem;
+        gap: 2.75rem;
         width: 100%;
         max-width: 100%;
         min-width: 0;
@@ -184,7 +175,7 @@
 
     @media (max-width: 900px) {
         .home-view {
-            padding: 1.5rem 1.25rem 10rem 1.25rem;
+            padding: 1.5rem 1.25rem 7.5rem 1.25rem;
             gap: 2rem;
         }
     }
@@ -292,10 +283,10 @@
     }
 
     .home-header h1 {
-        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 2.25rem;
-        font-weight: 500;
-        letter-spacing: -0.02em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         line-height: 1.25;
         margin: 0;
         color: var(--echo-text-1);

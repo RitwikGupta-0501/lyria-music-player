@@ -506,12 +506,12 @@
     }
 
     .pill-body.is-glass .song-time {
-        color: rgba(255, 255, 255, 0.45);
+        color: var(--echo-text-3);
         transition: color 0.25s ease;
     }
 
     .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .song-time {
-        color: rgba(255, 255, 255, 0.70);
+        color: var(--echo-text-2);
     }
 
     .pill-body.is-glass .vol-track {

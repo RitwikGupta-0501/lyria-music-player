@@ -146,11 +146,11 @@
     }
 
     .section-title-row h2 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         color: #fff;
     }
 
@@ -329,12 +329,13 @@
     }
 
     .radio-title {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.15rem;
         font-weight: 600;
         margin: 0;
         color: #fff;
         line-height: 1.25;
+        letter-spacing: -0.02em;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         line-clamp: 2;

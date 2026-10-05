@@ -145,11 +145,11 @@
     }
 
     .section-title-row h2 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         color: #fff;
     }
 
@@ -272,13 +272,13 @@
     }
 
     .horizon-tagline {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.55rem;
         font-weight: 600;
         line-height: 1.25;
         margin: 0;
         color: #fff;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
     }
 
     .horizon-desc {

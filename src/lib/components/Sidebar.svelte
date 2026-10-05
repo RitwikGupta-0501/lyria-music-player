@@ -6,8 +6,6 @@
     let { activeView = $bindable("albums") } = $props<{ activeView?: string }>();
     
     let sidebarOpen = $state(false);
-    let isMoving = $state(false);
-    let moveTimeout: ReturnType<typeof setTimeout> | undefined;
 
     function toggleSidebar() {
         sidebarOpen = !sidebarOpen;
@@ -28,7 +26,6 @@
 
     let navButtonRefs: HTMLElement[] = $state([]);
     let pillTop = $state(0);
-    let prevIndex = $state(2);
 
     let activeIndex = $derived.by(() => {
         return primaryNav.findIndex(item => {
@@ -36,14 +33,6 @@
             return activeView === item.id;
         });
     });
-
-    function triggerMove() {
-        isMoving = true;
-        if (moveTimeout) clearTimeout(moveTimeout);
-        moveTimeout = setTimeout(() => {
-            isMoving = false;
-        }, 400);
-    }
 
     $effect(() => {
         if (activeIndex !== -1) {
@@ -53,17 +42,10 @@
             } else {
                 pillTop = activeIndex * 54;
             }
-            if (activeIndex !== prevIndex) {
-                triggerMove();
-                prevIndex = activeIndex;
-            }
         }
     });
 
     function selectTab(id: string, index: number) {
-        if (activeIndex !== index) {
-            triggerMove();
-        }
         if (id === "library") {
             activeView = "albums";
         } else {
@@ -104,13 +86,8 @@
                 <div 
                     class="sliding-glass-pill" 
                     class:is-glass={settingsStore.glassyPlayerBar}
-                    class:is-moving={isMoving}
-                    style="transform: translateY({pillTop}px) {isMoving ? 'scaleY(1.12) scaleX(0.97)' : 'scale(1)'};"
+                    style="transform: translateY({pillTop}px);"
                 >
-                    {#if settingsStore.glassyPlayerBar}
-                        <!-- 1. Internal Refractive Specular Catch-Light -->
-                        <div class="specular-top-highlight" aria-hidden="true"></div>
-                    {/if}
                 </div>
             {/if}
 
@@ -232,7 +209,7 @@
         width: 40px;
         height: 40px;
         flex-shrink: 0;
-        border-radius: 1rem;
+        border-radius: var(--radius-md, 8px);
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(255, 255, 255, 0.04);
         color: #e4e4e7;
@@ -291,13 +268,12 @@
     }
 
     .wordmark {
-        font-family: var(--echo-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 1.15rem;
-        font-style: italic;
-        font-weight: 500;
+        font-weight: 600;
         color: #f4f4f5;
         white-space: nowrap;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.025em;
     }
 
     /* Navigation Core */
@@ -318,33 +294,31 @@
         left: 0;
         width: 100%;
         height: 48px;
-        border-radius: 1rem;
+        border-radius: var(--radius-md, 8px);
         pointer-events: none;
         z-index: 1;
         background: rgba(226, 169, 115, 0.12);
-        border: 1px solid rgba(226, 169, 115, 0.3);
+        border: 1px solid rgba(226, 169, 115, 0.25);
         transition: 
-            transform 0.24s cubic-bezier(0.16, 1, 0.3, 1),
-            opacity 0.15s ease;
+            transform 0.16s cubic-bezier(0.16, 1, 0.3, 1),
+            opacity 0.12s ease;
     }
 
     .sliding-glass-pill.is-glass {
         background: linear-gradient(
             180deg,
-            rgba(226, 169, 115, 0.28) 0%,
-            rgba(205, 148, 92, 0.16) 50%,
-            rgba(175, 120, 70, 0.20) 100%
+            rgba(226, 169, 115, 0.24) 0%,
+            rgba(205, 148, 92, 0.14) 50%,
+            rgba(175, 120, 70, 0.18) 100%
         );
-        border: 1.5px solid rgba(226, 169, 115, 0.45);
-        border-top-color: rgba(255, 230, 195, 0.85);
-        border-bottom-color: rgba(160, 105, 55, 0.30);
-        backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
-        -webkit-backdrop-filter: blur(12px) saturate(130%) brightness(1.08);
+        border: 1px solid rgba(226, 169, 115, 0.35);
+        border-top-color: rgba(255, 230, 195, 0.65);
+        border-bottom-color: rgba(160, 105, 55, 0.25);
+        backdrop-filter: blur(12px) saturate(130%) brightness(1.04);
+        -webkit-backdrop-filter: blur(12px) saturate(130%) brightness(1.04);
         box-shadow: 
-            inset 0 1px 2px 0 rgba(255, 235, 205, 0.35),
-            inset 0 -1px 2px 0 rgba(140, 95, 50, 0.25),
-            0 4px 20px rgba(226, 169, 115, 0.20),
-            0 8px 24px -4px rgba(0, 0, 0, 0.5);
+            inset 0 1px 1px 0 rgba(255, 235, 205, 0.25),
+            0 4px 16px rgba(0, 0, 0, 0.4);
     }
 
     /* 1. Internal Refractive Specular Catch-Light Line - hidden to avoid flat line clipping on pill */
@@ -361,7 +335,7 @@
         align-items: center;
         gap: 0.875rem;
         padding: 0 0.875rem;
-        border-radius: 1rem;
+        border-radius: var(--radius-md, 8px);
         border: 1px solid transparent;
         background: transparent;
         color: #a1a1aa;
@@ -397,7 +371,7 @@
     .hover-ghost-glow {
         position: absolute;
         inset: 0;
-        border-radius: 1rem;
+        border-radius: var(--radius-md, 8px);
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid rgba(255, 255, 255, 0.05);
         opacity: 0;
@@ -464,7 +438,7 @@
     .active-pill.settings-pill {
         position: absolute;
         inset: 0;
-        border-radius: 1rem;
+        border-radius: var(--radius-md, 8px);
         background: rgba(226, 169, 115, 0.12);
         border: 1px solid rgba(226, 169, 115, 0.3);
         pointer-events: none;

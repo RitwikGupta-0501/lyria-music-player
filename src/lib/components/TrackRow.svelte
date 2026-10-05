@@ -268,7 +268,7 @@
         align-items: center;
         justify-content: center;
         background: linear-gradient(135deg, rgba(181, 142, 98, 0.2), rgba(181, 142, 98, 0.05));
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-weight: 700;
         font-size: 1.1rem;
         color: var(--echo-primary, #B58E62);

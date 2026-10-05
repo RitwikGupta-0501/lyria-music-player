@@ -95,10 +95,10 @@
     }
 
     .settings-title {
-        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 2.25rem;
-        font-weight: 500;
-        letter-spacing: -0.02em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         line-height: 1.25;
         color: var(--echo-text-1);
         margin: 0;
@@ -120,7 +120,7 @@
         font-weight: 500;
         text-align: left;
         padding: 0.6rem 0.8rem;
-        border-radius: 6px;
+        border-radius: var(--radius-sm, 6px);
         cursor: pointer;
         transition: all 0.2s ease;
         position: relative;
@@ -151,8 +151,8 @@
     .settings-content {
         flex: 1;
         overflow-y: auto;
-        padding: 3rem 4rem var(--player-clearance, 10rem) 4rem;
-        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
+        padding: 3rem 4rem var(--player-clearance, 7.5rem) 4rem;
+        scroll-padding-bottom: var(--player-scroll-padding, 7.5rem);
         display: flex;
         flex-direction: column;
     }

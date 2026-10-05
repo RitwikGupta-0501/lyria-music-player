@@ -154,7 +154,7 @@
     }
 
     .avatar-letter {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 2.2rem;
         font-weight: 700;
         color: #B58E62;
