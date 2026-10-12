@@ -1,8 +1,18 @@
 <script lang="ts">
     import { invoke } from "@tauri-apps/api/core";
     import { settingsStore } from "$lib/stores/settings.svelte";
+    import { lyricsStore } from "$lib/stores/lyrics.svelte";
     import CustomSelect from "$lib/components/ui/CustomSelect.svelte";
     import { onMount } from "svelte";
+
+    let lyricsProviderOptions = $derived([
+        { value: "auto", label: "Automatic (Priority Cascade)" },
+        ...lyricsStore.providers.map((p) => ({
+            value: p.id,
+            label: p.name,
+        })),
+    ]);
+
 
     const behaviorOptions = [
         { value: "interrupt", label: "Play Next & Switch" },
@@ -157,7 +167,32 @@
             onChange={(val) => settingsStore.setDefaultRemoteProvider(val)}
         />
     </div>
+
+    <h3 class="section-title" style="margin-top: 1.5rem;">Lyrics & Synchronization</h3>
+
+    <div class="setting-row">
+        <div class="setting-info">
+            <p class="setting-label">Preferred Lyrics Provider</p>
+            <p class="setting-desc">Choose which extension takes precedence when fetching synchronized lyrics.</p>
+        </div>
+        <CustomSelect
+            options={lyricsProviderOptions}
+            value={lyricsStore.preferredProvider || "auto"}
+            onChange={(val) => lyricsStore.setPreferredProvider(val === "auto" ? null : val)}
+        />
+    </div>
+
+    <div class="setting-row">
+        <div class="setting-info">
+            <p class="setting-label">Clear Lyrics Cache</p>
+            <p class="setting-desc">Prune cached lyrics stored in the local SQLite database to force re-fetching from providers.</p>
+        </div>
+        <button class="action-btn" onclick={() => lyricsStore.clearCache()}>
+            Clear Cache
+        </button>
+    </div>
 </section>
+
 
 <style>
     .settings-section {
@@ -237,5 +272,21 @@
     input:checked + .slider:before {
         transform: translateX(20px);
         background-color: var(--echo-void);
+    }
+    .action-btn {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--echo-border-medium, rgba(255, 255, 255, 0.1));
+        color: var(--echo-text-1, #eee);
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        flex-shrink: 0;
+    }
+    .action-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
     }
 </style>

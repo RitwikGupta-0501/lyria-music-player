@@ -2,10 +2,19 @@
     import { fade } from "svelte/transition";
     import { X } from "phosphor-svelte";
 
-    let { title, isOpen, onClose, children } = $props<{
+    let { 
+        title, 
+        isOpen, 
+        onClose, 
+        tabs = [], 
+        activeTab = $bindable(), 
+        children 
+    } = $props<{
         title: string;
         isOpen: boolean;
         onClose: () => void;
+        tabs?: Array<{ id: string; label: string }>;
+        activeTab?: string;
         children?: import("svelte").Snippet;
     }>();
 </script>
@@ -13,19 +22,34 @@
 <aside class="right-drawer" class:is-open={isOpen}>
     <div class="drawer-content">
         <div class="drawer-header">
-            <h2 class="drawer-title">{title}</h2>
+            {#if tabs && tabs.length > 0}
+                <div class="drawer-tabs">
+                    {#each tabs as tab}
+                        <button
+                            class="tab-btn"
+                            class:active={activeTab === tab.id}
+                            onclick={() => (activeTab = tab.id)}
+                        >
+                            {tab.label}
+                        </button>
+                    {/each}
+                </div>
+            {:else}
+                <h2 class="drawer-title">{title}</h2>
+            {/if}
             <button class="close-btn" onclick={onClose} aria-label="Close">
                 <X size={20} weight="bold" />
             </button>
         </div>
 
         <div class="drawer-body">
-            {#key title}
+            {#key activeTab || title}
                 <div transition:fade={{ duration: 150 }} style="height: 100%;">
                     {@render children?.()}
                 </div>
             {/key}
         </div>
+
     </div>
 </aside>
 
@@ -69,6 +93,42 @@
         text-transform: uppercase;
         color: var(--echo-primary-dark);
         margin: 0;
+    }
+
+    .drawer-tabs {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 0.25rem;
+        border-radius: 9999px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tab-btn {
+        background: transparent;
+        border: none;
+        padding: 0.35rem 0.85rem;
+        border-radius: 9999px;
+        font-family: var(--echo-font-body);
+        font-size: 0.8rem;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--echo-text-2, #888);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .tab-btn:hover {
+        color: var(--echo-text-1, #eee);
+    }
+
+    .tab-btn.active {
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        font-weight: 600;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     }
 
     .close-btn {

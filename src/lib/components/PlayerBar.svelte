@@ -15,13 +15,21 @@
         ListNumbers,
         CornersOut,
         Heart,
+        MicrophoneStage,
     } from "phosphor-svelte";
     
-    let { queueOpen = $bindable(false), fullScreenOpen = $bindable(false) } =
-        $props<{
-            queueOpen?: boolean;
-            fullScreenOpen?: boolean;
-        }>();
+    let { 
+        queueOpen = $bindable(false), 
+        fullScreenOpen = $bindable(false),
+        lyricsOpen = $bindable(false),
+        onToggleLyrics,
+    } = $props<{
+        queueOpen?: boolean;
+        fullScreenOpen?: boolean;
+        lyricsOpen?: boolean;
+        onToggleLyrics?: () => void;
+    }>();
+
 
     /* ── Album art for now-playing track ── */
     let playerArtUrl = $state<string | null>(null);
@@ -283,6 +291,17 @@
                     title="Fullscreen Player"
                 >
                     <CornersOut size={16} weight="bold" />
+                </button>
+                <button
+                    class="ctrl-btn"
+                    class:active={lyricsOpen}
+                    onclick={() => {
+                        if (onToggleLyrics) onToggleLyrics();
+                        else lyricsOpen = !lyricsOpen;
+                    }}
+                    title="Lyrics"
+                >
+                    <MicrophoneStage size={16} weight={lyricsOpen ? "fill" : "bold"} />
                 </button>
                 <button
                     class="ctrl-btn"

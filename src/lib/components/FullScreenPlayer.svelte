@@ -1,8 +1,9 @@
 <script lang="ts">
     import { audioStore } from "$lib/stores/audio.svelte";
     import { libraryStore } from "$lib/stores/library.svelte";
-    import { CornersIn, Play, Pause, SkipBack, SkipForward } from "phosphor-svelte";
+    import { CornersIn, Play, Pause, SkipBack, SkipForward, MicrophoneStage } from "phosphor-svelte";
     import { fade } from "svelte/transition";
+    import LyricsView from "$lib/components/lyrics/LyricsView.svelte";
 
     let { 
         isOpen = $bindable(false),
@@ -13,6 +14,7 @@
     }>();
 
     let artUrl = $state<string | null>(null);
+    let showLyrics = $state(false);
 
     $effect(() => {
         const track = audioStore.currentQueueTrack;
@@ -52,47 +54,64 @@
         <div class="bg-dim"></div>
 
         <div class="fs-header">
-            <button class="icon-btn" onclick={() => isOpen = false} title="Exit Fullscreen">
+            <button 
+                class="icon-btn" 
+                class:active={showLyrics} 
+                onclick={() => (showLyrics = !showLyrics)} 
+                title={showLyrics ? "Hide Lyrics" : "Show Lyrics"}
+            >
+                <MicrophoneStage size={24} weight={showLyrics ? "fill" : "bold"} />
+            </button>
+            <button class="icon-btn" onclick={() => (isOpen = false)} title="Exit Fullscreen">
                 <CornersIn size={24} weight="bold" />
             </button>
         </div>
 
-        <div class="fs-content">
-            <div class="fs-art-container">
-                {#if artUrl}
-                    <img src={artUrl} alt="Album Art" class="fs-art shadow-xl" />
-                {:else}
-                    <div class="fs-art fs-placeholder shadow-xl">
-                        <div class="record-ring"></div>
+        <div class="fs-content" class:with-lyrics={showLyrics}>
+            <div class="fs-media-column">
+                <div class="fs-art-container">
+                    {#if artUrl}
+                        <img src={artUrl} alt="Album Art" class="fs-art shadow-xl" />
+                    {:else}
+                        <div class="fs-art fs-placeholder shadow-xl">
+                            <div class="record-ring"></div>
+                        </div>
+                    {/if}
+                </div>
+
+                <div class="fs-controls">
+                    <div class="fs-info">
+                        <h1 class="fs-title">{audioStore.currentQueueTrack?.title || audioStore.currentTrack || "Not Playing"}</h1>
+                        <p class="fs-artist">{audioStore.currentQueueTrack?.artist || "Unknown Artist"}</p>
                     </div>
-                {/if}
-            </div>
 
-            <div class="fs-controls">
-                <div class="fs-info">
-                    <h1 class="fs-title">{audioStore.currentQueueTrack?.title || audioStore.currentTrack || "Not Playing"}</h1>
-                    <p class="fs-artist">{audioStore.currentQueueTrack?.artist || "Unknown Artist"}</p>
-                </div>
-
-                <div class="fs-buttons">
-                    <button class="icon-btn" onclick={() => audioStore.previous()}>
-                        <SkipBack size={32} weight="fill" />
-                    </button>
-                    <button class="play-btn" onclick={togglePlay}>
-                        {#if audioStore.playbackState === "Playing"}
-                            <Pause size={40} weight="fill" color="#000" />
-                        {:else}
-                            <Play size={40} weight="fill" color="#000" />
-                        {/if}
-                    </button>
-                    <button class="icon-btn" onclick={() => audioStore.next()}>
-                        <SkipForward size={32} weight="fill" />
-                    </button>
+                    <div class="fs-buttons">
+                        <button class="icon-btn" onclick={() => audioStore.previous()}>
+                            <SkipBack size={32} weight="fill" />
+                        </button>
+                        <button class="play-btn" onclick={togglePlay}>
+                            {#if audioStore.playbackState === "Playing"}
+                                <Pause size={40} weight="fill" color="#000" />
+                            {:else}
+                                <Play size={40} weight="fill" color="#000" />
+                            {/if}
+                        </button>
+                        <button class="icon-btn" onclick={() => audioStore.next()}>
+                            <SkipForward size={32} weight="fill" />
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            {#if showLyrics}
+                <div class="fs-lyrics-column" transition:fade={{ duration: 200 }}>
+                    <LyricsView variant="fullscreen" />
+                </div>
+            {/if}
         </div>
     </div>
 {/if}
+
 
 <style>
     .fullscreen-overlay {
@@ -126,6 +145,8 @@
         padding: 2rem;
         display: flex;
         justify-content: flex-end;
+        align-items: center;
+        gap: 1rem;
     }
 
     .fs-content {
@@ -136,6 +157,34 @@
         justify-content: center;
         padding: 2rem;
         gap: 4rem;
+    }
+
+    .fs-content.with-lyrics {
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) 1fr;
+        max-width: 1250px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 0 3rem;
+        gap: 4rem;
+        align-items: center;
+        height: calc(100vh - 130px);
+        overflow: hidden;
+    }
+
+    .fs-media-column {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2.5rem;
+    }
+
+    .fs-lyrics-column {
+        height: 100%;
+        max-height: 75vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
     }
 
     .fs-art-container {
