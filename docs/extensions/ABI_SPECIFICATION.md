@@ -118,6 +118,7 @@ All parameters and return values are serialized as JSON strings unless otherwise
 | `browse_artist` | `explore` | `String` (artist ID) | `String` (`ArtistDetailResult`) | Fetches artist details, discography, top tracks, and related artists. |
 | `get_related` | `explore` | `String` (track ID) | `String` (`Vec<TrackResult>`) | Returns related/recommended tracks for a given track seed. |
 | `get_radio` | `explore` | `String` (track ID or continuation) | `String` (`RadioStreamResultV1`) | Returns infinite radio stream tracks for algorithmic playback. |
+| `get_lyrics` | `lyrics` | `String` (`LyricsQuery`) | `String` (`LyricsResult` or raw LRC) | Fetches synced or plain lyrics for a track query. |
 | `on_playback_event` | `telemetry_reporting` | `String` (`PlaybackTelemetryEventV1`) | `String` (`"ok"`) | Receives telemetry events when a track completes or updates playback milestones. |
 
 ---

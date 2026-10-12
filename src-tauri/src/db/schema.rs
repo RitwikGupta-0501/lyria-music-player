@@ -347,6 +347,23 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         [],
     )?;
 
+    // Lyrics Cache for Sandboxed Extensions and Offline Playback
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lyrics_cache (
+            canonical_key TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            format TEXT NOT NULL,
+            lyrics_json TEXT NOT NULL,
+            instrumental INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(canonical_key, provider_id)
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lyrics_cache_canonical ON lyrics_cache(canonical_key)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lyrics_cache_provider ON lyrics_cache(provider_id)", [])?;
+
     // Foreign Key Cascade Optimization Indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track ON playlist_tracks(track_id)", [])?;

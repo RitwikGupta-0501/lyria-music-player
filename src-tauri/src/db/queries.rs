@@ -543,6 +543,7 @@ pub fn delete_provider(conn: &Connection, provider_id: &str) -> Result<Option<St
 
     conn.execute("DELETE FROM providers WHERE id = ?1", [provider_id]).map_err(|e| e.to_string())?;
     let _ = conn.execute("DELETE FROM extension_metrics WHERE provider_id = ?1", [provider_id]);
+    let _ = conn.execute("DELETE FROM lyrics_cache WHERE provider_id = ?1", [provider_id]);
 
     Ok(file_path)
 }
@@ -2312,4 +2313,76 @@ pub fn get_markov_autoplay_candidate(
     }
 
     Ok(Some(scored.last().unwrap().0.clone()))
+}
+
+pub fn get_cached_lyrics(
+    conn: &Connection,
+    canonical_key: &str,
+    provider_id: Option<&str>,
+) -> Result<Option<crate::lyrics::LyricsResult>, String> {
+    if let Some(pid) = provider_id {
+        let mut stmt = conn.prepare_cached(
+            "SELECT lyrics_json FROM lyrics_cache WHERE canonical_key = ?1 AND provider_id = ?2 LIMIT 1",
+        ).map_err(|e| e.to_string())?;
+        let mut rows = stmt.query(rusqlite::params![canonical_key, pid]).map_err(|e| e.to_string())?;
+        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let json_str: String = row.get(0).map_err(|e| e.to_string())?;
+            if let Ok(lyrics) = serde_json::from_str(&json_str) {
+                return Ok(Some(lyrics));
+            }
+        }
+        Ok(None)
+    } else {
+        let mut stmt = conn.prepare_cached(
+            "SELECT lyrics_json FROM lyrics_cache WHERE canonical_key = ?1 ORDER BY updated_at DESC LIMIT 1",
+        ).map_err(|e| e.to_string())?;
+        let mut rows = stmt.query(rusqlite::params![canonical_key]).map_err(|e| e.to_string())?;
+        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let json_str: String = row.get(0).map_err(|e| e.to_string())?;
+            if let Ok(lyrics) = serde_json::from_str(&json_str) {
+                return Ok(Some(lyrics));
+            }
+        }
+        Ok(None)
+    }
+}
+
+pub fn save_cached_lyrics(
+    conn: &Connection,
+    canonical_key: &str,
+    lyrics: &crate::lyrics::LyricsResult,
+) -> Result<(), String> {
+    let lyrics_json = serde_json::to_string(lyrics).map_err(|e| e.to_string())?;
+    let format_str = match lyrics.format {
+        crate::lyrics::LyricsFormat::Synced => "synced",
+        crate::lyrics::LyricsFormat::Plain => "plain",
+    };
+    let instrumental_int = if lyrics.instrumental { 1 } else { 0 };
+
+    conn.execute(
+        "INSERT INTO lyrics_cache (canonical_key, provider_id, format, lyrics_json, instrumental, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+         ON CONFLICT(canonical_key, provider_id) DO UPDATE SET
+            format = excluded.format,
+            lyrics_json = excluded.lyrics_json,
+            instrumental = excluded.instrumental,
+            updated_at = CURRENT_TIMESTAMP",
+        rusqlite::params![canonical_key, lyrics.provider_id, format_str, lyrics_json, instrumental_int],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+pub fn clear_lyrics_cache(
+    conn: &Connection,
+    canonical_key: Option<&str>,
+) -> Result<(), String> {
+    if let Some(key) = canonical_key {
+        conn.execute("DELETE FROM lyrics_cache WHERE canonical_key = ?1", rusqlite::params![key])
+            .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute("DELETE FROM lyrics_cache", [])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

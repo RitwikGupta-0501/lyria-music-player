@@ -16,6 +16,7 @@ pub mod telemetry;
 pub mod feature_flags;
 pub mod sandbox;
 pub mod logger;
+pub mod lyrics;
 
 use providers::{ProviderManager, TrackResult};
 use audio::AudioCommand;
@@ -57,6 +58,7 @@ pub struct AppState {
     pub queue: std::sync::Mutex<QueueState>,
     pub reqwest_client: reqwest::Client,
     pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
+    pub lyrics_manager: Arc<lyrics::LyricsManager>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -546,6 +548,38 @@ async fn save_provider_settings(
     
     rx.await.map_err(|e| e.to_string())??;
     Ok(())
+}
+
+#[tauri::command]
+async fn get_lyrics(
+    state: State<'_, AppState>,
+    query: lyrics::models::LyricsQuery,
+    provider_override: Option<String>,
+) -> Result<Option<lyrics::models::LyricsResult>, String> {
+    state.lyrics_manager.get_lyrics(&query, provider_override.as_deref()).await
+}
+
+#[tauri::command]
+async fn get_lyrics_providers(
+    state: State<'_, AppState>,
+) -> Result<Vec<lyrics::models::LyricsProviderMeta>, String> {
+    state.lyrics_manager.get_lyrics_providers().await
+}
+
+#[tauri::command]
+async fn set_preferred_lyrics_provider(
+    state: State<'_, AppState>,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    state.lyrics_manager.set_preferred_lyrics_provider(provider_id).await
+}
+
+#[tauri::command]
+async fn clear_lyrics_cache(
+    state: State<'_, AppState>,
+    canonical_key: Option<String>,
+) -> Result<(), String> {
+    state.lyrics_manager.clear_cache(canonical_key).await
 }
 
 
@@ -1731,6 +1765,7 @@ pub fn run() {
             }
 
             let provider_manager = Arc::new(ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone()));
+            let lyrics_manager = Arc::new(lyrics::LyricsManager::new(provider_manager.clone(), db_tx.clone()));
             let recommendation_compiler = Arc::new(providers::recommendations::RecommendationCompiler::new(provider_manager.clone(), db_path.clone()));
             let in_flight_recommendation_cancel = Arc::new(std::sync::Mutex::new(None));
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
@@ -1746,6 +1781,7 @@ pub fn run() {
                 queue: std::sync::Mutex::new(recovered_queue),
                 reqwest_client,
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
+                lyrics_manager,
             });
 
             // Automatic background startup provider discovery, sync, and warmup
@@ -1881,6 +1917,11 @@ pub fn run() {
             logger::client_log,
             logger::set_log_collection_enabled,
             logger::get_log_collection_enabled,
+            // Lyrics commands
+            get_lyrics,
+            get_lyrics_providers,
+            set_preferred_lyrics_provider,
+            clear_lyrics_cache,
         ]);
 
     builder

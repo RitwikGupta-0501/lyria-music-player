@@ -60,7 +60,7 @@ Capabilities declare which APIs and behaviors the extension participates in. The
 | `explore` | Browse & discovery feeds | The host registers the extension with the Home/Explore page module aggregator (`get_modules`, `fetch_module`, `browse_album`, `browse_artist`, `get_related`, `get_radio`). |
 | `url_resolver` | Arbitrary URL translation | Allows the extension to intercept external URLs (e.g., pasted links) and resolve them to playable audio streams via `resolve_url`. |
 | `telemetry_reporting` | Analytics & Scrobbling | **Security-critical**: Enables the `host_telemetry_request` host function. If an extension attempts to send telemetry without this capability, requests are blocked by the host with `PermissionDenied`. |
-| `lyrics` *(planned)* | Synchronized / plain lyrics | Registers the provider for real-time and synced LRC lyrics resolution. |
+| `lyrics` | Synchronized & plain lyrics | Registers the provider with `LyricsManager` for line-by-line synced LRC and plain-text lyrics resolution with fallback chains. |
 | `equalizer_presets` *(planned)*| Parametric EQ profiles | Exposes custom DSP/EQ presets to the audio engine. |
 
 > [!IMPORTANT]

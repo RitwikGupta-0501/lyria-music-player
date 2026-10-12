@@ -198,6 +198,20 @@ pub enum DbRequest {
         queue_state: crate::queue::QueueState,
         resp: oneshot::Sender<Result<(), String>>,
     },
+    GetCachedLyrics {
+        canonical_key: String,
+        provider_id: Option<String>,
+        resp: oneshot::Sender<Result<Option<crate::lyrics::LyricsResult>, String>>,
+    },
+    SaveCachedLyrics {
+        canonical_key: String,
+        lyrics: crate::lyrics::LyricsResult,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    ClearLyricsCache {
+        canonical_key: Option<String>,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
     Quit,
 }
 
@@ -466,6 +480,18 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::SaveQueueState { queue_state, resp } => {
                     let res = crate::queue::persistence::save_queue_state(&mut conn, &queue_state).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
+                    let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveCachedLyrics { canonical_key, lyrics, resp } => {
+                    let res = queries::save_cached_lyrics(&conn, &canonical_key, &lyrics);
+                    let _ = resp.send(res);
+                }
+                DbRequest::ClearLyricsCache { canonical_key, resp } => {
+                    let res = queries::clear_lyrics_cache(&conn, canonical_key.as_deref());
                     let _ = resp.send(res);
                 }
                 DbRequest::Quit => {
