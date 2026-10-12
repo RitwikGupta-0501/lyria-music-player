@@ -349,6 +349,51 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         [],
     )?;
 
+    // Downloads & Offline Manager (Phase 2)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS downloads (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            album TEXT,
+            total_items INTEGER NOT NULL DEFAULT 1,
+            completed_items INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'queued',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_downloads_created_at ON downloads(created_at DESC)", [])?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS download_items (
+            id TEXT PRIMARY KEY,
+            download_id TEXT NOT NULL,
+            track_title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            album TEXT,
+            track_number INTEGER,
+            provider_id TEXT,
+            download_url TEXT,
+            dest_file_path TEXT,
+            temp_file_path TEXT,
+            total_bytes INTEGER DEFAULT 0,
+            downloaded_bytes INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'queued',
+            error_message TEXT,
+            retry_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(download_id) REFERENCES downloads(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_download_items_download_id ON download_items(download_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_download_items_status ON download_items(status)", [])?;
     // Lyrics Cache for Sandboxed Extensions and Offline Playback
     conn.execute(
         "CREATE TABLE IF NOT EXISTS lyrics_cache (

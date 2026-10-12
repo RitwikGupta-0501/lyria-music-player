@@ -16,6 +16,7 @@ pub mod telemetry;
 pub mod feature_flags;
 pub mod sandbox;
 pub mod logger;
+pub mod download;
 pub mod lyrics;
 
 use providers::{ProviderManager, TrackResult};
@@ -59,6 +60,8 @@ pub struct AppState {
     pub queue: std::sync::Mutex<QueueState>,
     pub reqwest_client: reqwest::Client,
     pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
+    pub download_resolver: Arc<download::DownloadResolver>,
+    pub download_manager: Arc<download::DownloadManager>,
     pub lyrics_manager: Arc<lyrics::LyricsManager>,
 }
 
@@ -1774,6 +1777,16 @@ pub fn run() {
             let recommendation_compiler = Arc::new(providers::recommendations::RecommendationCompiler::new(provider_manager.clone(), db_path.clone()));
             let in_flight_recommendation_cancel = Arc::new(std::sync::Mutex::new(None));
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
+            let download_circuit_breaker = Arc::new(download::CircuitBreaker::default());
+            let download_resolver = Arc::new(download::DownloadResolver::new(download_circuit_breaker));
+            let download_manager = Arc::new(download::DownloadManager::new(
+                handle.clone(),
+                reqwest_client.clone(),
+                db_tx.clone(),
+                provider_manager.clone(),
+                download_resolver.clone(),
+                3,
+            ));
 
             app.manage(AppState {
                 audio_tx: std::sync::Mutex::new(audio_tx),
@@ -1786,6 +1799,8 @@ pub fn run() {
                 queue: std::sync::Mutex::new(recovered_queue),
                 reqwest_client,
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
+                download_resolver,
+                download_manager,
                 lyrics_manager,
             });
 
@@ -1922,6 +1937,16 @@ pub fn run() {
             logger::client_log,
             logger::set_log_collection_enabled,
             logger::get_log_collection_enabled,
+            // Download commands (Phase 4)
+            download::commands::download_track,
+            download::commands::download_album,
+            download::commands::pause_download,
+            download::commands::resume_download,
+            download::commands::cancel_download,
+            download::commands::get_download_queue,
+            download::commands::get_download_providers,
+            download::commands::set_preferred_download_provider,
+            download::commands::get_preferred_download_provider,
             // Lyrics commands
             get_lyrics,
             get_lyrics_providers,

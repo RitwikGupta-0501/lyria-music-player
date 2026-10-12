@@ -200,6 +200,41 @@ pub enum DbRequest {
         queue_state: crate::queue::QueueState,
         resp: oneshot::Sender<Result<(), String>>,
     },
+    EnqueueDownloadJob {
+        download: queries::DownloadRecord,
+        items: Vec<queries::DownloadItemRecord>,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    UpdateDownloadItemProgress {
+        item_id: String,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+    },
+    SetDownloadItemStatus {
+        item_id: String,
+        status: String,
+        error_message: Option<String>,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    CompleteDownloadItem {
+        item_id: String,
+        local_path: String,
+        track_data: TrackData,
+        resp: oneshot::Sender<Result<i64, String>>,
+    },
+    SetDownloadJobStatus {
+        download_id: String,
+        status: String,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    GetDownloadQueue {
+        resp: oneshot::Sender<Result<Vec<queries::DownloadJobSummary>, String>>,
+    },
+    GetActiveDownloadItems {
+        resp: oneshot::Sender<Result<Vec<queries::DownloadItemRecord>, String>>,
+    },
+    DeleteDownloadJob {
+        download_id: String,
     GetCachedLyrics {
         canonical_key: String,
         provider_id: Option<String>,
@@ -484,6 +519,29 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                     let res = crate::queue::persistence::save_queue_state(&mut conn, &queue_state).map(|_| ());
                     let _ = resp.send(res);
                 }
+                DbRequest::EnqueueDownloadJob { download, items, resp } => {
+                    let _ = resp.send(queries::enqueue_download_job(&mut conn, &download, &items));
+                }
+                DbRequest::UpdateDownloadItemProgress { item_id, downloaded_bytes, total_bytes } => {
+                    let _ = queries::update_download_item_progress(&conn, &item_id, downloaded_bytes, total_bytes);
+                }
+                DbRequest::SetDownloadItemStatus { item_id, status, error_message, resp } => {
+                    let _ = resp.send(queries::set_download_item_status(&conn, &item_id, &status, error_message.as_deref()));
+                }
+                DbRequest::CompleteDownloadItem { item_id, local_path, track_data, resp } => {
+                    let _ = resp.send(queries::complete_download_item(&mut conn, &item_id, &local_path, &track_data));
+                }
+                DbRequest::SetDownloadJobStatus { download_id, status, resp } => {
+                    let _ = resp.send(queries::set_download_job_status(&conn, &download_id, &status));
+                }
+                DbRequest::GetDownloadQueue { resp } => {
+                    let _ = resp.send(queries::get_download_queue(&conn));
+                }
+                DbRequest::GetActiveDownloadItems { resp } => {
+                    let _ = resp.send(queries::get_active_download_items(&conn));
+                }
+                DbRequest::DeleteDownloadJob { download_id, resp } => {
+                    let _ = resp.send(queries::delete_download_job(&conn, &download_id));
                 DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
                     let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());
                     let _ = resp.send(res);
