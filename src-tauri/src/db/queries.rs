@@ -2313,3 +2313,336 @@ pub fn get_markov_autoplay_candidate(
 
     Ok(Some(scored.last().unwrap().0.clone()))
 }
+
+// ── Downloads & Offline Subsystem Queries (Phase 2) ──────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DownloadRecord {
+    pub id: String,
+    pub entity_type: String, // "track", "album", "playlist"
+    pub entity_id: Option<String>,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub total_items: u32,
+    pub completed_items: u32,
+    pub status: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DownloadItemRecord {
+    pub id: String,
+    pub download_id: String,
+    pub track_title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub track_number: Option<u32>,
+    pub provider_id: Option<String>,
+    pub download_url: Option<String>,
+    pub dest_file_path: Option<String>,
+    pub temp_file_path: Option<String>,
+    pub total_bytes: u64,
+    pub downloaded_bytes: u64,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub retry_count: u32,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DownloadJobSummary {
+    pub download: DownloadRecord,
+    pub items: Vec<DownloadItemRecord>,
+}
+
+pub fn enqueue_download_job(
+    conn: &mut Connection,
+    download: &DownloadRecord,
+    items: &[DownloadItemRecord],
+) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "INSERT INTO downloads (id, entity_type, entity_id, title, artist, album, total_items, completed_items, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+            &download.id,
+            &download.entity_type,
+            &download.entity_id,
+            &download.title,
+            &download.artist,
+            &download.album,
+            download.total_items,
+            download.completed_items,
+            &download.status,
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    for item in items {
+        tx.execute(
+            "INSERT INTO download_items (
+                id, download_id, track_title, artist, album, track_number,
+                provider_id, download_url, dest_file_path, temp_file_path,
+                total_bytes, downloaded_bytes, status, error_message, retry_count
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            rusqlite::params![
+                &item.id,
+                &item.download_id,
+                &item.track_title,
+                &item.artist,
+                &item.album,
+                item.track_number,
+                &item.provider_id,
+                &item.download_url,
+                &item.dest_file_path,
+                &item.temp_file_path,
+                item.total_bytes as i64,
+                item.downloaded_bytes as i64,
+                &item.status,
+                &item.error_message,
+                item.retry_count,
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn update_download_item_progress(
+    conn: &Connection,
+    item_id: &str,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE download_items
+         SET downloaded_bytes = ?1,
+             total_bytes = CASE WHEN ?2 > 0 THEN ?2 ELSE total_bytes END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?3",
+        rusqlite::params![downloaded_bytes as i64, total_bytes as i64, item_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn set_download_item_status(
+    conn: &Connection,
+    item_id: &str,
+    status: &str,
+    error_message: Option<&str>,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE download_items
+         SET status = ?1, error_message = ?2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?3",
+        rusqlite::params![status, error_message, item_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn complete_download_item(
+    conn: &mut Connection,
+    item_id: &str,
+    local_path: &str,
+    track_data: &TrackData,
+) -> Result<i64, String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE download_items
+         SET status = 'completed', dest_file_path = ?1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?2",
+        rusqlite::params![local_path, item_id],
+    ).map_err(|e| e.to_string())?;
+
+    let parent_id: Option<String> = tx.query_row(
+        "SELECT download_id FROM download_items WHERE id = ?1",
+        [item_id],
+        |row| row.get(0),
+    ).ok();
+
+    if let Some(ref pid) = parent_id {
+        tx.execute(
+            "UPDATE downloads
+             SET completed_items = (SELECT COUNT(*) FROM download_items WHERE download_id = ?1 AND status = 'completed'),
+                 status = CASE
+                     WHEN (SELECT COUNT(*) FROM download_items WHERE download_id = ?1 AND status = 'completed') >= total_items THEN 'completed'
+                     ELSE 'downloading'
+                 END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            [pid],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    let album_title = track_data.album.as_deref().unwrap_or("Unknown Album");
+    let album_artist = track_data.artist.as_deref().unwrap_or("Unknown Artist");
+
+    tx.execute(
+        "INSERT OR IGNORE INTO albums (title, artist) VALUES (?1, ?2)",
+        rusqlite::params![album_title, album_artist],
+    ).map_err(|e| e.to_string())?;
+
+    let album_id: Option<i64> = tx.query_row(
+        "SELECT id FROM albums WHERE title = ?1 AND artist = ?2",
+        rusqlite::params![album_title, album_artist],
+        |row| row.get(0),
+    ).ok();
+
+    tx.execute(
+        "INSERT OR REPLACE INTO tracks (title, artist, album_id, track_number, file_path)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![
+            &track_data.title,
+            &track_data.artist,
+            album_id,
+            &track_data.track_number,
+            &track_data.file_path
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    let track_id: i64 = tx.query_row(
+        "SELECT id FROM tracks WHERE file_path = ?1",
+        [&track_data.file_path],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(track_id)
+}
+
+pub fn set_download_job_status(
+    conn: &Connection,
+    download_id: &str,
+    status: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE downloads SET status = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+        rusqlite::params![status, download_id],
+    ).map_err(|e| e.to_string())?;
+
+    if status == "cancelled" || status == "paused" {
+        conn.execute(
+            "UPDATE download_items
+             SET status = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE download_id = ?2 AND status NOT IN ('completed')",
+            rusqlite::params![status, download_id],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn get_download_queue(conn: &Connection) -> Result<Vec<DownloadJobSummary>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, entity_type, entity_id, title, artist, album, total_items, completed_items, status,
+                strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+         FROM downloads
+         ORDER BY created_at DESC LIMIT 100",
+    ).map_err(|e| e.to_string())?;
+
+    let downloads: Vec<DownloadRecord> = stmt.query_map([], |row| {
+        Ok(DownloadRecord {
+            id: row.get(0)?,
+            entity_type: row.get(1)?,
+            entity_id: row.get(2)?,
+            title: row.get(3)?,
+            artist: row.get(4)?,
+            album: row.get(5)?,
+            total_items: row.get(6)?,
+            completed_items: row.get(7)?,
+            status: row.get(8)?,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
+        })
+    }).map_err(|e| e.to_string())?.flatten().collect();
+
+    let mut item_stmt = conn.prepare(
+        "SELECT id, download_id, track_title, artist, album, track_number, provider_id, download_url,
+                dest_file_path, temp_file_path, total_bytes, downloaded_bytes, status, error_message,
+                retry_count, strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+         FROM download_items
+         WHERE download_id = ?1
+         ORDER BY track_number ASC, id ASC",
+    ).map_err(|e| e.to_string())?;
+
+    let mut summaries = Vec::new();
+    for d in downloads {
+        let items: Vec<DownloadItemRecord> = item_stmt.query_map([&d.id], |row| {
+            let total_b: i64 = row.get(10)?;
+            let dl_b: i64 = row.get(11)?;
+            Ok(DownloadItemRecord {
+                id: row.get(0)?,
+                download_id: row.get(1)?,
+                track_title: row.get(2)?,
+                artist: row.get(3)?,
+                album: row.get(4)?,
+                track_number: row.get(5)?,
+                provider_id: row.get(6)?,
+                download_url: row.get(7)?,
+                dest_file_path: row.get(8)?,
+                temp_file_path: row.get(9)?,
+                total_bytes: total_b.max(0) as u64,
+                downloaded_bytes: dl_b.max(0) as u64,
+                status: row.get(12)?,
+                error_message: row.get(13)?,
+                retry_count: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
+            })
+        }).map_err(|e| e.to_string())?.flatten().collect();
+
+        summaries.push(DownloadJobSummary {
+            download: d,
+            items,
+        });
+    }
+
+    Ok(summaries)
+}
+
+pub fn get_active_download_items(conn: &Connection) -> Result<Vec<DownloadItemRecord>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, download_id, track_title, artist, album, track_number, provider_id, download_url,
+                dest_file_path, temp_file_path, total_bytes, downloaded_bytes, status, error_message,
+                retry_count, strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+         FROM download_items
+         WHERE status IN ('queued', 'downloading', 'resolving', 'processing')
+         ORDER BY created_at ASC",
+    ).map_err(|e| e.to_string())?;
+
+    let items = stmt.query_map([], |row| {
+        let total_b: i64 = row.get(10)?;
+        let dl_b: i64 = row.get(11)?;
+        Ok(DownloadItemRecord {
+            id: row.get(0)?,
+            download_id: row.get(1)?,
+            track_title: row.get(2)?,
+            artist: row.get(3)?,
+            album: row.get(4)?,
+            track_number: row.get(5)?,
+            provider_id: row.get(6)?,
+            download_url: row.get(7)?,
+            dest_file_path: row.get(8)?,
+            temp_file_path: row.get(9)?,
+            total_bytes: total_b.max(0) as u64,
+            downloaded_bytes: dl_b.max(0) as u64,
+            status: row.get(12)?,
+            error_message: row.get(13)?,
+            retry_count: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
+        })
+    }).map_err(|e| e.to_string())?.flatten().collect();
+
+    Ok(items)
+}
+
+pub fn delete_download_job(conn: &Connection, download_id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM downloads WHERE id = ?1", [download_id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
