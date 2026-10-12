@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use crate::db::queries::{DownloadItemRecord, DownloadRecord};
 use crate::db::{DbRequest, TrackData};
 use crate::download::models::{
-    DownloadQualityPreference, DownloadQueryInput, DownloadSourceResult,
+    AlbumTrackDownloadInput, DownloadQualityPreference, DownloadQueryInput, DownloadSourceResult,
 };
 use crate::download::resolver::DownloadResolver;
 use crate::download::storage::{
@@ -137,6 +137,87 @@ impl DownloadManager {
             .send(DbRequest::EnqueueDownloadJob {
                 download,
                 items: vec![item],
+                resp: resp_tx,
+            })
+            .map_err(|e| format!("Failed to dispatch DB enqueue: {}", e))?;
+
+        resp_rx
+            .await
+            .map_err(|e| format!("DB actor dropped response: {}", e))??;
+
+        self.trigger_processing_loop(preferred_provider);
+
+        Ok(download_id)
+    }
+
+    /// Enqueues and begins a batch album download
+    pub async fn enqueue_album_download(
+        &self,
+        album_title: String,
+        artist: String,
+        tracks: Vec<AlbumTrackDownloadInput>,
+        preferred_provider: Option<String>,
+    ) -> Result<String, String> {
+        if tracks.is_empty() {
+            return Err("Cannot enqueue empty album download".to_string());
+        }
+
+        let download_id = uuid::Uuid::new_v4().to_string();
+        let base_dir = get_default_downloads_dir(&self.app_handle)?;
+
+        let mut items = Vec::with_capacity(tracks.len());
+        for t in &tracks {
+            let item_id = uuid::Uuid::new_v4().to_string();
+            let dest_path = build_track_destination_path(
+                &base_dir,
+                &artist,
+                Some(&album_title),
+                t.track_number,
+                &t.title,
+                "flac",
+            );
+            let temp_path = build_temp_file_path(&dest_path);
+
+            items.push(DownloadItemRecord {
+                id: item_id,
+                download_id: download_id.clone(),
+                track_title: t.title.clone(),
+                artist: artist.clone(),
+                album: Some(album_title.clone()),
+                track_number: t.track_number,
+                provider_id: preferred_provider.clone(),
+                download_url: None,
+                dest_file_path: Some(dest_path.to_string_lossy().to_string()),
+                temp_file_path: Some(temp_path.to_string_lossy().to_string()),
+                total_bytes: 0,
+                downloaded_bytes: 0,
+                status: "queued".to_string(),
+                error_message: None,
+                retry_count: 0,
+                created_at: None,
+                updated_at: None,
+            });
+        }
+
+        let download = DownloadRecord {
+            id: download_id.clone(),
+            entity_type: "album".to_string(),
+            entity_id: None,
+            title: album_title,
+            artist,
+            album: None,
+            total_items: items.len() as u32,
+            completed_items: 0,
+            status: "queued".to_string(),
+            created_at: None,
+            updated_at: None,
+        };
+
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.db_tx
+            .send(DbRequest::EnqueueDownloadJob {
+                download,
+                items,
                 resp: resp_tx,
             })
             .map_err(|e| format!("Failed to dispatch DB enqueue: {}", e))?;

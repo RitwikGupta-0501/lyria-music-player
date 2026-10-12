@@ -2,6 +2,7 @@ pub mod models;
 pub mod resolver;
 pub mod storage;
 pub mod manager;
+pub mod commands;
 
 #[cfg(test)]
 mod tests;

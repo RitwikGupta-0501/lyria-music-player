@@ -41,6 +41,13 @@ impl AudioCodec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AlbumTrackDownloadInput {
+    pub title: String,
+    pub track_number: Option<u32>,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DownloadQueryInput {
     pub title: String,
     pub artist: String,

@@ -1896,6 +1896,16 @@ pub fn run() {
             logger::client_log,
             logger::set_log_collection_enabled,
             logger::get_log_collection_enabled,
+            // Download commands (Phase 4)
+            download::commands::download_track,
+            download::commands::download_album,
+            download::commands::pause_download,
+            download::commands::resume_download,
+            download::commands::cancel_download,
+            download::commands::get_download_queue,
+            download::commands::get_download_providers,
+            download::commands::set_preferred_download_provider,
+            download::commands::get_preferred_download_provider,
         ]);
 
     builder
