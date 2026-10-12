@@ -80,6 +80,8 @@ The visual and interactive philosophy governing Lyria's UI:
 The plugin runtime empowering modular community features:
 * **[Extension Overview](extensions/README.md)**: Sandboxed WebAssembly execution via Extism, memory caps, and zero-privilege defaults.
 * **[ABI Specification](extensions/ABI_SPECIFICATION.md)**: Binary interfaces, host function bindings (`host_log`, `host_http_request`), and data serialization contracts.
+* **[Download Provider Guide](extensions/DOWNLOAD_PROVIDER_GUIDE.md)**: Guide for implementing the `"download"` capability, `resolve_download` export, and audio codecs.
+* **[Offline Downloads Guide](offline-downloads.md)**: User-friendly reference explaining offline music ownership, folder layouts, and queue management.
 * **[Manifest Schema](extensions/MANIFEST_SCHEMA.md)**: Capability declarations, metadata schemas, and module types.
 * **[Starter Templates](extensions/STARTER_TEMPLATES.md)**: Ready-to-compile boilerplate extensions in Rust and AssemblyScript.
 

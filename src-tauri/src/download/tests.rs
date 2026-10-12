@@ -443,3 +443,119 @@ fn test_download_db_enqueue_and_progress_lifecycle() {
     assert!(queue_after.is_empty());
 }
 
+#[test]
+fn test_circuit_breaker_recovery_on_success() {
+    let cb = CircuitBreaker::new(2, Duration::from_secs(60));
+
+    cb.record_failure("provider_flaky");
+    assert!(cb.is_available("provider_flaky"));
+
+    cb.record_failure("provider_flaky");
+    assert!(!cb.is_available("provider_flaky")); // Tripped!
+    assert!(cb.cooldown_remaining_secs("provider_flaky").is_some());
+
+    // Record success -> should immediately recover and reset failure count
+    cb.record_success("provider_flaky");
+    assert!(cb.is_available("provider_flaky"));
+    assert!(cb.cooldown_remaining_secs("provider_flaky").is_none());
+}
+
+#[test]
+fn test_album_batch_enqueue_atomic_transaction() {
+    let temp_db = tempfile::NamedTempFile::new().expect("temp file");
+    let mut conn = crate::db::schema::init_db(temp_db.path()).expect("init db");
+
+    let album_download = crate::db::queries::DownloadRecord {
+        id: "batch-album-999".to_string(),
+        entity_type: "album".to_string(),
+        entity_id: Some("ext-album-999".to_string()),
+        title: "Discovery".to_string(),
+        artist: "Daft Punk".to_string(),
+        album: Some("Discovery".to_string()),
+        total_items: 4,
+        completed_items: 0,
+        status: "queued".to_string(),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let track_titles = vec![
+        "One More Time",
+        "Aerodynamic",
+        "Digital Love",
+        "Harder, Better, Faster, Stronger",
+    ];
+
+    let items: Vec<crate::db::queries::DownloadItemRecord> = track_titles
+        .into_iter()
+        .enumerate()
+        .map(|(idx, title)| crate::db::queries::DownloadItemRecord {
+            id: format!("item-{}", idx + 1),
+            download_id: "batch-album-999".to_string(),
+            track_title: title.to_string(),
+            artist: "Daft Punk".to_string(),
+            album: Some("Discovery".to_string()),
+            track_number: Some((idx + 1) as u32),
+            provider_id: Some("hifi_vault".to_string()),
+            download_url: Some(format!("https://example.com/{}.flac", idx + 1)),
+            dest_file_path: None,
+            temp_file_path: Some(format!("/tmp/{}.flac.part", idx + 1)),
+            total_bytes: 35000000,
+            downloaded_bytes: 0,
+            status: "queued".to_string(),
+            error_message: None,
+            retry_count: 0,
+            created_at: None,
+            updated_at: None,
+        })
+        .collect();
+
+    crate::db::queries::enqueue_download_job(&mut conn, &album_download, &items)
+        .expect("enqueue batch album");
+
+    let queue = crate::db::queries::get_download_queue(&conn).expect("get queue");
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].download.total_items, 4);
+    assert_eq!(queue[0].items.len(), 4);
+
+    // Set status to paused cascades to all items
+    crate::db::queries::set_download_job_status(&conn, "batch-album-999", "paused")
+        .expect("pause job");
+
+    let queue_paused = crate::db::queries::get_download_queue(&conn).expect("get queue");
+    assert_eq!(queue_paused[0].download.status, "paused");
+    for item in &queue_paused[0].items {
+        assert_eq!(item.status, "paused");
+    }
+}
+
+#[test]
+fn test_storage_sanitization_advanced_edge_cases() {
+    use crate::download::storage::{build_track_destination_path, sanitize_filename_component};
+    use std::path::Path;
+
+    // Traversal and illegal characters
+    assert_eq!(sanitize_filename_component("../../etc/passwd"), ".._.._etc_passwd");
+    assert_eq!(sanitize_filename_component("Artist/Album: \"Live?\""), "Artist_Album_ _Live__");
+    assert_eq!(sanitize_filename_component("   "), "Unknown");
+    assert_eq!(sanitize_filename_component("..."), "Unknown");
+
+    // Unicode and non-ASCII titles
+    assert_eq!(sanitize_filename_component("宇多田ヒカル"), "宇多田ヒカル");
+    assert_eq!(sanitize_filename_component("Sigur Rós"), "Sigur Rós");
+    assert_eq!(sanitize_filename_component("Symphony №5"), "Symphony №5");
+
+    let base = Path::new("/var/music");
+    let dest = build_track_destination_path(
+        base,
+        "Björk",
+        Some("Homogenic"),
+        Some(1),
+        "Hunter",
+        "flac",
+    );
+
+    assert_eq!(dest, Path::new("/var/music/Björk/Homogenic/01 - Hunter.flac"));
+}
+
+
