@@ -175,3 +175,54 @@ async fn test_lrclib_extension_live_resolution() {
     assert_eq!(parsed.format, LyricsFormat::Synced);
     assert!(parsed.lines.len() > 10);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_netease_extension_live_resolution() {
+    let wasm_path = std::path::Path::new("../extensions/netease-wasm.wasm");
+    if !wasm_path.exists() {
+        return;
+    }
+    let wasm_bytes = std::fs::read(wasm_path).expect("read wasm");
+    let manifest = extism::Manifest::new([extism::Wasm::data(wasm_bytes)]);
+    let reqwest_client = std::sync::Arc::new(reqwest::Client::new());
+
+    let mut plugin = extism::PluginBuilder::new(manifest)
+        .with_wasi(true)
+        .with_function(
+            "host_log",
+            [extism::ValType::I64],
+            [],
+            extism::UserData::new(()),
+            crate::providers::wasm_bridge::host_log,
+        )
+        .with_function(
+            "host_http_request",
+            [extism::ValType::I64],
+            [extism::ValType::I64],
+            extism::UserData::new(reqwest_client),
+            crate::providers::wasm_bridge::host_http_request,
+        )
+        .build()
+        .expect("build plugin");
+
+    let query = LyricsQuery {
+        title: "Bohemian Rhapsody".to_string(),
+        artist: "Queen".to_string(),
+        album: Some("A Night at the Opera".to_string()),
+        duration_ms: Some(354000),
+        isrc: None,
+        track_id: None,
+    };
+    let query_json = serde_json::to_vec(&query).unwrap();
+    let res_bytes: &[u8] = plugin.call("get_lyrics", &query_json).expect("call get_lyrics");
+    let lrc_str = std::str::from_utf8(res_bytes).expect("utf8 string");
+    assert!(!lrc_str.trim().is_empty(), "NetEase returned empty lyrics");
+    assert!(lrc_str.contains("[00:"), "Should contain LRC timestamps");
+    assert!(lrc_str.to_lowercase().contains("fantasy") || lrc_str.to_lowercase().contains("reality"));
+
+    // Verify Lyria's parser converts it to Synced format with cues
+    let parsed = parse_lrc("netease-wasm", "NetEase Provider", lrc_str);
+    assert_eq!(parsed.format, LyricsFormat::Synced);
+    assert!(parsed.lines.len() > 10);
+}
+
