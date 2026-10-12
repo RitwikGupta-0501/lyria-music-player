@@ -111,5 +111,14 @@ commands.allow = [
     "get_lyrics",
     "get_lyrics_providers",
     "set_preferred_lyrics_provider",
-    "clear_lyrics_cache"
+    "clear_lyrics_cache",
+    "download_track",
+    "download_album",
+    "pause_download",
+    "resume_download",
+    "cancel_download",
+    "get_download_queue",
+    "get_download_providers",
+    "set_preferred_download_provider",
+    "get_preferred_download_provider"
 ]

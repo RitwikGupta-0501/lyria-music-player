@@ -411,6 +411,7 @@ impl DownloadManager {
             title: item.track_title.clone(),
             artist: Some(item.artist.clone()),
             album: item.album.clone(),
+            genre: None,
             track_number: item.track_number.map(|n| n as i64),
             file_path: dest_path.to_string_lossy().to_string(),
         };
@@ -527,7 +528,7 @@ impl DownloadManager {
             let elapsed = last_progress_time.elapsed().as_millis();
             if elapsed >= PROGRESS_THROTTLE_MS {
                 let bytes_diff = current_bytes.saturating_sub(last_progress_bytes);
-                let speed_bps = ((bytes_diff as f64 / (elapsed as f64 / 1000.0))) as u64;
+                let speed_bps = (bytes_diff as f64 / (elapsed as f64 / 1000.0)) as u64;
 
                 let _ = self.app_handle.emit(
                     "download://progress",

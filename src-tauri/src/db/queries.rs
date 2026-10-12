@@ -1173,7 +1173,7 @@ pub fn get_genre_distribution_7d(conn: &Connection, limit: usize) -> SqlResult<V
         }) {
             for r in rows.flatten() {
                 let (raw_genre, dur) = r;
-                let split_genres = raw_genre.split(|c| c == ',' || c == ';').map(|s| s.trim()).filter(|s| !s.is_empty());
+                let split_genres = raw_genre.split([',', ';']).map(|s| s.trim()).filter(|s| !s.is_empty());
                 for genre in split_genres {
                     let key = genre.to_lowercase();
                     let entry = genre_map.entry(key.clone()).or_insert(0);
@@ -1198,7 +1198,7 @@ pub fn get_genre_distribution_7d(conn: &Connection, limit: usize) -> SqlResult<V
             }) {
                 for r in rows.flatten() {
                     let (raw_genre, dur, count) = r;
-                    let split_genres = raw_genre.split(|c| c == ',' || c == ';').map(|s| s.trim()).filter(|s| !s.is_empty());
+                    let split_genres = raw_genre.split([',', ';']).map(|s| s.trim()).filter(|s| !s.is_empty());
                     for genre in split_genres {
                         let key = genre.to_lowercase();
                         let entry = genre_map.entry(key.clone()).or_insert(0);
@@ -1210,7 +1210,7 @@ pub fn get_genre_distribution_7d(conn: &Connection, limit: usize) -> SqlResult<V
     }
 
     let mut genres: Vec<(String, i64)> = genre_map.into_iter().collect();
-    genres.sort_by(|a, b| b.1.cmp(&a.1));
+    genres.sort_by_key(|b| std::cmp::Reverse(b.1));
     genres.truncate(limit);
 
     Ok(genres)
@@ -1574,7 +1574,7 @@ pub fn get_cold_start_local_artists(conn: &Connection, limit: usize) -> SqlResul
             artist: row.get(2)?,
             album_title: row.get(3)?,
             cover_art_url: row.get(4)?,
-            file_path: row.get(6)?,
+            file_path: row.get(5)?,
         })
     })?;
 
@@ -1600,6 +1600,7 @@ mod tests {
             "Never Gonna Give You Up (Official Music Video)",
             "Rick Astley - Topic",
             Some("Whenever You Need Somebody"),
+            None,
             Some("https://img.youtube.com/art.jpg"),
             "youtube-wasm",
             "dQw4w9WgXcQ",
@@ -1612,6 +1613,7 @@ mod tests {
             "Never Gonna Give You Up [Official Audio]",
             "Rick Astley",
             Some("Whenever You Need Somebody"),
+            None,
             None,
             "local",
             "/music/rick.mp3",
@@ -1687,9 +1689,9 @@ mod tests {
         assert_eq!(cold_seeds[0].artist, "Radiohead");
 
         // 2. Record plays across 2 artists
-        record_playback_event(&conn, "15 Step", "Radiohead", Some("In Rainbows"), Some("/art/in_rainbows.jpg"), "local", "1", Some(237000)).unwrap();
-        record_playback_event(&conn, "Bodysnatchers", "Radiohead", Some("In Rainbows"), Some("/art/in_rainbows.jpg"), "local", "2", Some(242000)).unwrap();
-        record_playback_event(&conn, "Around the World", "Daft Punk", Some("Homework"), Some("/art/homework.jpg"), "youtube-wasm", "yt-1", Some(429000)).unwrap();
+        record_playback_event(&conn, "15 Step", "Radiohead", Some("In Rainbows"), None, Some("/art/in_rainbows.jpg"), "local", "1", Some(237000)).unwrap();
+        record_playback_event(&conn, "Bodysnatchers", "Radiohead", Some("In Rainbows"), None, Some("/art/in_rainbows.jpg"), "local", "2", Some(242000)).unwrap();
+        record_playback_event(&conn, "Around the World", "Daft Punk", Some("Homework"), None, Some("/art/homework.jpg"), "youtube-wasm", "yt-1", Some(429000)).unwrap();
 
         // 3. Test 7-Day Heavy Rotation
         let hr = get_heavy_rotation_7d(&conn, 5).unwrap();
@@ -1746,6 +1748,7 @@ mod tests {
                 title TEXT NOT NULL,
                 artist TEXT NOT NULL,
                 album TEXT,
+                genre TEXT,
                 cover_art_url TEXT,
                 play_count INTEGER NOT NULL DEFAULT 1,
                 last_played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2715,6 +2718,9 @@ pub fn get_active_download_items(conn: &Connection) -> Result<Vec<DownloadItemRe
 pub fn delete_download_job(conn: &Connection, download_id: &str) -> Result<(), String> {
     conn.execute("DELETE FROM downloads WHERE id = ?1", [download_id])
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn get_cached_lyrics(
     conn: &Connection,
     canonical_key: &str,

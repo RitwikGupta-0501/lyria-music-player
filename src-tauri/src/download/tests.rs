@@ -392,6 +392,7 @@ fn test_download_db_enqueue_and_progress_lifecycle() {
         title: "Give Life Back to Music".to_string(),
         artist: Some("Daft Punk".to_string()),
         album: Some("Random Access Memories".to_string()),
+        genre: None,
         track_number: Some(1),
         file_path: "/music/Daft Punk/Random Access Memories/01 - Give Life Back to Music.flac".to_string(),
     };
@@ -420,6 +421,7 @@ fn test_download_db_enqueue_and_progress_lifecycle() {
         title: "Get Lucky".to_string(),
         artist: Some("Daft Punk".to_string()),
         album: Some("Random Access Memories".to_string()),
+        genre: None,
         track_number: Some(2),
         file_path: "/music/Daft Punk/Random Access Memories/02 - Get Lucky.flac".to_string(),
     };

@@ -235,6 +235,8 @@ pub enum DbRequest {
     },
     DeleteDownloadJob {
         download_id: String,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
     GetCachedLyrics {
         canonical_key: String,
         provider_id: Option<String>,
@@ -542,6 +544,7 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::DeleteDownloadJob { download_id, resp } => {
                     let _ = resp.send(queries::delete_download_job(&conn, &download_id));
+                }
                 DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
                     let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());
                     let _ = resp.send(res);
