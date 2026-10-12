@@ -20,6 +20,7 @@ use errors::SandboxError;
 // ── Constants ────────────────────────────────────────────────────────────────
 const SEARCH_TIMEOUT_SECS: u64 = 15;
 const MODULE_FETCH_TIMEOUT_SECS: u64 = 15;
+const DOWNLOAD_TIMEOUT_SECS: u64 = 20;
 
 pub const PROVIDER_ABI_VERSION: u32 = 1;
 
@@ -255,6 +256,7 @@ pub struct ActiveProvider {
     pub script_path: std::path::PathBuf,
     pub config: std::collections::HashMap<String, String>,
     pub capabilities: Vec<String>,
+    pub priority: i32,
 }
 
 pub struct ProviderManager {
@@ -264,6 +266,7 @@ pub struct ProviderManager {
     pub db_tx: Sender<DbRequest>,
     pub search_semaphore: Arc<Semaphore>,
     pub explore_semaphore: Arc<Semaphore>,
+    pub download_semaphore: Arc<Semaphore>,
     plugin_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<Plugin>>>>>,
     search_epoch: Arc<AtomicU64>,
     active_search_canceller: Arc<std::sync::Mutex<Option<extism::CancelHandle>>>,
@@ -278,6 +281,7 @@ impl ProviderManager {
             db_tx,
             search_semaphore: Arc::new(Semaphore::new(4)),
             explore_semaphore: Arc::new(Semaphore::new(4)),
+            download_semaphore: Arc::new(Semaphore::new(4)),
             plugin_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             search_epoch: Arc::new(AtomicU64::new(0)),
             active_search_canceller: Arc::new(std::sync::Mutex::new(None)),
@@ -299,6 +303,7 @@ impl ProviderManager {
                 script_path: std::path::PathBuf::from(info.file_path),
                 config,
                 capabilities: info.capabilities.unwrap_or_default(),
+                priority: info.priority,
             });
         }
         *self.providers.write().unwrap() = new_registry;
@@ -1014,6 +1019,113 @@ impl ProviderManager {
 
         Ok(())
     }
+
+    pub fn get_download_providers(&self) -> Vec<crate::download::ProviderCandidate> {
+        let guard = self.providers.read().unwrap();
+        guard
+            .values()
+            .filter(|p| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("download")))
+            .map(|p| crate::download::ProviderCandidate {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                priority: p.priority,
+                is_preferred: false,
+            })
+            .collect()
+    }
+
+    pub async fn resolve_download(
+        &self,
+        provider_id: &str,
+        input: &crate::download::DownloadQueryInput,
+    ) -> Result<crate::download::DownloadSourceResult, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let input_clone = input.clone();
+
+        if !self.has_capability(&provider_id, "download") {
+            return Err(SandboxError::ScriptError {
+                script: provider_id,
+                message: "Provider does not declare 'download' capability".to_string(),
+            });
+        }
+
+        let _permit = self
+            .download_semaphore
+            .acquire()
+            .await
+            .map_err(|_| SandboxError::ScriptError {
+                script: provider_id.clone(),
+                message: "Download semaphore closed".into(),
+            })?;
+
+        let plugin_arc = self
+            .get_or_create_plugin(&provider_id, DOWNLOAD_TIMEOUT_SECS)
+            .await?;
+
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&input_clone).unwrap_or_default();
+            plugin
+                .call::<&[u8], &[u8]>("resolve_download", &json_input)
+                .map(|res| res.to_vec())
+        })
+        .await
+        {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => {
+                tracing::error!(
+                    "resolve_download plugin call failed for provider '{}': {}",
+                    provider_id,
+                    e
+                );
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                tracing::error!(
+                    "resolve_download spawn_blocking failed for provider '{}': {}",
+                    provider_id,
+                    e
+                );
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
+
+        let result: crate::download::DownloadSourceResult = serde_json::from_slice(&res_bytes)
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to parse resolve_download JSON from provider '{}': {}",
+                    provider_id,
+                    e
+                );
+                self.invalidate_plugin_cache(&provider_id);
+                SandboxError::ScriptError {
+                    script: provider_id.clone(),
+                    message: format!("Invalid resolve_download response JSON: {}", e),
+                }
+            })?;
+
+        check_url_allowed(&result.download_url).map_err(|e| {
+            tracing::error!(
+                "Rejected download URL from provider '{}': {}",
+                provider_id,
+                e
+            );
+            SandboxError::ScriptError {
+                script: provider_id,
+                message: format!("Forbidden download URL: {}", e),
+            }
+        })?;
+
+        Ok(result)
+    }
 }
 pub fn check_url_allowed(url: &str) -> Result<(), String> {
     if url.starts_with("file://") {
@@ -1101,6 +1213,7 @@ mod provider_unit_tests {
             script_path: std::path::PathBuf::from("/tmp/yt.wasm"),
             config: std::collections::HashMap::new(),
             capabilities: vec!["search".to_string(), "WARMUP".to_string(), "explore".to_string()],
+            priority: 10,
         });
         providers.insert("local".to_string(), ActiveProvider {
             id: "local".to_string(),
@@ -1108,6 +1221,7 @@ mod provider_unit_tests {
             script_path: std::path::PathBuf::from("/tmp/local.wasm"),
             config: std::collections::HashMap::new(),
             capabilities: vec!["search".to_string()],
+            priority: 0,
         });
 
         let eligible: Vec<String> = providers.iter()
@@ -1116,5 +1230,33 @@ mod provider_unit_tests {
             .collect();
 
         assert_eq!(eligible, vec!["yt".to_string()]);
+    }
+
+    #[test]
+    fn test_download_capability_filter() {
+        let mut providers = std::collections::HashMap::new();
+        providers.insert("yt".to_string(), ActiveProvider {
+            id: "yt".to_string(),
+            name: "YouTube".to_string(),
+            script_path: std::path::PathBuf::from("/tmp/yt.wasm"),
+            config: std::collections::HashMap::new(),
+            capabilities: vec!["search".to_string(), "resolve".to_string()],
+            priority: 5,
+        });
+        providers.insert("flac_downloader".to_string(), ActiveProvider {
+            id: "flac_downloader".to_string(),
+            name: "FLAC Downloader".to_string(),
+            script_path: std::path::PathBuf::from("/tmp/flac.wasm"),
+            config: std::collections::HashMap::new(),
+            capabilities: vec!["download".to_string()],
+            priority: 15,
+        });
+
+        let eligible: Vec<String> = providers.iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("download")))
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        assert_eq!(eligible, vec!["flac_downloader".to_string()]);
     }
 }

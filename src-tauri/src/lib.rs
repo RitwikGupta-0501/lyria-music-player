@@ -16,6 +16,7 @@ pub mod telemetry;
 pub mod feature_flags;
 pub mod sandbox;
 pub mod logger;
+pub mod download;
 
 use providers::{ProviderManager, TrackResult};
 use audio::AudioCommand;
@@ -57,6 +58,7 @@ pub struct AppState {
     pub queue: std::sync::Mutex<QueueState>,
     pub reqwest_client: reqwest::Client,
     pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
+    pub download_resolver: Arc<download::DownloadResolver>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -1734,6 +1736,8 @@ pub fn run() {
             let recommendation_compiler = Arc::new(providers::recommendations::RecommendationCompiler::new(provider_manager.clone(), db_path.clone()));
             let in_flight_recommendation_cancel = Arc::new(std::sync::Mutex::new(None));
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
+            let download_circuit_breaker = Arc::new(download::CircuitBreaker::default());
+            let download_resolver = Arc::new(download::DownloadResolver::new(download_circuit_breaker));
 
             app.manage(AppState {
                 audio_tx: std::sync::Mutex::new(audio_tx),
@@ -1746,6 +1750,7 @@ pub fn run() {
                 queue: std::sync::Mutex::new(recovered_queue),
                 reqwest_client,
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
+                download_resolver,
             });
 
             // Automatic background startup provider discovery, sync, and warmup
