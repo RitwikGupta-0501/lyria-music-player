@@ -670,6 +670,7 @@ class HomeStore {
                 title: track.title,
                 artist: track.artist,
                 album: track.album,
+                genre: track.genre || null,
                 coverArtUrl: track.cover_art_url,
                 providerId,
                 sourceId,

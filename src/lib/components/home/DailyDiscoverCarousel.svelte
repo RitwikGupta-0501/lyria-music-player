@@ -72,8 +72,8 @@
                 <div class="discover-skeleton-card">
                     <div class="skeleton-art skeleton-box"></div>
                     <div class="skeleton-info">
-                        <div class="skeleton-line title"></div>
-                        <div class="skeleton-line artist"></div>
+                        <div class="skeleton-line skeleton-box title"></div>
+                        <div class="skeleton-line skeleton-box artist"></div>
                     </div>
                 </div>
             {/each}
@@ -165,8 +165,8 @@
         width: 176px;
         height: 176px;
         border-radius: 12px;
-        background: #141416;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--echo-surface-pill);
+        border: 1px solid var(--echo-border-glass);
     }
 
     .skeleton-box {
