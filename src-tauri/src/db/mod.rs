@@ -12,6 +12,7 @@ pub struct TrackData {
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub genre: Option<String>,
     pub track_number: Option<i64>,
     pub file_path: String,
 }
@@ -21,6 +22,7 @@ pub enum DbRequest {
         title: String,
         artist: String,
         album: Option<String>,
+        genre: Option<String>,
         cover_art_url: Option<String>,
         provider_id: String,
         source_id: String,
@@ -233,6 +235,18 @@ pub enum DbRequest {
     },
     DeleteDownloadJob {
         download_id: String,
+    GetCachedLyrics {
+        canonical_key: String,
+        provider_id: Option<String>,
+        resp: oneshot::Sender<Result<Option<crate::lyrics::LyricsResult>, String>>,
+    },
+    SaveCachedLyrics {
+        canonical_key: String,
+        lyrics: crate::lyrics::LyricsResult,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    ClearLyricsCache {
+        canonical_key: Option<String>,
         resp: oneshot::Sender<Result<(), String>>,
     },
     Quit,
@@ -242,8 +256,8 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
     std::thread::spawn(move || {
         while let Ok(req) = rx.recv() {
             match req {
-                DbRequest::RecordPlaybackEvent { title, artist, album, cover_art_url, provider_id, source_id, duration_ms, resp } => {
-                    let res = queries::record_playback_event(&conn, &title, &artist, album.as_deref(), cover_art_url.as_deref(), &provider_id, &source_id, duration_ms).map_err(|e| e.to_string());
+                DbRequest::RecordPlaybackEvent { title, artist, album, genre, cover_art_url, provider_id, source_id, duration_ms, resp } => {
+                    let res = queries::record_playback_event(&conn, &title, &artist, album.as_deref(), genre.as_deref(), cover_art_url.as_deref(), &provider_id, &source_id, duration_ms).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
                 DbRequest::RecordResolutionResult { provider_id, success, resp } => {
@@ -528,6 +542,17 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::DeleteDownloadJob { download_id, resp } => {
                     let _ = resp.send(queries::delete_download_job(&conn, &download_id));
+                DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
+                    let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveCachedLyrics { canonical_key, lyrics, resp } => {
+                    let res = queries::save_cached_lyrics(&conn, &canonical_key, &lyrics);
+                    let _ = resp.send(res);
+                }
+                DbRequest::ClearLyricsCache { canonical_key, resp } => {
+                    let res = queries::clear_lyrics_cache(&conn, canonical_key.as_deref());
+                    let _ = resp.send(res);
                 }
                 DbRequest::Quit => {
                     break;

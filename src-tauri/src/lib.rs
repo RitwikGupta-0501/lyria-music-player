@@ -17,6 +17,7 @@ pub mod feature_flags;
 pub mod sandbox;
 pub mod logger;
 pub mod download;
+pub mod lyrics;
 
 use providers::{ProviderManager, TrackResult};
 use audio::AudioCommand;
@@ -37,6 +38,7 @@ pub struct LocalTrack {
     pub title: String,
     pub artist: Option<String>,
     pub album_id: Option<i64>,
+    pub genre: Option<String>,
     pub track_number: Option<i64>,
     pub file_path: String,
 }
@@ -60,6 +62,7 @@ pub struct AppState {
     pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
     pub download_resolver: Arc<download::DownloadResolver>,
     pub download_manager: Arc<download::DownloadManager>,
+    pub lyrics_manager: Arc<lyrics::LyricsManager>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -551,6 +554,38 @@ async fn save_provider_settings(
     Ok(())
 }
 
+#[tauri::command]
+async fn get_lyrics(
+    state: State<'_, AppState>,
+    query: lyrics::models::LyricsQuery,
+    provider_override: Option<String>,
+) -> Result<Option<lyrics::models::LyricsResult>, String> {
+    state.lyrics_manager.get_lyrics(&query, provider_override.as_deref()).await
+}
+
+#[tauri::command]
+async fn get_lyrics_providers(
+    state: State<'_, AppState>,
+) -> Result<Vec<lyrics::models::LyricsProviderMeta>, String> {
+    state.lyrics_manager.get_lyrics_providers().await
+}
+
+#[tauri::command]
+async fn set_preferred_lyrics_provider(
+    state: State<'_, AppState>,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    state.lyrics_manager.set_preferred_lyrics_provider(provider_id).await
+}
+
+#[tauri::command]
+async fn clear_lyrics_cache(
+    state: State<'_, AppState>,
+    canonical_key: Option<String>,
+) -> Result<(), String> {
+    state.lyrics_manager.clear_cache(canonical_key).await
+}
+
 
 #[tauri::command]
 async fn browse_provider_album(
@@ -790,6 +825,7 @@ async fn record_track_play(
     title: String,
     artist: String,
     album: Option<String>,
+    genre: Option<String>,
     cover_art_url: Option<String>,
     provider_id: String,
     source_id: String,
@@ -800,6 +836,7 @@ async fn record_track_play(
         title,
         artist,
         album,
+        genre,
         cover_art_url,
         provider_id: provider_id.clone(),
         source_id: source_id.clone(),
@@ -1010,6 +1047,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
                         let mut title = entry_path.file_name().unwrap_or_default().to_string_lossy().to_string();
                         let mut artist = None;
                         let mut album = None;
+                        let mut genre = None;
                         let mut track_number = None;
                         if let Ok(file) = std::fs::File::open(entry_path) {
                             let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -1040,6 +1078,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
                                                 let a = cleaner.replace_all(&tag.value.to_string(), "").trim().to_string();
                                                 album = Some(if a.is_empty() { tag.value.to_string() } else { a });
                                             },
+                                            Some(StandardTagKey::Genre) => genre = Some(tag.value.to_string()),
                                             Some(StandardTagKey::TrackNumber) => {
                                                 let val = tag.value.to_string();
                                                 if let Ok(num) = val.parse::<i64>() {
@@ -1058,7 +1097,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
                         }
                         
                         found_tracks.push(TrackData {
-                            title, artist, album, track_number, file_path: entry_path.to_string_lossy().to_string()
+                            title, artist, album, genre, track_number, file_path: entry_path.to_string_lossy().to_string()
                         });
                     }
                 }
@@ -1734,6 +1773,7 @@ pub fn run() {
             }
 
             let provider_manager = Arc::new(ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone()));
+            let lyrics_manager = Arc::new(lyrics::LyricsManager::new(provider_manager.clone(), db_tx.clone()));
             let recommendation_compiler = Arc::new(providers::recommendations::RecommendationCompiler::new(provider_manager.clone(), db_path.clone()));
             let in_flight_recommendation_cancel = Arc::new(std::sync::Mutex::new(None));
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
@@ -1761,6 +1801,7 @@ pub fn run() {
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
                 download_resolver,
                 download_manager,
+                lyrics_manager,
             });
 
             // Automatic background startup provider discovery, sync, and warmup
@@ -1906,6 +1947,11 @@ pub fn run() {
             download::commands::get_download_providers,
             download::commands::set_preferred_download_provider,
             download::commands::get_preferred_download_provider,
+            // Lyrics commands
+            get_lyrics,
+            get_lyrics_providers,
+            set_preferred_lyrics_provider,
+            clear_lyrics_cache,
         ]);
 
     builder

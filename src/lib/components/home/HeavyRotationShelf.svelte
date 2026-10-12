@@ -161,12 +161,16 @@
         display: flex;
         flex-direction: column;
         gap: 1.25rem;
+        width: 100%;
+        min-width: 0;
     }
 
     .section-title-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
     }
 
     .title-group {

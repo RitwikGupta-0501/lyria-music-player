@@ -708,6 +708,93 @@ impl ProviderManager {
         Ok(results)
     }
 
+    pub async fn fetch_lyrics(
+        &self,
+        provider_id: &str,
+        query: &crate::lyrics::LyricsQuery,
+    ) -> Result<Option<crate::lyrics::LyricsResult>, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let query_clone = query.clone();
+
+        let _permit = self.search_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
+            script: provider_id.clone(),
+            message: "Semaphore closed".into(),
+        })?;
+
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS).await?;
+
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&query_clone).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("get_lyrics", &json_input).map(|res| res.to_vec())
+        }).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                tracing::warn!("get_lyrics plugin call failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                tracing::warn!("get_lyrics spawn_blocking failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
+
+        if res_bytes.is_empty() {
+            return Ok(None);
+        }
+
+        let provider_name = self.providers.read().unwrap()
+            .get(&provider_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| provider_id.clone());
+
+        if let Ok(opt_result) = serde_json::from_slice::<Option<crate::lyrics::LyricsResult>>(&res_bytes) {
+            return Ok(opt_result);
+        }
+
+        if let Ok(direct_result) = serde_json::from_slice::<crate::lyrics::LyricsResult>(&res_bytes) {
+            return Ok(Some(direct_result));
+        }
+
+        if let Ok(raw_str) = serde_json::from_slice::<String>(&res_bytes) {
+            let trimmed = raw_str.trim();
+            if trimmed.is_empty() || trimmed == "null" {
+                return Ok(None);
+            }
+            let parsed = crate::lyrics::parser::parse_lrc(&provider_id, &provider_name, trimmed);
+            return Ok(Some(parsed));
+        }
+
+        if let Ok(raw_utf8) = std::str::from_utf8(&res_bytes) {
+            let trimmed = raw_utf8.trim();
+            if trimmed.is_empty() || trimmed == "null" {
+                return Ok(None);
+            }
+            let parsed = crate::lyrics::parser::parse_lrc(&provider_id, &provider_name, trimmed);
+            return Ok(Some(parsed));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_lyrics_eligible_providers(&self) -> Vec<String> {
+        self.providers
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("lyrics")))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     pub async fn get_all_explore_modules(&self) -> Vec<AggregatedModule> {
         let explore_providers: Vec<(String, String)> = self.providers
             .read()

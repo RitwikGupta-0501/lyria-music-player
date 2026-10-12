@@ -22,6 +22,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
             title TEXT NOT NULL,
             artist TEXT,
             album_id INTEGER,
+            genre TEXT,
             track_number INTEGER,
             file_path TEXT UNIQUE NOT NULL,
             FOREIGN KEY(album_id) REFERENCES albums(id)
@@ -199,6 +200,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
             title TEXT NOT NULL,
             artist TEXT NOT NULL,
             album TEXT,
+            genre TEXT,
             cover_art_url TEXT,
             play_count INTEGER NOT NULL DEFAULT 1,
             last_played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -392,6 +394,22 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_download_items_download_id ON download_items(download_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_download_items_status ON download_items(status)", [])?;
+    // Lyrics Cache for Sandboxed Extensions and Offline Playback
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lyrics_cache (
+            canonical_key TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            format TEXT NOT NULL,
+            lyrics_json TEXT NOT NULL,
+            instrumental INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(canonical_key, provider_id)
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lyrics_cache_canonical ON lyrics_cache(canonical_key)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lyrics_cache_provider ON lyrics_cache(provider_id)", [])?;
 
     // Foreign Key Cascade Optimization Indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id)", [])?;
@@ -400,6 +418,10 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     conn.execute("CREATE INDEX IF NOT EXISTS idx_shuffle_order_qsid ON shuffle_order(queue_state_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_snapshots_qsid ON queue_snapshots(queue_state_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_song_telemetry_track ON song_telemetry(local_track_id)", [])?;
+
+    // Migrations
+    let _ = conn.execute("ALTER TABLE tracks ADD COLUMN genre TEXT", []);
+    let _ = conn.execute("ALTER TABLE song_telemetry ADD COLUMN genre TEXT", []);
 
     Ok(conn)
 }

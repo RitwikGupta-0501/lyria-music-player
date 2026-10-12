@@ -163,7 +163,7 @@
         align-items: center;
         gap: 0.35rem;
         background: rgba(18, 18, 22, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--echo-border-glass);
         border-radius: 20px;
         padding: 0.2rem 0.3rem;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
@@ -234,8 +234,8 @@
         overflow: hidden;
         cursor: pointer;
         scroll-snap-align: start;
-        background: #141416;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--echo-surface-pill);
+        border: 1px solid var(--echo-border-glass);
         transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
     }
 
@@ -317,7 +317,7 @@
         font-size: 0.58rem;
         font-weight: 700;
         letter-spacing: 0.1em;
-        color: #D4A86E;
+        color: var(--echo-primary);
     }
 
     .radio-meta {
@@ -369,7 +369,7 @@
         gap: 0.45rem;
         font-size: 0.75rem;
         font-weight: 600;
-        color: #D4A86E;
+        color: var(--echo-primary);
         background: rgba(181, 142, 98, 0.14);
         border: 1px solid rgba(181, 142, 98, 0.3);
         padding: 0.35rem 0.75rem;
@@ -380,7 +380,7 @@
     }
 
     .radio-card:hover .radio-play-btn {
-        background: #B58E62;
+        background: var(--echo-primary-dark);
         color: #0E0E10;
         border-color: #B58E62;
         transform: translateY(-1px);

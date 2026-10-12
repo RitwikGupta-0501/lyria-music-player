@@ -107,5 +107,9 @@ commands.allow = [
     "sandbox_log",
     "client_log",
     "clear_debug_logs",
-    "get_debug_logs"
+    "get_debug_logs",
+    "get_lyrics",
+    "get_lyrics_providers",
+    "set_preferred_lyrics_provider",
+    "clear_lyrics_cache"
 ]
