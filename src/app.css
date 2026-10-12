@@ -41,6 +41,22 @@
   --radius-lg: 12px;
   --radius-pill: 9999px;
 
+  /* Refined Glass Surface Gradients & Borders */
+  --echo-glass-gradient-base: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --echo-glass-gradient-raised: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --echo-glass-gradient-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
+  --echo-glass-gradient-active: linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.04) 100%);
+  --echo-glass-gradient-primary: linear-gradient(180deg, rgba(226, 169, 115, 0.28) 0%, rgba(185, 130, 80, 0.14) 100%);
+  --echo-glass-gradient-primary-glass: linear-gradient(180deg, rgba(226, 169, 115, 0.28) 0%, rgba(205, 148, 92, 0.16) 50%, rgba(175, 120, 70, 0.20) 100%);
+  --echo-border-glass: rgba(255, 255, 255, 0.08);
+  --echo-border-glass-hover: rgba(255, 255, 255, 0.18);
+  --echo-border-primary: rgba(226, 169, 115, 0.45);
+  
+  /* Solid Component Surfaces */
+  --echo-surface-pill: #141416;
+  --echo-surface-pill-hover: #1c1c22;
+  --echo-surface-card: #111114;
+
   /* Typography — High-Precision Neo-Grotesque System */
   --lyria-font-heading: "Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --lyria-font-body: "Inter Tight", system-ui, -apple-system, sans-serif;
@@ -488,6 +504,41 @@ input[type="text"]:disabled {
 .track-list-item.now-playing {
   background: rgba(255 255 255 / 0.05);
   border-left-color: var(--echo-silver);
+}
+
+/* ─── Global Skeleton Loading System ───────────────────── */
+.skeleton-box {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.025) 25%,
+    rgba(255, 255, 255, 0.065) 50%,
+    rgba(255, 255, 255, 0.025) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.8s infinite ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+}
+
+.skeleton-circle {
+  border-radius: 50%;
+}
+
+.skeleton-pill {
+  border-radius: 9999px;
 }
 
 /* ─── Custom scrollbar ───────────────────── */

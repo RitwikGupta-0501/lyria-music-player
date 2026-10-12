@@ -499,124 +499,126 @@ impl RecommendationCompiler {
         let default_provider = queries::get_setting(&conn, "default_remote_provider").ok().flatten()
             .filter(|p| p != "local" && !p.trim().is_empty())
             .unwrap_or_else(|| "youtube-wasm".to_string());
-        let top_artists = queries::get_heavy_rotation_7d(&conn, 5).unwrap_or_default();
-        let dominant_artist = top_artists.artists.first().map(|a| a.artist.clone()).unwrap_or_else(|| "Your Library".to_string());
+            
+        // First check cache to avoid remote calls
+        if let Ok(mut stmt) = conn.prepare("SELECT payload FROM recommendation_cache WHERE key = 'adjacent_horizons' AND updated_at >= datetime('now', '-24 hours')") {
+            if let Some(cached_json) = stmt.query_row([], |row| row.get::<_, String>(0)).ok() {
+                if let Ok(horizons) = serde_json::from_str::<Vec<AdjacentHorizonPayload>>(&cached_json) {
+                    return Ok(horizons);
+                }
+            }
+        }
+
+        // 1. Get genre profile
+        let top_genres = queries::get_genre_distribution_7d(&conn, 3).unwrap_or_default();
+        let dominant_profile = top_genres.first().map(|(g, _)| g.clone()).unwrap_or_else(|| "Your Library".to_string());
 
         struct HorizonDef {
             genre: &'static str,
             description: &'static str,
             accent: &'static str,
-            preview_tracks: &'static [(&'static str, &'static str, &'static str, u64, Option<&'static str>)],
         }
 
-        let definitions = [
-            HorizonDef {
-                genre: "Modern Japanese Jazz & Fusion",
-                description: "Take a detour from standard arrangements into intricate polyrhythmic brass, electric piano solos, and Tokyo city fusion.",
-                accent: "#D4A86E",
-                preview_tracks: &[
-                    ("Midnight Rendezvous", "Casiopea", "Mint Jams", 227000, None),
-                    ("Early Summer", "Ryo Fukui", "Scenery", 254000, None),
-                    ("Truth", "T-Square", "Truth", 298000, None),
-                ],
-            },
-            HorizonDef {
-                genre: "Analog Synthwave & Cyberpunk",
-                description: "Step into lush analog sawtooth waves, gated reverb drums, and cinematic neon retro-futurism.",
-                accent: "#FF8C38",
-                preview_tracks: &[
-                    ("Nightcall", "Kavinsky", "OutRun", 259000, Some("https://i.ytimg.com/vi/MV_3Dpw-BRY/hqdefault.jpg")),
-                    ("Resonance", "HOME", "Odyssey", 212000, Some("https://i.ytimg.com/vi/8GW6sLrK40k/hqdefault.jpg")),
-                    ("Days of Thunder", "The Midnight", "Days of Thunder", 328000, None),
-                ],
-            },
-            HorizonDef {
-                genre: "Neo-Classical & Cinematic Strings",
-                description: "Clear your auditory palette with minimalist acoustic piano motifs and contemplative, breathing string quartets.",
-                accent: "#38BDF8",
-                preview_tracks: &[
-                    ("Divenire", "Ludovico Einaudi", "Divenire", 402000, None),
-                    ("On The Nature of Daylight", "Max Richter", "The Blue Notebooks", 371000, None),
-                    ("Written on the Sky", "Max Richter", "The Blue Notebooks", 99000, None),
-                ],
-            },
-            HorizonDef {
-                genre: "Afro-Cuban Jazz & Global Funk",
-                description: "Bridge rhythmic grooves into organic percussion, montuno piano riffs, brass polyrhythms, and vintage soul.",
-                accent: "#E76F51",
-                preview_tracks: &[
-                    ("Water No Get Enemy", "Fela Kuti", "Expensive Shit", 590000, Some("https://i.ytimg.com/vi/IQBC5URoF0s/hqdefault.jpg")),
-                    ("Afrodisia", "Mongo Santamaria", "Afro-Roots", 242000, None),
-                    ("Chameleon", "Herbie Hancock", "Head Hunters", 941000, Some("https://i.ytimg.com/vi/UbkqE4fpvdI/hqdefault.jpg")),
-                ],
-            },
-            HorizonDef {
-                genre: "Nordic Ambient & Downtempo",
-                description: "Immerse in glacial harmonic textures, subdued acoustic strums, and expansive Scandinavian soundscapes.",
-                accent: "#A78BFA",
-                preview_tracks: &[
-                    ("A Walk", "Tycho", "Dive", 317000, Some("https://i.ytimg.com/vi/mehLx_Fjv_c/hqdefault.jpg")),
-                    ("Cirrus", "Bonobo", "The North Borders", 352000, None),
-                    ("Svefn-g-englar", "Sigur Rós", "Ágætis byrjun", 604000, None),
-                ],
-            },
-        ];
+        // Map dominant genre to 4 contrast horizons
+        let mut defs = Vec::new();
+        let profile_lower = dominant_profile.to_lowercase();
+        
+        if profile_lower.contains("rock") || profile_lower.contains("metal") {
+            defs.push(HorizonDef { genre: "Electronic Synthwave", description: "Step into lush analog sawtooth waves and cinematic neon retro-futurism.", accent: "#FF8C38" });
+            defs.push(HorizonDef { genre: "Modern Jazz Fusion", description: "Take a detour from standard arrangements into intricate polyrhythmic brass.", accent: "#D4A86E" });
+            defs.push(HorizonDef { genre: "Neo-Classical", description: "Clear your auditory palette with minimalist acoustic piano motifs and strings.", accent: "#38BDF8" });
+            defs.push(HorizonDef { genre: "Afrobeat", description: "Bridge rhythmic grooves into organic percussion and vintage soul.", accent: "#E76F51" });
+        } else if profile_lower.contains("pop") || profile_lower.contains("dance") {
+            defs.push(HorizonDef { genre: "Nordic Ambient", description: "Immerse in glacial harmonic textures and expansive Scandinavian soundscapes.", accent: "#A78BFA" });
+            defs.push(HorizonDef { genre: "Math Rock", description: "Complex time signatures and angular melodies.", accent: "#E76F51" });
+            defs.push(HorizonDef { genre: "Trip Hop", description: "Slow-tempo beats layered with atmospheric jazz and soul samples.", accent: "#38BDF8" });
+            defs.push(HorizonDef { genre: "Post-Punk", description: "Raw, angular textures with dark, atmospheric undertones.", accent: "#FF8C38" });
+        } else if profile_lower.contains("electronic") || profile_lower.contains("techno") {
+            defs.push(HorizonDef { genre: "Acoustic Folk", description: "Return to organic instrumentation and intimate vocal storytelling.", accent: "#D4A86E" });
+            defs.push(HorizonDef { genre: "Cinematic Orchestral", description: "Sweeping symphonies and epic emotional arrangements.", accent: "#38BDF8" });
+            defs.push(HorizonDef { genre: "Bossa Nova", description: "Soft samba rhythms and syncopated acoustic guitars.", accent: "#E76F51" });
+            defs.push(HorizonDef { genre: "Doom Metal", description: "Slow, heavy, and sludgy riffs.", accent: "#A78BFA" });
+        } else {
+            defs.push(HorizonDef { genre: "Modern Japanese Jazz & Fusion", description: "Take a detour from standard arrangements into intricate polyrhythmic brass.", accent: "#D4A86E" });
+            defs.push(HorizonDef { genre: "Analog Synthwave & Cyberpunk", description: "Step into lush analog sawtooth waves and cinematic neon retro-futurism.", accent: "#FF8C38" });
+            defs.push(HorizonDef { genre: "Neo-Classical & Cinematic Strings", description: "Minimalist acoustic piano motifs and contemplative, breathing string quartets.", accent: "#38BDF8" });
+            defs.push(HorizonDef { genre: "Afro-Cuban Jazz & Global Funk", description: "Bridge rhythmic grooves into organic percussion, montuno piano riffs, and vintage soul.", accent: "#E76F51" });
+        }
 
         let mut horizons = Vec::new();
-        let start_idx = (dominant_artist.len()) % definitions.len();
 
-        for i in 0..4 {
-            let def_idx = (start_idx + i) % definitions.len();
-            let def = &definitions[def_idx];
-
+        for def in defs {
             let seed_key = make_canonical_key(def.genre, "Adjacent Horizon");
             let seed = CanonicalSeedV1 {
                 abi_version: PROVIDER_ABI_VERSION,
-                canonical_key: seed_key,
+                canonical_key: seed_key.clone(),
                 title: def.genre.to_string(),
                 artist: "Adjacent Horizon".to_string(),
                 album: None,
                 isrc: None,
                 duration_ms: None,
                 native_id: None,
-                provider_id: None,
+                provider_id: Some(default_provider.clone()),
             };
 
-            let preview_tracks: Vec<FederatedTrack> = def.preview_tracks.iter().map(|(t, a, alb, dur, art)| {
-                let key = make_canonical_key(t, a);
-                FederatedTrack {
-                    canonical_key: key.clone(),
-                    title: t.to_string(),
-                    artist: a.to_string(),
-                    album: Some(alb.to_string()),
-                    isrc: None,
-                    cover_art_url: art.map(|s| s.to_string()),
-                    duration_ms: Some(*dur),
-                    play_count: 0,
-                    seed_provenance: Some(def.genre.to_string()),
-                    sources: vec![
-                        TrackSourceInfo::Remote {
-                            provider_id: default_provider.clone(),
-                            remote_track_id: key,
-                            stream_url: None,
-                            quality_hint: None,
-                            cover_art_url: art.map(|s| s.to_string()),
-                            duration_ms: Some(*dur),
-                        }
-                    ],
-                    liked: false,
-                }
-            }).collect();
+            let mut preview_tracks = Vec::new();
 
-            horizons.push(AdjacentHorizonPayload {
-                dominant_genre_or_artist: dominant_artist.clone(),
-                suggested_genre: def.genre.to_string(),
-                tagline: format!("Beyond {}. Explore {}.", dominant_artist, def.genre),
-                description: def.description.to_string(),
-                accent_color: def.accent.to_string(),
-                seed,
-                preview_tracks,
-            });
+            // Resolve dynamic preview tracks via remote provider search
+            if let Some(mgr) = &self.provider_manager {
+                if let Ok(Ok(results)) = tokio::runtime::Handle::current().block_on(async {
+                    // Timeout wrapper so a slow search doesn't block the UI forever
+                    tokio::time::timeout(std::time::Duration::from_secs(5), mgr.search(&default_provider, def.genre)).await
+                }) {
+                    for track in results.into_iter().take(3) {
+                        preview_tracks.push(FederatedTrack {
+                            canonical_key: make_canonical_key(&track.title, &track.artist),
+                            title: track.title,
+                            artist: track.artist,
+                            album: track.album,
+                            isrc: track.isrc,
+                            cover_art_url: track.cover_art_url.clone(),
+                            duration_ms: track.duration_ms,
+                            play_count: 0,
+                            seed_provenance: Some(def.genre.to_string()),
+                            sources: vec![
+                                TrackSourceInfo::Remote {
+                                    provider_id: default_provider.clone(),
+                                    remote_track_id: track.id.clone(),
+                                    stream_url: track.stream_url,
+                                    quality_hint: track.quality_hint,
+                                    cover_art_url: track.cover_art_url,
+                                    duration_ms: track.duration_ms,
+                                }
+                            ],
+                            liked: false,
+                        });
+                    }
+                }
+            }
+
+            // Only push the horizon if we successfully resolved at least one track
+            if !preview_tracks.is_empty() {
+                horizons.push(AdjacentHorizonPayload {
+                    dominant_genre_or_artist: dominant_profile.clone(),
+                    suggested_genre: def.genre.to_string(),
+                    tagline: format!("Beyond {}. Explore {}.", dominant_profile, def.genre),
+                    description: def.description.to_string(),
+                    accent_color: def.accent.to_string(),
+                    seed,
+                    preview_tracks,
+                });
+            }
+        }
+
+        // Cache the successful result
+        if !horizons.is_empty() {
+            if let Ok(json) = serde_json::to_string(&horizons) {
+                let _ = conn.execute(
+                    "INSERT INTO recommendation_cache (key, payload, updated_at) VALUES ('adjacent_horizons', ?1, CURRENT_TIMESTAMP)
+                     ON CONFLICT(key) DO UPDATE SET payload = ?1, updated_at = CURRENT_TIMESTAMP",
+                    rusqlite::params![json]
+                );
+            }
         }
 
         Ok(horizons)

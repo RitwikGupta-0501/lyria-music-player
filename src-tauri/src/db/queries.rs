@@ -30,15 +30,16 @@ use super::TrackData;
 
 pub fn get_local_tracks(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<LocalTrack>, String> {
     let mut tracks = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, artist, album_id, track_number, file_path FROM tracks ORDER BY id LIMIT ?1 OFFSET ?2").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, title, artist, album_id, genre, track_number, file_path FROM tracks ORDER BY id LIMIT ?1 OFFSET ?2").map_err(|e| e.to_string())?;
     let track_iter = stmt.query_map([&limit, &offset], |row| {
         Ok(LocalTrack {
             id: row.get(0)?,
             title: row.get(1)?,
             artist: row.get(2)?,
             album_id: row.get(3)?,
-            track_number: row.get(4)?,
-            file_path: row.get(5)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+            file_path: row.get(6)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -87,15 +88,16 @@ pub fn get_recent_albums(conn: &Connection, limit: u32) -> Result<Vec<Album>, St
 
 pub fn get_album_tracks(conn: &Connection, album_id: i64, limit: u32, offset: u32) -> Result<Vec<LocalTrack>, String> {
     let mut tracks = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, artist, album_id, track_number, file_path FROM tracks WHERE album_id = ?1 ORDER BY track_number LIMIT ?2 OFFSET ?3").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, title, artist, album_id, genre, track_number, file_path FROM tracks WHERE album_id = ?1 ORDER BY track_number LIMIT ?2 OFFSET ?3").map_err(|e| e.to_string())?;
     let track_iter = stmt.query_map([&album_id, &(limit as i64), &(offset as i64)], |row| {
         Ok(LocalTrack {
             id: row.get(0)?,
             title: row.get(1)?,
             artist: row.get(2)?,
             album_id: row.get(3)?,
-            track_number: row.get(4)?,
-            file_path: row.get(5)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+            file_path: row.get(6)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -196,15 +198,16 @@ pub fn add_to_playlist(conn: &Connection, playlist_id: i64, track_id: i64) -> Re
 
 pub fn get_playlist_tracks(conn: &Connection, playlist_id: i64, limit: u32, offset: u32) -> Result<Vec<LocalTrack>, String> {
     let mut tracks = Vec::new();
-    let mut stmt = conn.prepare("SELECT t.id, t.title, t.artist, t.album_id, t.track_number, t.file_path FROM tracks t JOIN playlist_tracks pt ON t.id = pt.track_id WHERE pt.playlist_id = ?1 ORDER BY pt.position LIMIT ?2 OFFSET ?3").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT t.id, t.title, t.artist, t.album_id, t.genre, t.track_number, t.file_path FROM tracks t JOIN playlist_tracks pt ON t.id = pt.track_id WHERE pt.playlist_id = ?1 ORDER BY pt.position LIMIT ?2 OFFSET ?3").map_err(|e| e.to_string())?;
     let track_iter = stmt.query_map([&playlist_id, &(limit as i64), &(offset as i64)], |row| {
         Ok(LocalTrack {
             id: row.get(0)?,
             title: row.get(1)?,
             artist: row.get(2)?,
             album_id: row.get(3)?,
-            track_number: row.get(4)?,
-            file_path: row.get(5)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+            file_path: row.get(6)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -400,7 +403,7 @@ pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<us
     // Pre-prepare inside the transaction to avoid compiling on every loop
     let mut album_select = tx.prepare("SELECT id FROM albums WHERE title = ?1 AND artist = ?2").map_err(|e| e.to_string())?;
     let mut album_insert = tx.prepare("INSERT OR IGNORE INTO albums (title, artist) VALUES (?1, ?2)").map_err(|e| e.to_string())?;
-    let mut track_insert = tx.prepare("INSERT OR IGNORE INTO tracks (title, artist, album_id, track_number, file_path) VALUES (?1, ?2, ?3, ?4, ?5)").map_err(|e| e.to_string())?;
+    let mut track_insert = tx.prepare("INSERT OR IGNORE INTO tracks (title, artist, album_id, genre, track_number, file_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").map_err(|e| e.to_string())?;
     let mut album_cache: std::collections::HashMap<(String, String), Option<i64>> = std::collections::HashMap::new();
 
     for track in tracks {
@@ -417,7 +420,7 @@ pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<us
             id
         };
 
-        if let Ok(count) = track_insert.execute(rusqlite::params![&track.title, &track.artist, &album_id, &track.track_number, &track.file_path]) {
+        if let Ok(count) = track_insert.execute(rusqlite::params![&track.title, &track.artist, &album_id, &track.genre, &track.track_number, &track.file_path]) {
             if count > 0 {
                 added += 1;
             }
@@ -480,8 +483,9 @@ pub fn search_library(conn: &Connection, query: &str, limit: u32) -> Result<Vec<
             title: row.get(1)?,
             artist: row.get(2)?,
             album_id: row.get(3)?,
-            track_number: row.get(4)?,
-            file_path: row.get(5)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+            file_path: row.get(6)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -701,6 +705,7 @@ pub fn record_playback_event(
     title: &str,
     artist: &str,
     album: Option<&str>,
+    genre: Option<&str>,
     cover_art_url: Option<&str>,
     provider_id: &str,
     source_id: &str,
@@ -709,53 +714,56 @@ pub fn record_playback_event(
     let canonical_key = make_canonical_key(title, artist);
 
     // 1. Check if a local file exists matching title and artist or source_id
-    let local_match: Option<(i64, Option<String>)> = if provider_id == "local" {
+    let local_match: Option<(i64, Option<String>, Option<String>)> = if provider_id == "local" {
         source_id.parse::<i64>().ok().and_then(|t_id| {
             conn.query_row(
-                "SELECT t.id, a.cover_art_path FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE t.id = ?1 LIMIT 1",
+                "SELECT t.id, a.cover_art_path, t.genre FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE t.id = ?1 LIMIT 1",
                 [t_id],
-                |row| Ok((row.get(0)?, row.get(1)?))
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             ).ok()
         })
     } else {
         None
     }.or_else(|| {
         conn.query_row(
-            "SELECT t.id, a.cover_art_path FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE LOWER(TRIM(t.title)) = LOWER(TRIM(?1)) AND (LOWER(TRIM(t.artist)) = LOWER(TRIM(?2)) OR t.artist IS NULL) LIMIT 1",
+            "SELECT t.id, a.cover_art_path, t.genre FROM tracks t LEFT JOIN albums a ON t.album_id = a.id WHERE LOWER(TRIM(t.title)) = LOWER(TRIM(?1)) AND (LOWER(TRIM(t.artist)) = LOWER(TRIM(?2)) OR t.artist IS NULL) LIMIT 1",
             [title, artist],
-            |row| Ok((row.get(0)?, row.get(1)?))
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         ).ok()
     });
 
     let local_track_id = local_match.as_ref().map(|m| m.0);
-    let resolved_cover = cover_art_url.map(|s| s.to_string()).or_else(|| local_match.and_then(|m| m.1));
+    let resolved_cover = cover_art_url.map(|s| s.to_string()).or_else(|| local_match.as_ref().and_then(|m| m.1.clone()));
+    let resolved_genre = genre.map(|s| s.to_string()).or_else(|| local_match.as_ref().and_then(|m| m.2.clone()));
 
     // 2. Upsert into song_telemetry
     conn.execute(
         "INSERT INTO song_telemetry (
-            canonical_key, title, artist, album, cover_art_url, play_count, last_played_at, liked, local_track_id, last_provider_id, last_source_id, duration_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, 1, CURRENT_TIMESTAMP, 0, ?6, ?7, ?8, ?9)
+            canonical_key, title, artist, album, genre, cover_art_url, play_count, last_played_at, liked, local_track_id, last_provider_id, last_source_id, duration_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, CURRENT_TIMESTAMP, 0, ?7, ?8, ?9, ?10)
         ON CONFLICT(canonical_key) DO UPDATE SET
             play_count = play_count + 1,
             last_played_at = CURRENT_TIMESTAMP,
             title = CASE WHEN length(?2) > 0 THEN ?2 ELSE title END,
             artist = CASE WHEN length(?3) > 0 THEN ?3 ELSE artist END,
             album = COALESCE(?4, album),
-            cover_art_url = COALESCE(?5, cover_art_url),
-            local_track_id = COALESCE(?6, local_track_id),
-            last_provider_id = ?7,
-            last_source_id = ?8,
-            duration_ms = COALESCE(?9, duration_ms)",
+            genre = COALESCE(?5, genre),
+            cover_art_url = COALESCE(?6, cover_art_url),
+            local_track_id = COALESCE(?7, local_track_id),
+            last_provider_id = ?8,
+            last_source_id = ?9,
+            duration_ms = COALESCE(?10, duration_ms)",
         rusqlite::params![
             canonical_key,
             title,
             artist,
             album,
+            resolved_genre,
             resolved_cover,
             local_track_id,
             provider_id,
             source_id,
-            duration_ms.map(|d| d as i64),
+            duration_ms.map(|d| d as i64)
         ],
     )?;
 
@@ -1138,7 +1146,7 @@ fn map_canonical_row(row: &rusqlite::Row) -> rusqlite::Result<CanonicalSong> {
         last_played_at: row.get(7)?,
         liked: liked_i64 == 1,
         local_track_id: row.get(9)?,
-        local_file_path: row.get(10)?,
+        local_file_path: row.get(11)?,
         last_provider_id: row.get(11)?,
         last_source_id: row.get(12)?,
         duration_ms: duration_i64.map(|d| d as u64),
@@ -1146,6 +1154,67 @@ fn map_canonical_row(row: &rusqlite::Row) -> rusqlite::Result<CanonicalSong> {
 }
 
 
+
+pub fn get_genre_distribution_7d(conn: &Connection, limit: usize) -> SqlResult<Vec<(String, i64)>> {
+    use std::collections::HashMap;
+    let mut genre_map: HashMap<String, i64> = HashMap::new();
+
+    if let Ok(mut pe_stmt) = conn.prepare(
+        "SELECT st.genre, pe.duration_ms
+         FROM playback_events pe
+         JOIN song_telemetry st ON pe.canonical_key = st.canonical_key
+         WHERE pe.played_at >= datetime('now', '-7 days') AND st.genre IS NOT NULL AND st.genre != ''"
+    ) {
+        if let Ok(rows) = pe_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+            ))
+        }) {
+            for r in rows.flatten() {
+                let (raw_genre, dur) = r;
+                let split_genres = raw_genre.split(|c| c == ',' || c == ';').map(|s| s.trim()).filter(|s| !s.is_empty());
+                for genre in split_genres {
+                    let key = genre.to_lowercase();
+                    let entry = genre_map.entry(key.clone()).or_insert(0);
+                    *entry += dur.max(1); // fallback to 1 if no duration so it counts
+                }
+            }
+        }
+    }
+
+    if genre_map.is_empty() {
+        if let Ok(mut st_stmt) = conn.prepare(
+            "SELECT genre, duration_ms, play_count
+             FROM song_telemetry
+             WHERE genre IS NOT NULL AND genre != ''"
+        ) {
+            if let Ok(rows) = st_stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                    row.get::<_, i64>(2)?,
+                ))
+            }) {
+                for r in rows.flatten() {
+                    let (raw_genre, dur, count) = r;
+                    let split_genres = raw_genre.split(|c| c == ',' || c == ';').map(|s| s.trim()).filter(|s| !s.is_empty());
+                    for genre in split_genres {
+                        let key = genre.to_lowercase();
+                        let entry = genre_map.entry(key.clone()).or_insert(0);
+                        *entry += dur.max(1) * count;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut genres: Vec<(String, i64)> = genre_map.into_iter().collect();
+    genres.sort_by(|a, b| b.1.cmp(&a.1));
+    genres.truncate(limit);
+
+    Ok(genres)
+}
 
 pub fn get_heavy_rotation_7d(conn: &Connection, limit: usize) -> SqlResult<HeavyRotationShelf> {
     use std::collections::HashMap;
@@ -1505,7 +1574,7 @@ pub fn get_cold_start_local_artists(conn: &Connection, limit: usize) -> SqlResul
             artist: row.get(2)?,
             album_title: row.get(3)?,
             cover_art_url: row.get(4)?,
-            file_path: row.get(5)?,
+            file_path: row.get(6)?,
         })
     })?;
 
@@ -2162,8 +2231,9 @@ pub fn get_markov_autoplay_candidate(
                 title: row.get(1)?,
                 artist: row.get(2)?,
                 album_id: row.get(3)?,
-                track_number: row.get(4)?,
-                file_path: row.get(5)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+                file_path: row.get(6)?,
             },
             album_title: row.get(6)?,
             play_count: row.get(7)?,

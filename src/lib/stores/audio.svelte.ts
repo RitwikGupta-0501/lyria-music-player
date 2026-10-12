@@ -113,6 +113,7 @@ export class AudioStore {
             title: t.title,
             artist: t.artist || "Unknown Artist",
             album: null,
+            genre: null,
             coverArtUrl,
             providerId,
             sourceId,

@@ -12,6 +12,7 @@ pub struct TrackData {
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub genre: Option<String>,
     pub track_number: Option<i64>,
     pub file_path: String,
 }
@@ -21,6 +22,7 @@ pub enum DbRequest {
         title: String,
         artist: String,
         album: Option<String>,
+        genre: Option<String>,
         cover_art_url: Option<String>,
         provider_id: String,
         source_id: String,
@@ -219,8 +221,8 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
     std::thread::spawn(move || {
         while let Ok(req) = rx.recv() {
             match req {
-                DbRequest::RecordPlaybackEvent { title, artist, album, cover_art_url, provider_id, source_id, duration_ms, resp } => {
-                    let res = queries::record_playback_event(&conn, &title, &artist, album.as_deref(), cover_art_url.as_deref(), &provider_id, &source_id, duration_ms).map_err(|e| e.to_string());
+                DbRequest::RecordPlaybackEvent { title, artist, album, genre, cover_art_url, provider_id, source_id, duration_ms, resp } => {
+                    let res = queries::record_playback_event(&conn, &title, &artist, album.as_deref(), genre.as_deref(), cover_art_url.as_deref(), &provider_id, &source_id, duration_ms).map_err(|e| e.to_string());
                     let _ = resp.send(res);
                 }
                 DbRequest::RecordResolutionResult { provider_id, success, resp } => {

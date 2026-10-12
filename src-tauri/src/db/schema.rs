@@ -22,6 +22,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
             title TEXT NOT NULL,
             artist TEXT,
             album_id INTEGER,
+            genre TEXT,
             track_number INTEGER,
             file_path TEXT UNIQUE NOT NULL,
             FOREIGN KEY(album_id) REFERENCES albums(id)
@@ -199,6 +200,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
             title TEXT NOT NULL,
             artist TEXT NOT NULL,
             album TEXT,
+            genre TEXT,
             cover_art_url TEXT,
             play_count INTEGER NOT NULL DEFAULT 1,
             last_played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -371,6 +373,10 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     conn.execute("CREATE INDEX IF NOT EXISTS idx_shuffle_order_qsid ON shuffle_order(queue_state_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_snapshots_qsid ON queue_snapshots(queue_state_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_song_telemetry_track ON song_telemetry(local_track_id)", [])?;
+
+    // Migrations
+    let _ = conn.execute("ALTER TABLE tracks ADD COLUMN genre TEXT", []);
+    let _ = conn.execute("ALTER TABLE song_telemetry ADD COLUMN genre TEXT", []);
 
     Ok(conn)
 }

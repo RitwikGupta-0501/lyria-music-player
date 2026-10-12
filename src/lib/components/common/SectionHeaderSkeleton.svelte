@@ -10,11 +10,11 @@
 
 <div class="section-header-skeleton" style="--title-width: {titleWidth}; --icon-size: {iconSize}px;">
     <div class="header-left">
-        <div class="skeleton-circle icon-placeholder"></div>
-        <div class="skeleton-line title-placeholder"></div>
+        <div class="skeleton-circle skeleton-box icon-placeholder"></div>
+        <div class="skeleton-line skeleton-box title-placeholder"></div>
     </div>
     {#if hasControls}
-        <div class="skeleton-pill controls-placeholder"></div>
+        <div class="skeleton-pill skeleton-box controls-placeholder"></div>
     {/if}
 </div>
 

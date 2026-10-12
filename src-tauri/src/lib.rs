@@ -37,6 +37,7 @@ pub struct LocalTrack {
     pub title: String,
     pub artist: Option<String>,
     pub album_id: Option<i64>,
+    pub genre: Option<String>,
     pub track_number: Option<i64>,
     pub file_path: String,
 }
@@ -821,6 +822,7 @@ async fn record_track_play(
     title: String,
     artist: String,
     album: Option<String>,
+    genre: Option<String>,
     cover_art_url: Option<String>,
     provider_id: String,
     source_id: String,
@@ -831,6 +833,7 @@ async fn record_track_play(
         title,
         artist,
         album,
+        genre,
         cover_art_url,
         provider_id: provider_id.clone(),
         source_id: source_id.clone(),
@@ -1041,6 +1044,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
                         let mut title = entry_path.file_name().unwrap_or_default().to_string_lossy().to_string();
                         let mut artist = None;
                         let mut album = None;
+                        let mut genre = None;
                         let mut track_number = None;
                         if let Ok(file) = std::fs::File::open(entry_path) {
                             let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -1071,6 +1075,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
                                                 let a = cleaner.replace_all(&tag.value.to_string(), "").trim().to_string();
                                                 album = Some(if a.is_empty() { tag.value.to_string() } else { a });
                                             },
+                                            Some(StandardTagKey::Genre) => genre = Some(tag.value.to_string()),
                                             Some(StandardTagKey::TrackNumber) => {
                                                 let val = tag.value.to_string();
                                                 if let Ok(num) = val.parse::<i64>() {
@@ -1089,7 +1094,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
                         }
                         
                         found_tracks.push(TrackData {
-                            title, artist, album, track_number, file_path: entry_path.to_string_lossy().to_string()
+                            title, artist, album, genre, track_number, file_path: entry_path.to_string_lossy().to_string()
                         });
                     }
                 }
