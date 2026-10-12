@@ -236,6 +236,8 @@ pub struct TrackResult {
     pub isrc: Option<String>,
     #[serde(default)]
     pub plays: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -246,6 +248,7 @@ pub struct ResolvedTrack {
     pub headers: Option<std::collections::HashMap<String, String>>,
 }
 
+#[derive(Clone)]
 pub struct ActiveProvider {
     pub id: String,
     pub name: String,
@@ -257,8 +260,8 @@ pub struct ActiveProvider {
 pub struct ProviderManager {
     providers: std::sync::RwLock<std::collections::HashMap<String, ActiveProvider>>,
     app_handle: tauri::AppHandle,
-    reqwest_client: reqwest::Client,
-    db_tx: Sender<DbRequest>,
+    pub reqwest_client: reqwest::Client,
+    pub db_tx: Sender<DbRequest>,
     pub search_semaphore: Arc<Semaphore>,
     pub explore_semaphore: Arc<Semaphore>,
     plugin_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<Plugin>>>>>,
@@ -305,17 +308,21 @@ impl ProviderManager {
         tracing::info!("Provider registry synced with {} enabled providers", count);
     }
 
-    fn get_or_create_plugin(&self, provider_id: &str, timeout_secs: u64) -> Result<Arc<std::sync::Mutex<Plugin>>, SandboxError> {
-        let mut cache = self.plugin_cache.lock().unwrap();
-        if let Some(plugin) = cache.get(provider_id) {
-            return Ok(plugin.clone());
+    async fn get_or_create_plugin(&self, provider_id: &str, timeout_secs: u64) -> Result<Arc<std::sync::Mutex<Plugin>>, SandboxError> {
+        {
+            let cache = self.plugin_cache.lock().unwrap();
+            if let Some(plugin) = cache.get(provider_id) {
+                return Ok(plugin.clone());
+            }
         }
 
-        let providers_guard = self.providers.read().unwrap();
-        let provider = providers_guard.get(provider_id).ok_or_else(|| SandboxError::ScriptError {
-            script: provider_id.to_string(),
-            message: "provider not found or disabled in registry".to_string(),
-        })?;
+        let provider = {
+            let providers_guard = self.providers.read().unwrap();
+            providers_guard.get(provider_id).ok_or_else(|| SandboxError::ScriptError {
+                script: provider_id.to_string(),
+                message: "provider not found or disabled in registry".to_string(),
+            })?.clone()
+        };
 
         let wasm_file = provider.script_path.clone();
         
@@ -326,8 +333,19 @@ impl ProviderManager {
             });
         }
 
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let _ = self.db_tx.send(crate::db::DbRequest::GetSetting {
+            key: "provider_max_memory_mb".to_string(),
+            resp: tx,
+        });
+        let memory_limit_mb: u32 = match rx.await {
+            Ok(Ok(Some(val))) => val.parse().unwrap_or(40),
+            _ => 40,
+        };
+        let memory_limit_pages = (memory_limit_mb * 1024 * 1024) / 65536;
+
         let manifest = Manifest::new([Wasm::file(wasm_file)])
-            .with_memory_max(2048)
+            .with_memory_max(memory_limit_pages)
             .with_timeout(Duration::from_secs(timeout_secs));
 
         let reqwest_client = Arc::new(self.reqwest_client.clone());
@@ -398,12 +416,12 @@ impl ProviderManager {
             })?;
             
         let plugin_arc = Arc::new(std::sync::Mutex::new(plugin));
-        cache.insert(provider_id.to_string(), plugin_arc.clone());
+        self.plugin_cache.lock().unwrap().insert(provider_id.to_string(), plugin_arc.clone());
         Ok(plugin_arc)
     }
 
     pub async fn warmup_provider(&self, provider_id: &str) -> Result<(), SandboxError> {
-        let plugin = self.get_or_create_plugin(provider_id, 30)?;
+        let plugin = self.get_or_create_plugin(provider_id, 30).await?;
         let provider_name = self.providers.read().unwrap().get(provider_id).map(|p| p.name.clone()).unwrap_or_else(|| provider_id.to_string());
         
         spawn_blocking(move || {
@@ -483,7 +501,7 @@ impl ProviderManager {
             return Ok(CategorizedSearchResult::default());
         }
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS).await?;
         let search_epoch = self.search_epoch.clone();
         let active_canceller = self.active_search_canceller.clone();
         
@@ -570,7 +588,7 @@ impl ProviderManager {
             message: "Semaphore closed".into(),
         })?;
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS).await?;
         
         let query_for_search = query.clone();
         let res_bytes = match spawn_blocking(move || {
@@ -621,6 +639,7 @@ impl ProviderManager {
                                         duration_ms: None,
                                         isrc: None,
                                         plays: None,
+                                        provider_id: top.provider_id.or_else(|| Some(provider_id.to_string())),
                                     });
                                 }
                             }
@@ -646,7 +665,7 @@ impl ProviderManager {
             message: "Semaphore closed".into(),
         })?;
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS).await?;
         
         let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -684,6 +703,93 @@ impl ProviderManager {
         Ok(results)
     }
 
+    pub async fn fetch_lyrics(
+        &self,
+        provider_id: &str,
+        query: &crate::lyrics::LyricsQuery,
+    ) -> Result<Option<crate::lyrics::LyricsResult>, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let query_clone = query.clone();
+
+        let _permit = self.search_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
+            script: provider_id.clone(),
+            message: "Semaphore closed".into(),
+        })?;
+
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS).await?;
+
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&query_clone).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("get_lyrics", &json_input).map(|res| res.to_vec())
+        }).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                tracing::warn!("get_lyrics plugin call failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+            Err(e) => {
+                tracing::warn!("get_lyrics spawn_blocking failed for provider '{}': {}", provider_id, e);
+                self.invalidate_plugin_cache(&provider_id);
+                return Err(SandboxError::ScriptError {
+                    script: provider_id,
+                    message: e.to_string(),
+                });
+            }
+        };
+
+        if res_bytes.is_empty() {
+            return Ok(None);
+        }
+
+        let provider_name = self.providers.read().unwrap()
+            .get(&provider_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| provider_id.clone());
+
+        if let Ok(opt_result) = serde_json::from_slice::<Option<crate::lyrics::LyricsResult>>(&res_bytes) {
+            return Ok(opt_result);
+        }
+
+        if let Ok(direct_result) = serde_json::from_slice::<crate::lyrics::LyricsResult>(&res_bytes) {
+            return Ok(Some(direct_result));
+        }
+
+        if let Ok(raw_str) = serde_json::from_slice::<String>(&res_bytes) {
+            let trimmed = raw_str.trim();
+            if trimmed.is_empty() || trimmed == "null" {
+                return Ok(None);
+            }
+            let parsed = crate::lyrics::parser::parse_lrc(&provider_id, &provider_name, trimmed);
+            return Ok(Some(parsed));
+        }
+
+        if let Ok(raw_utf8) = std::str::from_utf8(&res_bytes) {
+            let trimmed = raw_utf8.trim();
+            if trimmed.is_empty() || trimmed == "null" {
+                return Ok(None);
+            }
+            let parsed = crate::lyrics::parser::parse_lrc(&provider_id, &provider_name, trimmed);
+            return Ok(Some(parsed));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_lyrics_eligible_providers(&self) -> Vec<String> {
+        self.providers
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, p)| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("lyrics")))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     pub async fn get_all_explore_modules(&self) -> Vec<AggregatedModule> {
         let explore_providers: Vec<(String, String)> = self.providers
             .read()
@@ -716,7 +822,7 @@ impl ProviderManager {
             message: "Semaphore closed".into(),
         })?;
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, MODULE_FETCH_TIMEOUT_SECS)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, MODULE_FETCH_TIMEOUT_SECS).await?;
         
         let res_bytes = spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -746,7 +852,7 @@ impl ProviderManager {
             message: "Semaphore closed".into(),
         })?;
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, MODULE_FETCH_TIMEOUT_SECS)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, MODULE_FETCH_TIMEOUT_SECS).await?;
         
         let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -810,7 +916,7 @@ impl ProviderManager {
 
 
     pub async fn browse_album(&self, provider_id: &str, album_id: &str) -> Result<AlbumDetailResult, SandboxError> {
-        let plugin_arc = self.get_or_create_plugin(provider_id, 15)?;
+        let plugin_arc = self.get_or_create_plugin(provider_id, 15).await?;
         let album_id_str = album_id.to_string();
         let res_bytes = spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -827,7 +933,7 @@ impl ProviderManager {
     }
 
     pub async fn browse_artist(&self, provider_id: &str, artist_id: &str) -> Result<ArtistDetailResult, SandboxError> {
-        let plugin_arc = self.get_or_create_plugin(provider_id, 15)?;
+        let plugin_arc = self.get_or_create_plugin(provider_id, 15).await?;
         let artist_id_str = artist_id.to_string();
         let res_bytes = spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -852,7 +958,7 @@ impl ProviderManager {
         for (provider_id, provider_name) in active_providers {
             let pid = provider_id.clone();
             let url_str = url.to_string();
-            let plugin_arc = match self.get_or_create_plugin(&pid, 15) {
+            let plugin_arc = match self.get_or_create_plugin(&pid, 15).await {
                 Ok(p) => p,
                 Err(_) => continue,
             };
@@ -896,7 +1002,7 @@ impl ProviderManager {
             message: "Explore semaphore closed".into(),
         })?;
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, 4)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, 4).await?;
         
         let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -940,7 +1046,7 @@ impl ProviderManager {
             message: "Explore semaphore closed".into(),
         })?;
 
-        let plugin_arc = self.get_or_create_plugin(&provider_id, 4)?;
+        let plugin_arc = self.get_or_create_plugin(&provider_id, 4).await?;
         
         let res_bytes = match spawn_blocking(move || {
             let mut plugin = plugin_arc.lock().unwrap();
@@ -982,7 +1088,7 @@ impl ProviderManager {
         let provider_id = provider_id.to_string();
         let event_clone = event.clone();
 
-        let plugin_arc = match self.get_or_create_plugin(&provider_id, 4) {
+        let plugin_arc = match self.get_or_create_plugin(&provider_id, 4).await {
             Ok(p) => p,
             Err(_) => return Ok(()),
         };
@@ -1024,6 +1130,7 @@ mod provider_unit_tests {
             duration_ms: Some(180000),
             isrc: None,
             plays: None,
+            provider_id: None,
         });
 
         let json_track = serde_json::to_string(&track_item).unwrap();

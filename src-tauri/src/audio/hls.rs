@@ -30,14 +30,14 @@ impl HlsStream {
 
         let mut start_idx = 0;
         if let Some(pos) = seek_to {
-            let pos_secs = pos.as_secs_f32();
-            let mut acc = 0.0;
+            let pos_secs = pos.as_secs_f64();
+            let mut acc: f64 = 0.0;
             for (i, seg) in segments.iter().enumerate() {
-                if acc + seg.duration > pos_secs {
+                if acc + (seg.duration as f64) > pos_secs {
                     start_idx = i;
                     break;
                 }
-                acc += seg.duration;
+                acc += seg.duration as f64;
             }
         }
 
@@ -60,8 +60,12 @@ impl HlsStream {
             
             match m3u8_rs::parse_playlist_res(&body) {
                 Ok(m3u8_rs::Playlist::MasterPlaylist(pl)) => {
-                    // Pick the highest bandwidth variant, or just the first one
-                    let variant = pl.variants.first().ok_or("No variants in master playlist")?;
+                    // Pick the highest bandwidth variant, or fall back to the first one
+                    let variant = pl.variants
+                        .iter()
+                        .max_by_key(|v| v.bandwidth)
+                        .or_else(|| pl.variants.first())
+                        .ok_or("No variants in master playlist")?;
                     url = url.join(&variant.uri).map_err(|e| e.to_string())?;
                 }
                 Ok(m3u8_rs::Playlist::MediaPlaylist(pl)) => {
@@ -136,3 +140,29 @@ impl MediaSource for HlsStream {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_master_playlist_highest_bandwidth_selection() {
+        let manifest = b"#EXTM3U\n\
+#EXT-X-STREAM-INF:BANDWIDTH=64000\nlow.m3u8\n\
+#EXT-X-STREAM-INF:BANDWIDTH=256000\nhigh.m3u8\n\
+#EXT-X-STREAM-INF:BANDWIDTH=128000\nmid.m3u8\n";
+
+        let parsed = m3u8_rs::parse_playlist_res(manifest).expect("valid master playlist");
+        match parsed {
+            m3u8_rs::Playlist::MasterPlaylist(pl) => {
+                let variant = pl.variants
+                    .iter()
+                    .max_by_key(|v| v.bandwidth)
+                    .or_else(|| pl.variants.first())
+                    .expect("at least one variant");
+                assert_eq!(variant.bandwidth, 256000);
+                assert_eq!(variant.uri, "high.m3u8");
+            }
+            _ => panic!("Expected MasterPlaylist"),
+        }
+    }
+}
+

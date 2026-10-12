@@ -55,6 +55,7 @@ commands.allow = [
     "get_all_settings",
     "set_setting",
     "factory_reset",
+    "purge_data",
     "remove_track_by_path",
     "set_queue",
     "add_to_queue",
@@ -106,5 +107,9 @@ commands.allow = [
     "sandbox_log",
     "client_log",
     "clear_debug_logs",
-    "get_debug_logs"
+    "get_debug_logs",
+    "get_lyrics",
+    "get_lyrics_providers",
+    "set_preferred_lyrics_provider",
+    "clear_lyrics_cache"
 ]

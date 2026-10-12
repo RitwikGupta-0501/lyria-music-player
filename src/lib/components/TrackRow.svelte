@@ -52,6 +52,10 @@
     let isActive = $derived(isCurrentTrack(track, audioStore.currentQueueTrack));
 
     let coverSrc = $derived(resolveCoverArt(track?.cover_art_url));
+    let imageFailed = $state(false);
+    $effect(() => {
+        if (coverSrc) imageFailed = false;
+    });
     let initial = $derived(getInitial(showArtist ? track?.artist : track?.title));
     let metric = $derived(getTrackDisplayMetric(track));
     let albumName = $derived(showAlbum ? sanitizeAlbumName(track?.album) : null);
@@ -105,8 +109,8 @@
     <!-- 2. Track Cover Art Thumbnail -->
     {#if showCoverArt}
         <div class="row-art-wrapper">
-            {#if coverSrc}
-                <img src={coverSrc} alt={track?.title || "Track art"} class="row-squircle" loading="lazy" />
+            {#if coverSrc && !imageFailed}
+                <img src={coverSrc} alt={track?.title || "Track art"} class="row-squircle" loading="lazy" onerror={() => (imageFailed = true)} />
             {:else}
                 <div class="typographic-art-squircle">
                     <span>{initial}</span>
@@ -264,7 +268,7 @@
         align-items: center;
         justify-content: center;
         background: linear-gradient(135deg, rgba(181, 142, 98, 0.2), rgba(181, 142, 98, 0.05));
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-weight: 700;
         font-size: 1.1rem;
         color: var(--echo-primary, #B58E62);

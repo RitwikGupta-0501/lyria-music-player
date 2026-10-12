@@ -72,6 +72,7 @@ pub struct AdjacentHorizonPayload {
     pub preview_tracks: Vec<FederatedTrack>,
 }
 
+#[derive(Clone)]
 pub struct RecommendationCompiler {
     provider_manager: Option<Arc<ProviderManager>>,
     db_path: PathBuf,
@@ -98,12 +99,23 @@ impl RecommendationCompiler {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ).map_err(|e| format!("Failed to open read-only DB connection: {}", e))?;
         
-        let _ = conn.execute_batch("PRAGMA query_only = ON;");
+        let _ = conn.busy_timeout(std::time::Duration::from_secs(10));
+        let _ = conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA query_only = ON;"
+        );
         Ok(conn)
     }
 
     fn open_write_conn(&self) -> Result<Connection, String> {
-        Connection::open(&self.db_path).map_err(|e| format!("Failed to open DB connection: {}", e))
+        let conn = Connection::open(&self.db_path).map_err(|e| format!("Failed to open DB connection: {}", e))?;
+        let _ = conn.busy_timeout(std::time::Duration::from_secs(10));
+        let _ = conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;"
+        );
+        Ok(conn)
     }
 
     pub fn load_overrides(&self) -> HashMap<(String, String), bool> {
@@ -137,6 +149,19 @@ impl RecommendationCompiler {
     }
 
     pub fn set_dedup_override(&self, key_a: &str, key_b: &str, should_merge: bool) -> Result<(), String> {
+        if let Some(pm) = &self.provider_manager {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = pm.db_tx.send(crate::db::DbRequest::SetDedupOverride {
+                key_a: key_a.to_string(),
+                key_b: key_b.to_string(),
+                should_merge,
+                resp: tx,
+            });
+            if let Ok(Ok(())) = rx.blocking_recv() {
+                return Ok(());
+            }
+        }
+
         let conn = self.open_write_conn()?;
         let (k1, k2) = crate::db::canonical::canonical_override_key(key_a, key_b);
         conn.execute(
@@ -411,7 +436,11 @@ impl RecommendationCompiler {
     }
 
     pub async fn compile_federated_radio(&self, seed: &CanonicalSeedV1) -> Result<RadioStreamResultV1, String> {
-        self.ensure_providers_synced();
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.ensure_providers_synced())
+            .await
+            .map_err(|e| e.to_string())?;
+
         let p_mgr = match &self.provider_manager {
             Some(pm) => pm.clone(),
             None => return Err("ProviderManager not initialized".to_string()),
@@ -435,7 +464,7 @@ impl RecommendationCompiler {
             let p_id_clone = p_id.clone();
             tasks.push(tokio::spawn(async move {
                 let res = tokio::time::timeout(
-                    std::time::Duration::from_millis(4000),
+                    std::time::Duration::from_millis(3000),
                     p_mgr_clone.get_radio(&p_id_clone, &seed_clone)
                 ).await;
                 (p_id_clone, res)
@@ -446,10 +475,13 @@ impl RecommendationCompiler {
         let mut seen_canonical = std::collections::HashSet::new();
 
         for task in tasks {
-            if let Ok((_pid, Ok(Ok(radio_res)))) = task.await {
-                for track in radio_res.tracks {
+            if let Ok((pid, Ok(Ok(radio_res)))) = task.await {
+                for mut track in radio_res.tracks {
                     let c_key = format!("{}::{}", track.artist.trim().to_lowercase(), track.title.trim().to_lowercase());
                     if seen_canonical.insert(c_key) {
+                        if track.provider_id.is_none() {
+                            track.provider_id = Some(pid.clone());
+                        }
                         all_tracks.push(track);
                     }
                 }
@@ -688,22 +720,49 @@ impl RecommendationCompiler {
     }
 
     pub fn save_cache(&self, seed_canonical_key: &str, provider_id: &str, shelf_type: &str, tracks: &[TrackResult], ttl_seconds: u64) {
-        if let Ok(conn) = self.open_write_conn() {
-            if let Ok(json) = serde_json::to_string(tracks) {
-                let _ = conn.execute(
-                    "INSERT INTO recommendation_cache (seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds, fetched_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
-                     ON CONFLICT(seed_canonical_key, provider_id, shelf_type) DO UPDATE SET
-                        payload_json = excluded.payload_json,
-                        ttl_seconds = excluded.ttl_seconds,
-                        fetched_at = CURRENT_TIMESTAMP",
-                    rusqlite::params![seed_canonical_key, provider_id, shelf_type, json, ttl_seconds as i64],
-                );
+        let json = match serde_json::to_string(tracks) {
+            Ok(j) => j,
+            Err(_) => return,
+        };
+
+        if let Some(pm) = &self.provider_manager {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = pm.db_tx.send(crate::db::DbRequest::SaveRecommendationCache {
+                seed_canonical_key: seed_canonical_key.to_string(),
+                provider_id: provider_id.to_string(),
+                shelf_type: shelf_type.to_string(),
+                payload_json: json.clone(),
+                ttl_seconds,
+                resp: tx,
+            });
+            if let Ok(Ok(())) = rx.blocking_recv() {
+                return;
             }
+        }
+
+        if let Ok(conn) = self.open_write_conn() {
+            let _ = conn.execute(
+                "INSERT INTO recommendation_cache (seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds, fetched_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+                 ON CONFLICT(seed_canonical_key, provider_id, shelf_type) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    ttl_seconds = excluded.ttl_seconds,
+                    fetched_at = CURRENT_TIMESTAMP",
+                rusqlite::params![seed_canonical_key, provider_id, shelf_type, json, ttl_seconds as i64],
+            );
         }
     }
 
     pub fn clear_all_cache(&self) {
+        if let Some(pm) = &self.provider_manager {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = pm.db_tx.send(crate::db::DbRequest::ClearRecommendationCache {
+                resp: tx,
+            });
+            if let Ok(Ok(())) = rx.blocking_recv() {
+                return;
+            }
+        }
         if let Ok(conn) = self.open_write_conn() {
             let _ = conn.execute("DELETE FROM recommendation_cache;", []);
         }
@@ -728,6 +787,16 @@ impl RecommendationCompiler {
     }
 
     pub fn record_provider_success(&self, provider_id: &str) {
+        if let Some(pm) = &self.provider_manager {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = pm.db_tx.send(crate::db::DbRequest::RecordProviderSuccess {
+                provider_id: provider_id.to_string(),
+                resp: tx,
+            });
+            if let Ok(Ok(())) = rx.blocking_recv() {
+                return;
+            }
+        }
         if let Ok(conn) = self.open_write_conn() {
             let _ = conn.execute(
                 "INSERT INTO extension_metrics (provider_id, consecutive_failures, backoff_until)
@@ -739,14 +808,26 @@ impl RecommendationCompiler {
     }
 
     pub fn record_provider_failure(&self, provider_id: &str, err_type: &ProviderErrorType) {
-        if let Ok(conn) = self.open_write_conn() {
-            let cooldown_sec = match err_type {
-                ProviderErrorType::Http429 => 120,
-                ProviderErrorType::Timeout => 30,
-                ProviderErrorType::WasmPanic(_) => 60,
-                _ => 15,
-            };
+        let cooldown_sec = match err_type {
+            ProviderErrorType::Http429 => 120,
+            ProviderErrorType::Timeout => 30,
+            ProviderErrorType::WasmPanic(_) => 60,
+            _ => 15,
+        };
 
+        if let Some(pm) = &self.provider_manager {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = pm.db_tx.send(crate::db::DbRequest::RecordProviderFailure {
+                provider_id: provider_id.to_string(),
+                cooldown_sec,
+                resp: tx,
+            });
+            if let Ok(Ok(())) = rx.blocking_recv() {
+                return;
+            }
+        }
+
+        if let Ok(conn) = self.open_write_conn() {
             let _ = conn.execute(
                 "INSERT INTO extension_metrics (provider_id, consecutive_failures, backoff_until)
                  VALUES (?1, 1, datetime('now', '+' || ?2 || ' seconds'))
@@ -776,36 +857,33 @@ impl RecommendationCompiler {
         seeds: Vec<CanonicalSeedV1>,
         cancel_token: CancellationToken,
     ) -> FederatedShelfResult {
-        self.ensure_providers_synced();
-        let mut cached_tracks: Vec<(String, TrackResult, Option<String>)> = Vec::new();
-        let mut missing_queries: Vec<(String, CanonicalSeedV1)> = Vec::new();
-
-        let active_providers = self.provider_manager.as_ref().map(|pm| pm.get_providers_with_capability("related")).unwrap_or_default();
-
-        // 1. Check Granular Per-Seed Cache
-        for seed in &seeds {
-            let prov = if !seed.artist.is_empty() {
-                Some(format!("Similar to {}", seed.artist))
-            } else {
-                None
-            };
-            for (p_id, _) in &active_providers {
-                if let Some(cached) = self.get_valid_cache(&seed.canonical_key, p_id, "daily_discover") {
-                    for t in cached {
-                        cached_tracks.push((p_id.clone(), t, prov.clone()));
+        let this = self.clone();
+        let (cached_tracks, missing_queries, _active_providers) = tokio::task::spawn_blocking(move || {
+            this.ensure_providers_synced();
+            let mut cached_tracks = Vec::new();
+            let mut missing_queries = Vec::new();
+            let active_providers = this.provider_manager.as_ref().map(|pm| pm.get_providers_with_capability("related")).unwrap_or_default();
+            for seed in &seeds {
+                let prov = if !seed.artist.is_empty() {
+                    Some(format!("Similar to {}", seed.artist))
+                } else { None };
+                for (p_id, _) in &active_providers {
+                    if let Some(cached) = this.get_valid_cache(&seed.canonical_key, p_id, "daily_discover") {
+                        for t in cached {
+                            cached_tracks.push((p_id.clone(), t, prov.clone()));
+                        }
+                    } else {
+                        missing_queries.push((p_id.clone(), seed.clone()));
                     }
-                } else {
-                    missing_queries.push((p_id.clone(), seed.clone()));
                 }
             }
-        }
+            let missing_queries: Vec<_> = missing_queries.into_iter().filter(|(p_id, _)| !this.is_provider_in_backoff(p_id)).collect();
+            (cached_tracks, missing_queries, active_providers)
+        }).await.unwrap();
 
         // 2. Fan-out only for missing seed-provider pairs
         let mut set = tokio::task::JoinSet::new();
         for (p_id, seed) in missing_queries {
-            if self.is_provider_in_backoff(&p_id) {
-                continue;
-            }
             let p_mgr = match self.provider_manager.clone() {
                 Some(pm) => pm,
                 None => continue,
@@ -829,39 +907,55 @@ impl RecommendationCompiler {
 
         let mut collected_tracks = cached_tracks.clone();
         let mut failed_providers = Vec::new();
+        let mut to_record_success = Vec::new();
+        let mut to_record_failure = Vec::new();
+        let mut to_save_cache = Vec::new();
 
         while let Some(join_res) = set.join_next().await {
             if let Ok(join_res) = join_res {
                 match join_res {
                     Ok((p_id, seed, tracks)) => {
-                        self.record_provider_success(&p_id);
-                        self.save_cache(&seed.canonical_key, &p_id, "daily_discover", &tracks, 21600);
+                        to_record_success.push(p_id.clone());
+                        to_save_cache.push((seed.canonical_key.clone(), p_id.clone(), tracks.clone()));
                         let prov = if !seed.artist.is_empty() {
                             Some(format!("Similar to {}", seed.artist))
-                        } else {
-                            None
-                        };
+                        } else { None };
                         for t in tracks {
                             collected_tracks.push((p_id.clone(), t, prov.clone()));
                         }
                     }
                     Err((_p_id, _seed, ProviderErrorType::Generic(msg))) if msg == "cancelled" => {
+                        let this = self.clone();
+                        let tracks = tokio::task::spawn_blocking(move || this.compile_and_deduplicate(cached_tracks)).await.unwrap();
                         return FederatedShelfResult {
-                            tracks: self.compile_and_deduplicate(cached_tracks),
+                            tracks,
                             failed_providers: vec!["cancelled".into()],
                             is_partial: true,
                         };
                     }
                     Err((p_id, _seed, err_type)) => {
-                        self.record_provider_failure(&p_id, &err_type);
                         failed_providers.push(format!("{}: {:?}", p_id, err_type));
+                        to_record_failure.push((p_id, err_type));
                     }
                 }
             }
         }
 
-        let merged = self.compile_and_deduplicate(collected_tracks);
         let is_partial = !failed_providers.is_empty();
+        let this = self.clone();
+        let merged = tokio::task::spawn_blocking(move || {
+            for p_id in to_record_success {
+                this.record_provider_success(&p_id);
+            }
+            for (p_id, err_type) in to_record_failure {
+                this.record_provider_failure(&p_id, &err_type);
+            }
+            for (key, p_id, tracks) in to_save_cache {
+                this.save_cache(&key, &p_id, "daily_discover", &tracks, 21600);
+            }
+            this.compile_and_deduplicate(collected_tracks)
+        }).await.unwrap();
+
         FederatedShelfResult {
             tracks: merged,
             failed_providers,
@@ -1134,6 +1228,7 @@ mod tests {
             quality_hint: None,
             duration_ms: None,
             plays: None,
+            provider_id: Some("test-provider".into()),
         };
 
         // Cache valid with 3600s TTL

@@ -72,28 +72,38 @@
             provider_id: playlist.provider_id || settingsStore.getEffectiveRemoteProvider(),
         });
     }
+
+    let coverFailed = $state(false);
+    let mosaicFailedCount = $state(0);
+    $effect(() => {
+        if (playlist.cover_art_url) coverFailed = false;
+    });
+    $effect(() => {
+        if (mosaicUrls) mosaicFailedCount = 0;
+    });
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="playlist-card group {selected ? 'selected' : ''}" {onclick}>
     <div class="art-container">
-        {#if playlist.cover_art_url}
+        {#if playlist.cover_art_url && !coverFailed}
             <img
                 src={playlist.cover_art_url}
                 alt={title}
                 class="art-img"
                 loading="lazy"
+                onerror={() => (coverFailed = true)}
             />
-        {:else if mosaicUrls && mosaicUrls.length >= 4}
+        {:else if mosaicUrls && mosaicUrls.length >= 4 && mosaicFailedCount < 4}
             <div class="mosaic-grid">
-                <img src={mosaicUrls[0]} alt="Cover" class="mosaic-img" />
-                <img src={mosaicUrls[1]} alt="Cover" class="mosaic-img" />
-                <img src={mosaicUrls[2]} alt="Cover" class="mosaic-img" />
-                <img src={mosaicUrls[3]} alt="Cover" class="mosaic-img" />
+                <img src={mosaicUrls[0]} alt="Cover" class="mosaic-img" onerror={() => (mosaicFailedCount++)} />
+                <img src={mosaicUrls[1]} alt="Cover" class="mosaic-img" onerror={() => (mosaicFailedCount++)} />
+                <img src={mosaicUrls[2]} alt="Cover" class="mosaic-img" onerror={() => (mosaicFailedCount++)} />
+                <img src={mosaicUrls[3]} alt="Cover" class="mosaic-img" onerror={() => (mosaicFailedCount++)} />
             </div>
-        {:else if mosaicUrls && mosaicUrls.length > 0}
-            <img src={mosaicUrls[0]} alt={title} class="art-img" />
+        {:else if mosaicUrls && mosaicUrls.length > 0 && mosaicFailedCount < mosaicUrls.length}
+            <img src={mosaicUrls[0]} alt={title} class="art-img" onerror={() => (mosaicFailedCount = mosaicUrls.length)} />
         {:else}
             <div class="art-placeholder">
                 <PlaylistIcon

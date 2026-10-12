@@ -2,7 +2,7 @@
     import TrackCard from "$lib/components/TrackCard.svelte";
     import CarouselControls from "$lib/components/common/CarouselControls.svelte";
     import { homeStore } from "$lib/stores/home.svelte";
-    import { Sparkle } from "phosphor-svelte";
+    import { Compass } from "phosphor-svelte";
 
     let trackContainer = $state<HTMLElement | null>(null);
     let canScrollLeft = $state(false);
@@ -45,7 +45,7 @@
 <section class="daily-discover-section">
     <div class="section-title-row">
         <div class="title-group">
-            <Sparkle size={20} weight="fill" class="sparkle-icon" />
+            <Compass size={20} weight="bold" class="discover-icon" />
             <h2>Daily Discover</h2>
         </div>
 
@@ -114,15 +114,15 @@
     }
 
     .section-title-row h2 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         color: #fff;
     }
 
-    :global(.sparkle-icon) {
+    :global(.discover-icon) {
         color: #b58e62;
     }
 

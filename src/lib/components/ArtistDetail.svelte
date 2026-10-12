@@ -37,6 +37,12 @@
     let showAllVideos = $state(false);
     let showAllFeatured = $state(false);
     let showAllSimilar = $state(false);
+    let avatarFailed = $state(false);
+
+    $effect(() => {
+        const _ = artist?.avatar_url;
+        avatarFailed = false;
+    });
 
     function playTopTracks() {
         if (!artist || artist.top_tracks.length === 0) return;
@@ -152,8 +158,8 @@
         <!-- Hero Header -->
         <header class="artist-hero-header">
             <div class="artist-avatar-wrapper">
-                {#if artist.avatar_url}
-                    <img src={artist.avatar_url} alt={artist.name} class="artist-avatar-img" />
+                {#if artist.avatar_url && !avatarFailed}
+                    <img src={artist.avatar_url} alt={artist.name} class="artist-avatar-img" onerror={() => (avatarFailed = true)} />
                 {:else}
                     <div class="artist-avatar-fallback">
                         <span>{getInitial(artist.name)}</span>

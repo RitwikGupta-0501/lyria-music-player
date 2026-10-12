@@ -44,10 +44,10 @@
     }
 
     .lib-heading {
-        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 2.25rem;
-        font-weight: 500;
-        letter-spacing: -0.02em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         line-height: 1.25;
         margin: 0;
         color: var(--echo-text-1);

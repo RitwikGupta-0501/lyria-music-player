@@ -787,7 +787,7 @@ async function handleVerifyChecksum() {
         position: absolute;
         inset: 0;
         padding: 3rem 2.5rem var(--player-clearance, 10rem) 2.5rem;
-        scroll-padding-bottom: var(--player-scroll-padding, 10rem);
+        scroll-padding-bottom: var(--player-scroll-padding, 7.5rem);
         overflow-y: auto;
         display: flex;
         flex-direction: column;
@@ -796,10 +796,10 @@ async function handleVerifyChecksum() {
     }
 
     .view-header h1 {
-        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 2.25rem;
-        font-weight: 500;
-        letter-spacing: -0.02em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         line-height: 1.25;
         margin: 0 0 0.5rem 0;
     }

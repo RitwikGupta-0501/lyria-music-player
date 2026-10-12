@@ -72,7 +72,10 @@
 
         unlistenBatch = await listen<LogEntry[]>("debug-log-batch", (e) => {
             if (isPaused) return;
-            logs = [...logs, ...e.payload].slice(-500);
+            const existingIds = new Set(logs.map((l) => l.id));
+            const newEntries = e.payload.filter((entry) => !existingIds.has(entry.id));
+            if (newEntries.length === 0) return;
+            logs = [...logs, ...newEntries].slice(-500);
             if (autoScroll) {
                 setTimeout(scrollToBottom, 50);
             }
@@ -319,10 +322,10 @@
 
     .title {
         margin: 0;
-        font-family: var(--lyria-font-heading, "Newsreader", serif);
+        font-family: var(--lyria-font-heading);
         font-size: 1.35rem;
-        font-weight: 500;
-        letter-spacing: -0.01em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         color: var(--echo-text-1, #eae8e3);
     }
 

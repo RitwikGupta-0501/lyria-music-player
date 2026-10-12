@@ -101,6 +101,7 @@ pub enum DbRequest {
     GetAllSettings { resp: oneshot::Sender<Result<std::collections::HashMap<String, String>, String>> },
     SetSetting { key: String, value: String, resp: oneshot::Sender<Result<(), String>> },
     FactoryReset { resp: oneshot::Sender<Result<(), String>> },
+    PurgeData { categories: Vec<queries::DataCategory>, resp: oneshot::Sender<Result<(), String>> },
     InsertTracks { tracks: Vec<TrackData>, resp: oneshot::Sender<Result<usize, String>> },
     LoadAudioCache { path: String, resp: oneshot::Sender<Result<(), String>> },
     RemoveTrackByPath { path: String, resp: oneshot::Sender<Result<(), String>> },
@@ -166,6 +167,50 @@ pub enum DbRequest {
         seed_file_path: Option<String>,
         seed_duration_ms: Option<u64>,
         resp: oneshot::Sender<Result<Option<LocalTrack>, String>>,
+    },
+    SetDedupOverride {
+        key_a: String,
+        key_b: String,
+        should_merge: bool,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    SaveRecommendationCache {
+        seed_canonical_key: String,
+        provider_id: String,
+        shelf_type: String,
+        payload_json: String,
+        ttl_seconds: u64,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    ClearRecommendationCache {
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    RecordProviderSuccess {
+        provider_id: String,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    RecordProviderFailure {
+        provider_id: String,
+        cooldown_sec: i64,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    SaveQueueState {
+        queue_state: crate::queue::QueueState,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    GetCachedLyrics {
+        canonical_key: String,
+        provider_id: Option<String>,
+        resp: oneshot::Sender<Result<Option<crate::lyrics::LyricsResult>, String>>,
+    },
+    SaveCachedLyrics {
+        canonical_key: String,
+        lyrics: crate::lyrics::LyricsResult,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    ClearLyricsCache {
+        canonical_key: Option<String>,
+        resp: oneshot::Sender<Result<(), String>>,
     },
     Quit,
 }
@@ -298,6 +343,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 DbRequest::FactoryReset { resp } => {
                     let _ = resp.send(queries::factory_reset(&conn));
                 }
+                DbRequest::PurgeData { categories, resp } => {
+                    let _ = resp.send(queries::purge_data(&conn, &categories));
+                }
                 DbRequest::InsertTracks { tracks, resp } => {
                     let _ = resp.send(queries::insert_tracks(&mut conn, tracks));
                 }
@@ -381,6 +429,69 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                         seed_file_path.as_deref(),
                         seed_duration_ms,
                     ).map_err(|e| e.to_string());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SetDedupOverride { key_a, key_b, should_merge, resp } => {
+                    let k1 = crate::db::canonical::canonical_override_key(&key_a, &key_b).0;
+                    let k2 = crate::db::canonical::canonical_override_key(&key_a, &key_b).1;
+                    let res = conn.execute(
+                        "INSERT INTO dedup_overrides (canonical_key_a, canonical_key_b, should_merge)
+                         VALUES (?1, ?2, ?3)
+                         ON CONFLICT(canonical_key_a, canonical_key_b) DO UPDATE SET should_merge = excluded.should_merge",
+                        rusqlite::params![k1, k2, if should_merge { 1 } else { 0 }],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveRecommendationCache { seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds, resp } => {
+                    let res = conn.execute(
+                        "INSERT INTO recommendation_cache (seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds, fetched_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+                         ON CONFLICT(seed_canonical_key, provider_id, shelf_type) DO UPDATE SET
+                            payload_json = excluded.payload_json,
+                            ttl_seconds = excluded.ttl_seconds,
+                            fetched_at = CURRENT_TIMESTAMP",
+                        rusqlite::params![seed_canonical_key, provider_id, shelf_type, payload_json, ttl_seconds as i64],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::ClearRecommendationCache { resp } => {
+                    let res = conn.execute("DELETE FROM recommendation_cache;", []).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::RecordProviderSuccess { provider_id, resp } => {
+                    let res = conn.execute(
+                        "INSERT INTO extension_metrics (provider_id, consecutive_failures, backoff_until)
+                         VALUES (?1, 0, NULL)
+                         ON CONFLICT(provider_id) DO UPDATE SET consecutive_failures = 0, backoff_until = NULL",
+                        rusqlite::params![provider_id],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::RecordProviderFailure { provider_id, cooldown_sec, resp } => {
+                    let res = conn.execute(
+                        "INSERT INTO extension_metrics (provider_id, consecutive_failures, backoff_until)
+                         VALUES (?1, 1, datetime('now', '+' || ?2 || ' seconds'))
+                         ON CONFLICT(provider_id) DO UPDATE SET
+                            consecutive_failures = consecutive_failures + 1,
+                            backoff_until = CASE WHEN consecutive_failures >= 2 THEN datetime('now', '+' || ?2 || ' seconds') ELSE backoff_until END",
+                        rusqlite::params![provider_id, cooldown_sec],
+                    ).map_err(|e| e.to_string()).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveQueueState { queue_state, resp } => {
+                    let res = crate::queue::persistence::save_queue_state(&mut conn, &queue_state).map(|_| ());
+                    let _ = resp.send(res);
+                }
+                DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
+                    let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());
+                    let _ = resp.send(res);
+                }
+                DbRequest::SaveCachedLyrics { canonical_key, lyrics, resp } => {
+                    let res = queries::save_cached_lyrics(&conn, &canonical_key, &lyrics);
+                    let _ = resp.send(res);
+                }
+                DbRequest::ClearLyricsCache { canonical_key, resp } => {
+                    let res = queries::clear_lyrics_cache(&conn, canonical_key.as_deref());
                     let _ = resp.send(res);
                 }
                 DbRequest::Quit => {

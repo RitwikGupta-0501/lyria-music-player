@@ -25,7 +25,13 @@
 
     /* ── Album art for now-playing track ── */
     let playerArtUrl = $state<string | null>(null);
+    let artFailed = $state(false);
     let currentArtReqId = 0;
+
+    $effect(() => {
+        const _ = playerArtUrl;
+        artFailed = false;
+    });
 
     $effect(() => {
         const track = audioStore.currentQueueTrack;
@@ -173,8 +179,8 @@
             <!-- Left Flank: Album Art & Song Details -->
             <div class="flank flank-left">
                 <div class="album-art-container">
-                    {#if playerArtUrl}
-                        <img src={playerArtUrl} alt="Now playing artwork" />
+                    {#if playerArtUrl && !artFailed}
+                        <img src={playerArtUrl} alt="Now playing artwork" onerror={() => (artFailed = true)} />
                     {:else}
                         <div
                             class="placeholder"
@@ -500,12 +506,12 @@
     }
 
     .pill-body.is-glass .song-time {
-        color: rgba(255, 255, 255, 0.45);
+        color: var(--echo-text-3);
         transition: color 0.25s ease;
     }
 
     .player-pill-wrapper[data-state="playing"] .pill-body.is-glass .song-time {
-        color: rgba(255, 255, 255, 0.70);
+        color: var(--echo-text-2);
     }
 
     .pill-body.is-glass .vol-track {

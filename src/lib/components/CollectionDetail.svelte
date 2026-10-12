@@ -81,6 +81,12 @@
         (mosaicUrls.length > 0 ? mosaicUrls[0] : null)
     );
 
+    let coverFailed = $state(false);
+    $effect(() => {
+        const _ = artUrl;
+        coverFailed = false;
+    });
+
     let collectionTitle = $derived(collection.title || (isPlaylist ? "Playlist" : "Album"));
     let collectionSubtitle = $derived(
         collection.subtitle || 
@@ -413,21 +419,21 @@
                 <div class="favorites-art-gradient">
                     <HeartIcon size={54} weight="fill" color="#D4A86E" class="favorites-heart-icon" />
                 </div>
-            {:else if collection.cover_art_url}
-                <img src={collection.cover_art_url} alt={collectionTitle} class="art-img" loading="eager" />
-            {:else if collection.cover_art_path}
-                <img src={convertFileSrc(collection.cover_art_path)} alt={collectionTitle} class="art-img" loading="eager" />
-            {:else if localArtUrl}
-                <img src={localArtUrl} alt={collectionTitle} class="art-img" loading="eager" />
-            {:else if mosaicUrls.length >= 4}
+            {:else if collection.cover_art_url && !coverFailed}
+                <img src={collection.cover_art_url} alt={collectionTitle} class="art-img" loading="eager" onerror={() => (coverFailed = true)} />
+            {:else if collection.cover_art_path && !coverFailed}
+                <img src={convertFileSrc(collection.cover_art_path)} alt={collectionTitle} class="art-img" loading="eager" onerror={() => (coverFailed = true)} />
+            {:else if localArtUrl && !coverFailed}
+                <img src={localArtUrl} alt={collectionTitle} class="art-img" loading="eager" onerror={() => (coverFailed = true)} />
+            {:else if mosaicUrls.length >= 4 && !coverFailed}
                 <div class="mosaic-grid">
-                    <img src={mosaicUrls[0]} alt="Cover" class="mosaic-img" />
-                    <img src={mosaicUrls[1]} alt="Cover" class="mosaic-img" />
-                    <img src={mosaicUrls[2]} alt="Cover" class="mosaic-img" />
-                    <img src={mosaicUrls[3]} alt="Cover" class="mosaic-img" />
+                    <img src={mosaicUrls[0]} alt="Cover" class="mosaic-img" onerror={() => (coverFailed = true)} />
+                    <img src={mosaicUrls[1]} alt="Cover" class="mosaic-img" onerror={() => (coverFailed = true)} />
+                    <img src={mosaicUrls[2]} alt="Cover" class="mosaic-img" onerror={() => (coverFailed = true)} />
+                    <img src={mosaicUrls[3]} alt="Cover" class="mosaic-img" onerror={() => (coverFailed = true)} />
                 </div>
-            {:else if mosaicUrls.length > 0}
-                <img src={mosaicUrls[0]} alt={collectionTitle} class="art-img" loading="eager" />
+            {:else if mosaicUrls.length > 0 && !coverFailed}
+                <img src={mosaicUrls[0]} alt={collectionTitle} class="art-img" loading="eager" onerror={() => (coverFailed = true)} />
             {:else if isPlaylist}
                 <div class="art-placeholder">
                     <PlaylistIcon size={40} weight="thin" color="rgba(255, 255, 255, 0.35)" />

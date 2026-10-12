@@ -451,12 +451,55 @@
     .row-num {
         font-size: 0.72rem;
         color: var(--echo-text-3);
-        width: 1.5rem;
-        text-align: right;
+        width: 28px;
+        flex-shrink: 0;
+        text-align: center;
         font-variant-numeric: tabular-nums;
         display: flex;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: center;
+    }
+
+    .playing-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .row-info {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        overflow: hidden;
+    }
+
+    .row-title {
+        font-size: 0.8rem;
+        font-weight: 450;
+        color: var(--echo-text-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .queue-row.playing .row-title {
+        color: var(--echo-silver);
+    }
+
+    .row-artist {
+        font-size: 0.7rem;
+        color: var(--echo-text-3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .row-actions {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
     }
 
     .drag-handle {

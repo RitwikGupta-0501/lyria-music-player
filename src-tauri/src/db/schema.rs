@@ -2,7 +2,9 @@ use rusqlite::{Connection, Result as SqlResult};
 
 pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     let conn = Connection::open(db_path)?;
-    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS albums (
@@ -344,6 +346,31 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
         )",
         [],
     )?;
+
+    // Lyrics Cache for Sandboxed Extensions and Offline Playback
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lyrics_cache (
+            canonical_key TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            format TEXT NOT NULL,
+            lyrics_json TEXT NOT NULL,
+            instrumental INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(canonical_key, provider_id)
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lyrics_cache_canonical ON lyrics_cache(canonical_key)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lyrics_cache_provider ON lyrics_cache(provider_id)", [])?;
+
+    // Foreign Key Cascade Optimization Indexes
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track ON playlist_tracks(track_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queued_tracks_qsid ON queued_tracks(queue_state_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_shuffle_order_qsid ON shuffle_order(queue_state_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_snapshots_qsid ON queue_snapshots(queue_state_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_song_telemetry_track ON song_telemetry(local_track_id)", [])?;
 
     Ok(conn)
 }

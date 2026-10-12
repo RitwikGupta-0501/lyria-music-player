@@ -1,7 +1,9 @@
 <script lang="ts">
     import { invoke } from "@tauri-apps/api/core";
-    import { libraryStore } from "$lib/stores/library.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
+    import DataPurgeModal from "./DataPurgeModal.svelte";
+
+    let showPurgeModal = $state(false);
 
     async function clearRecommendationCache() {
         try {
@@ -10,23 +12,6 @@
         } catch (e: any) {
             console.error("Failed to clear recommendation cache:", e);
             toastStore.error(e?.toString() || "Failed to clear cache.");
-        }
-    }
-
-    async function factoryReset() {
-        const yes = confirm(
-            "Are you sure you want to completely wipe your library and settings?",
-        );
-        if (yes) {
-            try {
-                await invoke("factory_reset");
-                libraryStore.albums = [];
-                libraryStore.playlists = [];
-                toastStore.success("Database and library wiped.");
-            } catch (e) {
-                console.error("Factory reset failed:", e);
-                toastStore.error("Failed to reset library.");
-            }
         }
     }
 </script>
@@ -46,21 +31,22 @@
         </button>
     </div>
 
-    <div
-        class="setting-row danger-block"
-    >
+    <div class="setting-row danger-block">
         <div class="setting-info">
-            <p class="setting-label danger-text">Factory Reset</p>
+            <p class="setting-label danger-text">Purge Application Data</p>
             <p class="setting-desc">
-                This will delete the local SQLite database and clear all cached artwork and extensions. Your
-                actual music files will not be touched.
+                Selectively delete cached artwork, listening telemetry, playlists, extension data, or perform a full factory reset. Your local music files are never modified.
             </p>
         </div>
-        <button class="danger-btn" onclick={factoryReset}>
-            Factory Reset (Wipe Database)
+        <button class="danger-btn" onclick={() => (showPurgeModal = true)}>
+            Purge Data...
         </button>
     </div>
 </section>
+
+{#if showPurgeModal}
+    <DataPurgeModal onClose={() => (showPurgeModal = false)} />
+{/if}
 
 <style>
     .settings-section {

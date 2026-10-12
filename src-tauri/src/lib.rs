@@ -16,6 +16,7 @@ pub mod telemetry;
 pub mod feature_flags;
 pub mod sandbox;
 pub mod logger;
+pub mod lyrics;
 
 use providers::{ProviderManager, TrackResult};
 use audio::AudioCommand;
@@ -57,6 +58,7 @@ pub struct AppState {
     pub queue: std::sync::Mutex<QueueState>,
     pub reqwest_client: reqwest::Client,
     pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
+    pub lyrics_manager: Arc<lyrics::LyricsManager>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -548,6 +550,38 @@ async fn save_provider_settings(
     Ok(())
 }
 
+#[tauri::command]
+async fn get_lyrics(
+    state: State<'_, AppState>,
+    query: lyrics::models::LyricsQuery,
+    provider_override: Option<String>,
+) -> Result<Option<lyrics::models::LyricsResult>, String> {
+    state.lyrics_manager.get_lyrics(&query, provider_override.as_deref()).await
+}
+
+#[tauri::command]
+async fn get_lyrics_providers(
+    state: State<'_, AppState>,
+) -> Result<Vec<lyrics::models::LyricsProviderMeta>, String> {
+    state.lyrics_manager.get_lyrics_providers().await
+}
+
+#[tauri::command]
+async fn set_preferred_lyrics_provider(
+    state: State<'_, AppState>,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    state.lyrics_manager.set_preferred_lyrics_provider(provider_id).await
+}
+
+#[tauri::command]
+async fn clear_lyrics_cache(
+    state: State<'_, AppState>,
+    canonical_key: Option<String>,
+) -> Result<(), String> {
+    state.lyrics_manager.clear_cache(canonical_key).await
+}
+
 
 #[tauri::command]
 async fn browse_provider_album(
@@ -657,8 +691,11 @@ async fn get_home_local_shelves(
             cold_start_seeds: Vec::new(),
         });
     }
-    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
-    state.recommendation_compiler.get_local_shelves(mood_filter)
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.get_local_shelves(mood_filter.as_deref()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
@@ -680,8 +717,12 @@ async fn get_home_remote_shelves(
         *lock = Some(new_token.clone());
     }
 
-    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
-    let seeds = state.recommendation_compiler.get_daily_discover_seeds(mood_filter)?;
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+    let compiler = state.recommendation_compiler.clone();
+    let seeds = tokio::task::spawn_blocking(move || compiler.get_daily_discover_seeds(mood_filter.as_deref()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))?;
+    
     Ok(state.recommendation_compiler.get_federated_daily_discover(seeds, new_token).await)
 }
 
@@ -696,8 +737,11 @@ async fn get_home_radios(
     {
         return Ok(Vec::new());
     }
-    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood.as_deref() };
-    state.recommendation_compiler.compile_algorithmic_radios(mood_filter)
+    let mood_filter = if mood.as_deref() == Some("All") { None } else { mood };
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.compile_algorithmic_radios(mood_filter.as_deref()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
@@ -709,14 +753,20 @@ async fn get_home_adjacent_horizons(
     {
         return Ok(Vec::new());
     }
-    state.recommendation_compiler.compute_adjacent_horizons()
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.compute_adjacent_horizons())
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
 async fn get_home_adjacent_horizon(
     state: State<'_, AppState>,
 ) -> Result<Option<providers::recommendations::AdjacentHorizonPayload>, String> {
-    state.recommendation_compiler.compute_adjacent_horizon()
+    let compiler = state.recommendation_compiler.clone();
+    tokio::task::spawn_blocking(move || compiler.compute_adjacent_horizon())
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
 }
 
 #[tauri::command]
@@ -987,7 +1037,7 @@ async fn scan_local_directory(state: State<'_, AppState>, path: String) -> Resul
             if entry_path.is_file() {
                 if let Some(ext) = entry_path.extension().and_then(|s| s.to_str()) {
                     let ext = ext.to_lowercase();
-                    if ext == "mp3" || ext == "flac" || ext == "wav" || ext == "m4a" || ext == "ogg" {
+                    if is_supported_audio_extension(&ext) {
                         let mut title = entry_path.file_name().unwrap_or_default().to_string_lossy().to_string();
                         let mut artist = None;
                         let mut album = None;
@@ -1315,28 +1365,57 @@ async fn remove_track_by_path(state: State<'_, AppState>, path: String) -> Resul
 }
 
 #[tauri::command]
-async fn factory_reset(app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+async fn purge_data(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    categories: Vec<db::queries::DataCategory>,
+) -> Result<(), String> {
+    let app_data_dir = get_lyria_data_dir(&app_handle)?;
+
+    if categories.contains(&db::queries::DataCategory::ArtworkCache) {
+        let artwork_dir = app_data_dir.join("artwork");
+        let _ = std::fs::remove_dir_all(&artwork_dir);
+        let _ = std::fs::create_dir_all(&artwork_dir);
+        let _ = app_handle.asset_protocol_scope().allow_directory(&artwork_dir, false);
+    }
+
+    if categories.contains(&db::queries::DataCategory::Extensions) {
+        let extensions_dir = app_data_dir.join("extensions");
+        let _ = std::fs::remove_dir_all(&extensions_dir);
+        let _ = std::fs::create_dir_all(&extensions_dir);
+    }
+
+    if categories.contains(&db::queries::DataCategory::Queue) {
+        if let Ok(tx) = state.audio_tx.lock() {
+            let _ = tx.send(AudioCommand::Stop);
+        }
+        if let Ok(mut q) = state.queue.lock() {
+            let _ = q.clear();
+        }
+    }
+
     let (tx, rx) = oneshot::channel();
-    state.db_tx.send(DbRequest::FactoryReset { resp: tx }).map_err(|e| e.to_string())?;
+    state.db_tx.send(DbRequest::PurgeData { categories, resp: tx }).map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())??;
 
-    let app_data_dir = get_lyria_data_dir(&app_handle)?;
-    let extensions_dir = app_data_dir.join("extensions");
-    let artwork_dir = app_data_dir.join("artwork");
-    
-    let _ = std::fs::remove_dir_all(&extensions_dir);
-    let _ = std::fs::remove_dir_all(&artwork_dir);
-
-    if let Ok(tx) = state.audio_tx.lock() {
-        let _ = tx.send(AudioCommand::Stop);
-    }
-    
-    // Also clear the queue state explicitly
-    if let Ok(mut q) = state.queue.lock() {
-        let _ = q.clear();
-    }
-
     Ok(())
+}
+
+#[tauri::command]
+async fn factory_reset(app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    purge_data(
+        app_handle,
+        state,
+        vec![
+            db::queries::DataCategory::LocalLibrary,
+            db::queries::DataCategory::PlaybackHistory,
+            db::queries::DataCategory::PlaylistsAndLikes,
+            db::queries::DataCategory::ArtworkCache,
+            db::queries::DataCategory::Extensions,
+            db::queries::DataCategory::Settings,
+            db::queries::DataCategory::Queue,
+        ],
+    ).await
 }
 
 #[tauri::command]
@@ -1622,9 +1701,12 @@ pub fn run() {
             let app_data_dir = get_lyria_data_dir(app.handle()).expect("Failed to get app data dir");
             let db_dir = app_data_dir.join("database");
             let extensions_dir = app_data_dir.join("extensions");
+            let artwork_dir = app_data_dir.join("artwork");
             
             std::fs::create_dir_all(&db_dir).expect("Failed to create database directory");
             std::fs::create_dir_all(&extensions_dir).expect("Failed to create extensions directory");
+            std::fs::create_dir_all(&artwork_dir).expect("Failed to create artwork directory");
+            let _ = app.asset_protocol_scope().allow_directory(&artwork_dir, false);
             
             let db_path = db_dir.join("echo_library.db");
             let conn = db::schema::init_db(&db_path).expect("Failed to initialize SQLite");
@@ -1683,6 +1765,7 @@ pub fn run() {
             }
 
             let provider_manager = Arc::new(ProviderManager::new(handle.clone(), reqwest_client.clone(), db_tx.clone()));
+            let lyrics_manager = Arc::new(lyrics::LyricsManager::new(provider_manager.clone(), db_tx.clone()));
             let recommendation_compiler = Arc::new(providers::recommendations::RecommendationCompiler::new(provider_manager.clone(), db_path.clone()));
             let in_flight_recommendation_cancel = Arc::new(std::sync::Mutex::new(None));
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
@@ -1698,6 +1781,7 @@ pub fn run() {
                 queue: std::sync::Mutex::new(recovered_queue),
                 reqwest_client,
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
+                lyrics_manager,
             });
 
             // Automatic background startup provider discovery, sync, and warmup
@@ -1787,10 +1871,12 @@ pub fn run() {
             get_all_settings,
             set_setting,
             factory_reset,
+            purge_data,
             remove_track_by_path,
             // Queue commands (Phase 2)
             queue::commands::set_queue,
             queue::commands::add_to_queue,
+            queue::commands::remove_from_queue,
             queue::commands::clear_queue,
             queue::commands::skip_forward,
             queue::commands::skip_backward,
@@ -1800,6 +1886,7 @@ pub fn run() {
             queue::commands::set_repeat_mode,
             queue::commands::set_shuffle,
             queue::commands::get_queue,
+            queue::commands::get_queue_page,
             queue::commands::get_queue_length,
             queue::commands::get_current_track,
             queue::commands::reshuffle,
@@ -1830,6 +1917,11 @@ pub fn run() {
             logger::client_log,
             logger::set_log_collection_enabled,
             logger::get_log_collection_enabled,
+            // Lyrics commands
+            get_lyrics,
+            get_lyrics_providers,
+            set_preferred_lyrics_provider,
+            clear_lyrics_cache,
         ]);
 
     builder
@@ -1861,3 +1953,27 @@ pub fn run() {
             }
         });
 }
+
+/// Check if a lowercase file extension is supported by the local library scanner.
+#[inline]
+pub fn is_supported_audio_extension(ext: &str) -> bool {
+    matches!(ext, "mp3" | "flac" | "wav" | "m4a" | "ogg" | "opus")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_supported_audio_extensions_includes_opus() {
+        assert!(is_supported_audio_extension("opus"));
+        assert!(is_supported_audio_extension("mp3"));
+        assert!(is_supported_audio_extension("flac"));
+        assert!(is_supported_audio_extension("wav"));
+        assert!(is_supported_audio_extension("m4a"));
+        assert!(is_supported_audio_extension("ogg"));
+        assert!(!is_supported_audio_extension("txt"));
+        assert!(!is_supported_audio_extension("exe"));
+    }
+}
+

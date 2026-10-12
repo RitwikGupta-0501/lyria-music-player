@@ -28,6 +28,10 @@
     let displayName = $derived(artist?.name || artist?.artist || "Unknown Artist");
     let initial = $derived((displayName.charAt(0) || "A").toUpperCase());
     let avatarSrc = $derived(resolveCoverArt(artist?.avatar_url));
+    let imageFailed = $state(false);
+    $effect(() => {
+        if (avatarSrc) imageFailed = false;
+    });
 
     let statText = $derived.by(() => {
         if (artist?.subtitle) return artist.subtitle;
@@ -54,12 +58,13 @@
     onkeydown={(e) => { if (e.key === "Enter" && onclick) onclick(); }}
 >
     <div class="avatar-container" class:is-fluid={fluid}>
-        {#if avatarSrc}
+        {#if avatarSrc && !imageFailed}
             <img 
                 src={avatarSrc} 
                 alt={displayName} 
                 class="avatar-img" 
                 loading="lazy" 
+                onerror={() => (imageFailed = true)}
             />
         {:else}
             <div class="avatar-placeholder">
@@ -149,7 +154,7 @@
     }
 
     .avatar-letter {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 2.2rem;
         font-weight: 700;
         color: #B58E62;

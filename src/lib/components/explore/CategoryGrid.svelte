@@ -113,10 +113,11 @@
     }
 
     h2 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.35rem;
         font-weight: 600;
         margin: 0;
+        letter-spacing: -0.02em;
         color: #fff;
     }
 
@@ -137,7 +138,7 @@
         height: 76px;
         background: rgba(18, 18, 22, 0.55);
         border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 10px;
+        border-radius: var(--radius-md, 8px);
         overflow: hidden;
         cursor: pointer;
         display: flex;
@@ -170,11 +171,11 @@
     .tile-label {
         position: relative;
         z-index: 2;
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.05rem;
         font-weight: 600;
         color: #FFFFFF;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
     }
 
     .tile-bottom-accent {

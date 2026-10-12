@@ -213,6 +213,7 @@ class HomeStore {
             this.forgottenFavorites = local.forgotten_favorites;
             this.coldStartSeeds = local.cold_start_seeds;
             this.phase1Loaded = true;
+            this.prefetchHeavyRotationArtworks();
         } catch (e: any) {
             if (fetchId === this.currentFetchId) {
                 this.errorLocal = e?.toString() || "Failed to load local shelves";
@@ -284,12 +285,14 @@ class HomeStore {
         updateList(this.dailyDiscover);
     }
 
+    private prefetchTimeout: ReturnType<typeof setTimeout> | null = null;
+
     updateArtistMetadata(lookupKey: string, canonicalName: string, avatarUrl: string | null) {
         if (!lookupKey) return;
         const lower = lookupKey.trim().toLowerCase();
         let changed = false;
         for (const item of this.heavyRotation.artists) {
-            if (item.artist.toLowerCase() === lower || lower.includes(item.artist.toLowerCase()) || item.artist.toLowerCase().includes(lower)) {
+            if (item.artist.trim().toLowerCase() === lower) {
                 if (canonicalName && canonicalName.trim().length > 0) {
                     item.artist = canonicalName.trim();
                 }
@@ -300,8 +303,111 @@ class HomeStore {
             }
         }
         if (changed) {
+            // Deduplicate if multiple items now share the same artist name
+            const seen = new Set<string>();
+            const deduped = [];
+            for (const a of this.heavyRotation.artists) {
+                const k = a.artist.trim().toLowerCase();
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    deduped.push(a);
+                }
+            }
+            this.heavyRotation.artists = deduped;
             this.heavyRotation = { ...this.heavyRotation };
         }
+    }
+
+    prefetchHeavyRotationArtworks() {
+        if (this.prefetchTimeout) {
+            clearTimeout(this.prefetchTimeout);
+        }
+        // Defer 1.5s after load to prevent competing with critical boot path
+        this.prefetchTimeout = setTimeout(async () => {
+            // 1. Prefetch top 5 artists without avatar
+            const artistsToFetch = this.heavyRotation.artists
+                .slice(0, 5)
+                .filter(a => !a.avatar_url && a.artist.trim().length > 0);
+
+            for (const item of artistsToFetch) {
+                try {
+                    const artistName = item.artist;
+                    // Check local SQLite first
+                    const cachedMeta: any = await invoke("get_artist_metadata", { id: artistName }).catch(() => null);
+                    if (cachedMeta && cachedMeta.avatar_url) {
+                        this.updateArtistMetadata(artistName, cachedMeta.name || artistName, cachedMeta.avatar_url);
+                        continue;
+                    }
+
+                    // Otherwise query active provider via search_provider_categorized
+                    const pId = settingsStore.getEffectiveRemoteProvider();
+                    if (pId) {
+                        const searchRes: any = await invoke("search_provider_categorized", {
+                            providerId: pId,
+                            query: artistName,
+                        }).catch(() => null);
+
+                        if (searchRes && searchRes.artists && searchRes.artists.length > 0) {
+                            const match = searchRes.artists[0];
+                            const portrait = match.avatar_url || null;
+                            const canon = match.name || artistName;
+                            if (portrait) {
+                                this.updateArtistMetadata(artistName, canon, portrait);
+                                invoke("save_artist_metadata", {
+                                    id: match.id || canon,
+                                    name: canon,
+                                    avatarUrl: portrait,
+                                    bio: match.bio || null,
+                                    providerId: pId,
+                                }).catch(() => {});
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.debug("Heavy rotation prefetch error for artist:", err);
+                }
+
+                // Rate limiting: 250ms polite delay
+                await new Promise(r => setTimeout(r, 250));
+            }
+
+            // 2. Prefetch top 5 albums without cover
+            const albumsToFetch = this.heavyRotation.albums
+                .slice(0, 5)
+                .filter(a => !a.cover_art_url && a.album_title.trim().length > 0);
+
+            for (const item of albumsToFetch) {
+                try {
+                    const albumTitle = item.album_title;
+                    const pId = settingsStore.getEffectiveRemoteProvider();
+                    if (pId) {
+                        const query = `${item.artist ? item.artist + ' ' : ''}${albumTitle}`;
+                        const searchRes: any = await invoke("search_provider_categorized", {
+                            providerId: pId,
+                            query,
+                        }).catch(() => null);
+
+                        if (searchRes && searchRes.albums && searchRes.albums.length > 0) {
+                            const match = searchRes.albums[0];
+                            const cover = match.cover_art_url || null;
+                            if (cover) {
+                                for (const alb of this.heavyRotation.albums) {
+                                    if (alb.album_title.toLowerCase() === albumTitle.toLowerCase()) {
+                                        alb.cover_art_url = cover;
+                                    }
+                                }
+                                this.heavyRotation = { ...this.heavyRotation };
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.debug("Heavy rotation prefetch error for album:", err);
+                }
+
+                // Rate limiting: 250ms polite delay
+                await new Promise(r => setTimeout(r, 250));
+            }
+        }, 1500);
     }
 
     async toggleLike(track: FederatedTrack) {

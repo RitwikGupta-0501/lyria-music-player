@@ -46,16 +46,41 @@ pub async fn resolve_autoplay_next_track(
     ).await;
 
     if let Ok(Ok(radio_stream)) = remote_attempt {
-        let candidate_tracks: Vec<_> = radio_stream.tracks
-            .into_iter()
+        // Collect canonical keys from the active queue to avoid 2-track reciprocal ping-pong loops
+        let recent_canonical_keys: std::collections::HashSet<String> = {
+            if let Ok(q) = state.queue.lock() {
+                q.tracks.iter().map(|t| {
+                    format!("{}::{}", t.artist.as_deref().unwrap_or("").trim().to_lowercase(), t.title.trim().to_lowercase())
+                }).collect()
+            } else {
+                std::collections::HashSet::new()
+            }
+        };
+
+        // First pass: Filter out current seed track and any tracks already in recent queue history
+        let fresh_candidates: Vec<_> = radio_stream.tracks
+            .iter()
             .filter(|t| {
                 let cand_key = format!("{}::{}", t.artist.trim().to_lowercase(), t.title.trim().to_lowercase());
-                cand_key != canonical_key
+                cand_key != canonical_key && !recent_canonical_keys.contains(&cand_key)
             })
             .collect();
 
+        // Second pass fallback: If all candidates are in recent queue history, relax history check but preserve seed exclusion
+        let candidate_tracks: Vec<_> = if !fresh_candidates.is_empty() {
+            fresh_candidates
+        } else {
+            radio_stream.tracks
+                .iter()
+                .filter(|t| {
+                    let cand_key = format!("{}::{}", t.artist.trim().to_lowercase(), t.title.trim().to_lowercase());
+                    cand_key != canonical_key
+                })
+                .collect()
+        };
+
         if !candidate_tracks.is_empty() {
-            let selected = &candidate_tracks[0];
+            let selected = candidate_tracks[0];
             let fallback_provider = {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 if state.db_tx.send(crate::db::DbRequest::GetSetting {
@@ -67,7 +92,9 @@ pub async fn resolve_autoplay_next_track(
                     None
                 }
             }.unwrap_or_else(|| "youtube-wasm".to_string());
-            let provider_id = selected.isrc.as_deref().unwrap_or(&fallback_provider).to_string();
+
+            // Correctly prioritize the provider_id attached to the track; do NOT treat ISRC code as provider name!
+            let provider_id = selected.provider_id.as_deref().unwrap_or(&fallback_provider).to_string();
             let next_queue_track = QueueTrack {
                 instance_id: uuid::Uuid::new_v4().to_string(),
                 title: selected.title.clone(),
@@ -127,4 +154,77 @@ pub async fn resolve_autoplay_next_track(
     // Tier 3: Graceful stop when both remote & local are empty
     // ─────────────────────────────────────────────────────────────────────────────
     Ok(None)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::providers::TrackResult;
+
+    #[test]
+    fn test_candidate_filtering_and_provider_attribution() {
+        let canonical_key = "artist a::track 1".to_string();
+        let mut recent_keys = std::collections::HashSet::new();
+        recent_keys.insert("artist b::track 2".to_string());
+
+        let t1 = TrackResult {
+            id: "1".into(),
+            title: "Track 1".into(),
+            artist: "Artist A".into(),
+            album: None,
+            cover_art_url: None,
+            stream_url: None,
+            quality_hint: None,
+            duration_ms: Some(180000),
+            isrc: Some("USRC12345678".into()),
+            plays: None,
+            provider_id: Some("youtube-wasm".into()),
+        };
+
+        let t2 = TrackResult {
+            id: "2".into(),
+            title: "Track 2".into(),
+            artist: "Artist B".into(),
+            album: None,
+            cover_art_url: None,
+            stream_url: None,
+            quality_hint: None,
+            duration_ms: Some(200000),
+            isrc: Some("USRC87654321".into()),
+            plays: None,
+            provider_id: Some("youtube-wasm".into()),
+        };
+
+        let t3 = TrackResult {
+            id: "3".into(),
+            title: "Track 3".into(),
+            artist: "Artist C".into(),
+            album: None,
+            cover_art_url: None,
+            stream_url: None,
+            quality_hint: None,
+            duration_ms: Some(210000),
+            isrc: Some("USRC99999999".into()),
+            plays: None,
+            provider_id: Some("soundcloud-wasm".into()),
+        };
+
+        let all_tracks = [t1, t2, t3];
+
+        let fresh: Vec<_> = all_tracks
+            .iter()
+            .filter(|t| {
+                let key = format!("{}::{}", t.artist.trim().to_lowercase(), t.title.trim().to_lowercase());
+                key != canonical_key && !recent_keys.contains(&key)
+            })
+            .collect();
+
+        // Should filter out t1 (seed) and t2 (in recent queue history)
+        assert_eq!(fresh.len(), 1);
+        let selected = fresh[0];
+        assert_eq!(selected.title, "Track 3");
+        // Ensure provider_id comes from track.provider_id, not isrc
+        assert_eq!(selected.provider_id.as_deref(), Some("soundcloud-wasm"));
+        assert_ne!(selected.provider_id.as_deref(), selected.isrc.as_deref());
+    }
 }

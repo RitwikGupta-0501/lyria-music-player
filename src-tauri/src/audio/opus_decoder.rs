@@ -20,7 +20,12 @@ impl Decoder for OpusSymphoniaDecoder {
         }
 
         let sample_rate = codec_params.sample_rate.unwrap_or(48000);
-        let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
+        let input_channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
+        // Multichannel Opus (e.g. 5.1 or 7.1) must be clamped to stereo (2 channels).
+        // Since libopus decodes as Stereo when channels > 1, setting channels = 2 ensures
+        // scratch buffer sizing, SignalSpec, and the de-interleaving loop match libopus output,
+        // preventing out-of-bounds reads and audio corruption.
+        let channels = if input_channels == 1 { 1 } else { 2 };
         
         let decoder_channels = if channels == 1 { opus::Channels::Mono } else { opus::Channels::Stereo };
         let decoder = OpusDecoder::new(sample_rate, decoder_channels)
@@ -30,7 +35,11 @@ impl Decoder for OpusSymphoniaDecoder {
         let max_frames = (sample_rate * 120) / 1000;
         let spec = SignalSpec::new(
             sample_rate, 
-            codec_params.channels.unwrap_or(symphonia::core::audio::Channels::FRONT_LEFT | symphonia::core::audio::Channels::FRONT_RIGHT)
+            if channels == 1 {
+                symphonia::core::audio::Channels::FRONT_LEFT
+            } else {
+                symphonia::core::audio::Channels::FRONT_LEFT | symphonia::core::audio::Channels::FRONT_RIGHT
+            }
         );
         
         let buf = AudioBuffer::new(max_frames as u64, spec);
@@ -116,3 +125,54 @@ fn instantiate_opus_decoder(
 // The only `&self` methods (concurrent access) only read Rust data (`buf`, `codec_params`).
 unsafe impl Send for OpusSymphoniaDecoder {}
 unsafe impl Sync for OpusSymphoniaDecoder {}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_opus_decoder_stereo_initialization() {
+        let mut params = CodecParameters::new();
+        params.for_codec(CODEC_TYPE_OPUS);
+        params.with_sample_rate(48000);
+        params.with_channels(symphonia::core::audio::Channels::FRONT_LEFT | symphonia::core::audio::Channels::FRONT_RIGHT);
+
+        let options = DecoderOptions::default();
+        let decoder = OpusSymphoniaDecoder::try_new(&params, &options).expect("Decoder init failed");
+        assert_eq!(decoder.channels, 2);
+    }
+
+    #[test]
+    fn test_opus_decoder_multichannel_5_1_clamps_to_stereo() {
+        let mut params = CodecParameters::new();
+        params.for_codec(CODEC_TYPE_OPUS);
+        params.with_sample_rate(48000);
+        // 5.1 surround = 6 channels
+        params.with_channels(
+            symphonia::core::audio::Channels::FRONT_LEFT
+                | symphonia::core::audio::Channels::FRONT_RIGHT
+                | symphonia::core::audio::Channels::FRONT_CENTRE
+                | symphonia::core::audio::Channels::LFE1
+                | symphonia::core::audio::Channels::REAR_LEFT
+                | symphonia::core::audio::Channels::REAR_RIGHT,
+        );
+
+        let options = DecoderOptions::default();
+        let decoder = OpusSymphoniaDecoder::try_new(&params, &options).expect("Decoder init failed");
+        assert_eq!(decoder.channels, 2, "Multichannel 5.1 must clamp to stereo (2 channels)");
+        assert_eq!(decoder.scratch.len(), ((48000 * 120) / 1000) * 2);
+    }
+
+    #[test]
+    fn test_opus_decoder_mono_initialization() {
+        let mut params = CodecParameters::new();
+        params.for_codec(CODEC_TYPE_OPUS);
+        params.with_sample_rate(48000);
+        params.with_channels(symphonia::core::audio::Channels::FRONT_LEFT);
+
+        let options = DecoderOptions::default();
+        let decoder = OpusSymphoniaDecoder::try_new(&params, &options).expect("Decoder init failed");
+        assert_eq!(decoder.channels, 1, "Mono input must preserve 1 channel");
+    }
+}

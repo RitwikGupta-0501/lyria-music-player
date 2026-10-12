@@ -180,17 +180,17 @@
     }
 
     .hub-header h1 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 2.25rem;
-        font-weight: 700;
+        font-weight: 600;
         margin: 0;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.025em;
         color: #fff;
     }
 
     .hub-subtitle {
         font-size: 0.95rem;
-        color: rgba(255, 255, 255, 0.5);
+        color: var(--echo-text-2);
         margin: 0;
     }
 
@@ -224,11 +224,11 @@
     }
 
     .shelf-title-group h2 {
-        font-family: var(--echo-font-heading, 'Newsreader', serif);
+        font-family: var(--echo-font-heading, sans-serif);
         font-size: 1.25rem;
         font-weight: 600;
         margin: 0;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         color: #fff;
     }
 
