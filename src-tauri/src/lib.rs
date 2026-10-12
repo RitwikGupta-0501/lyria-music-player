@@ -59,6 +59,7 @@ pub struct AppState {
     pub reqwest_client: reqwest::Client,
     pub sandbox_manager: sandbox::sandbox_vm::SandboxManager,
     pub download_resolver: Arc<download::DownloadResolver>,
+    pub download_manager: Arc<download::DownloadManager>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -1738,6 +1739,14 @@ pub fn run() {
             let audio_thread_handle = audio::start_audio_thread(audio_rx, handle.clone(), reqwest_client.clone(), tauri::async_runtime::handle(), db_tx.clone());
             let download_circuit_breaker = Arc::new(download::CircuitBreaker::default());
             let download_resolver = Arc::new(download::DownloadResolver::new(download_circuit_breaker));
+            let download_manager = Arc::new(download::DownloadManager::new(
+                handle.clone(),
+                reqwest_client.clone(),
+                db_tx.clone(),
+                provider_manager.clone(),
+                download_resolver.clone(),
+                3,
+            ));
 
             app.manage(AppState {
                 audio_tx: std::sync::Mutex::new(audio_tx),
@@ -1751,6 +1760,7 @@ pub fn run() {
                 reqwest_client,
                 sandbox_manager: sandbox::sandbox_vm::SandboxManager::new(),
                 download_resolver,
+                download_manager,
             });
 
             // Automatic background startup provider discovery, sync, and warmup
