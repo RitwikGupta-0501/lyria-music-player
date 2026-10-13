@@ -77,6 +77,7 @@ export class LibraryStore {
     likedSongs = $state<LikedSong[]>([]);
     savedAlbums = $state<SavedAlbum[]>([]);
     savedPlaylists = $state<SavedPlaylist[]>([]);
+    downloadedTracks = $state<LocalTrack[]>([]);
     isScanning = $state(false);
     lastScanResult = $state<number | null>(null);
     onLikeToggled: ((canonicalKey: string, isLiked: boolean) => void) | null = null;
@@ -135,6 +136,37 @@ export class LibraryStore {
         } catch (e) {
             console.error("Failed to fetch saved playlists:", e);
             return [];
+        }
+    }
+
+    async fetchDownloadedTracks(): Promise<LocalTrack[]> {
+        try {
+            const tracks = await invoke<LocalTrack[]>("get_downloaded_tracks");
+            this.downloadedTracks = tracks || [];
+            return this.downloadedTracks;
+        } catch (e) {
+            console.error("Failed to fetch downloaded tracks:", e);
+            return [];
+        }
+    }
+
+    async playDownloadedTracks() {
+        try {
+            const tracks = await this.fetchDownloadedTracks();
+            if (tracks && tracks.length > 0) {
+                const queueTracks = tracks.map(t => ({
+                    id: t.id,
+                    track_id: t.id,
+                    title: t.title,
+                    artist: t.artist || "Unknown Artist",
+                    file_path: t.file_path,
+                    is_local: true,
+                    duration_ms: 210000,
+                }));
+                await audioStore.setQueue(queueTracks, 0);
+            }
+        } catch (e) {
+            console.error("Failed to play downloaded tracks:", e);
         }
     }
 

@@ -402,6 +402,31 @@ export class ExploreStore {
         this.selectedRemotePlaylist = null;
     }
 
+    async openDownloaded() {
+        const downloaded = await libraryStore.fetchDownloadedTracks();
+        const tracks = downloaded.map((t, idx) => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist || "Unknown Artist",
+            album: "",
+            file_path: t.file_path,
+            cover_art_url: null,
+            duration_ms: 210000,
+            is_local: true,
+            downloaded: true,
+        }));
+        this.activeDrawerCollection = {
+            kind: 'playlist',
+            source: 'local',
+            id: 'downloaded',
+            title: 'Downloaded',
+            subtitle: `${tracks.length} ${tracks.length === 1 ? 'Track' : 'Tracks'} • Offline`,
+            tracks,
+        };
+        this.selectedRemoteAlbum = null;
+        this.selectedRemotePlaylist = null;
+    }
+
     closeDrawerCollection() {
         this.activeDrawerCollection = null;
         this.selectedRemoteAlbum = null;

@@ -240,6 +240,9 @@ pub enum DbRequest {
     ClearCompletedDownloads {
         resp: oneshot::Sender<Result<(), String>>,
     },
+    GetDownloadedTracks {
+        resp: oneshot::Sender<Result<Vec<crate::LocalTrack>, String>>,
+    },
     GetCachedLyrics {
         canonical_key: String,
         provider_id: Option<String>,
@@ -551,6 +554,9 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::ClearCompletedDownloads { resp } => {
                     let _ = resp.send(queries::clear_completed_downloads(&conn));
+                }
+                DbRequest::GetDownloadedTracks { resp } => {
+                    let _ = resp.send(queries::get_downloaded_tracks(&conn));
                 }
                 DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
                     let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());

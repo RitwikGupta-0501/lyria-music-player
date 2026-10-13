@@ -2735,6 +2735,35 @@ pub fn clear_completed_downloads(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+pub fn get_downloaded_tracks(conn: &Connection) -> Result<Vec<LocalTrack>, String> {
+    let mut tracks = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.title, t.artist, t.album_id, t.genre, t.track_number, t.file_path
+         FROM tracks t
+         LEFT JOIN download_items di ON di.dest_file_path = t.file_path
+         WHERE di.status = 'completed' OR t.file_path LIKE '%/Lyria/%' OR t.file_path LIKE '%\\Lyria\\%'
+         GROUP BY t.id
+         ORDER BY COALESCE(di.updated_at, t.id) DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let track_iter = stmt.query_map([], |row| {
+        Ok(LocalTrack {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            artist: row.get(2)?,
+            album_id: row.get(3)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+            file_path: row.get(6)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    for t in track_iter.flatten() {
+        tracks.push(t);
+    }
+    Ok(tracks)
+}
+
 pub fn get_cached_lyrics(
     conn: &Connection,
     canonical_key: &str,

@@ -27,6 +27,18 @@ mock.module("@tauri-apps/api/core", () => ({
         if (cmd === "get_active_download_queue") {
             return Promise.resolve([]);
         }
+        if (cmd === "get_downloaded_tracks") {
+            return Promise.resolve([
+                {
+                    id: 99,
+                    title: "Downloaded Offline Hit",
+                    artist: "Artist Offline",
+                    album_id: null,
+                    track_number: 1,
+                    file_path: "/music/Lyria/OfflineHit.flac"
+                }
+            ]);
+        }
         return Promise.resolve();
     }),
     listen: mock(() => Promise.resolve(() => {})),
@@ -85,5 +97,17 @@ describe("DownloadStore — Candidate Search & Enqueue Lifecycle", () => {
         expect(dlCall).toBeDefined();
         expect(dlCall?.args.nativeId).toBe("test-native-123");
         expect(dlCall?.args.preferredProvider).toBe("monochrome");
+    });
+
+    it("fetches downloaded tracks into libraryStore", async () => {
+        const { libraryStore } = await import("../src/lib/stores/library.svelte.js");
+        mockInvokedCalls = [];
+
+        const tracks = await libraryStore.fetchDownloadedTracks();
+        expect(tracks.length).toBe(1);
+        expect(tracks[0].title).toBe("Downloaded Offline Hit");
+        expect(tracks[0].file_path).toBe("/music/Lyria/OfflineHit.flac");
+        expect(libraryStore.downloadedTracks.length).toBe(1);
+        expect(mockInvokedCalls.some(c => c.cmd === "get_downloaded_tracks")).toBe(true);
     });
 });

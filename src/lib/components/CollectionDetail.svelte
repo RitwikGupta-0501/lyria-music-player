@@ -51,7 +51,8 @@
     let isRemote = $derived(collection.source === "remote");
     let isPlaylist = $derived(collection.kind === "playlist");
     let isFavorites = $derived(collection.id === "favorites");
-    let isCustomLocalPlaylist = $derived(!isRemote && isPlaylist && !isFavorites);
+    let isDownloaded = $derived(collection.id === "downloaded");
+    let isCustomLocalPlaylist = $derived(!isRemote && isPlaylist && !isFavorites && !isDownloaded);
 
     let likedKeys = $derived(new Set(libraryStore.likedSongs.map(s => s.canonical_key.toLowerCase().trim())));
 
@@ -70,12 +71,28 @@
         }))
     );
 
+    let downloadedTracks = $derived(
+        libraryStore.downloadedTracks.map(t => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist || "Unknown Artist",
+            album: "",
+            file_path: t.file_path,
+            cover_art_url: null,
+            duration_ms: 210000,
+            is_local: true,
+            downloaded: true,
+        }))
+    );
+
     let displayTracks = $derived(
         isFavorites 
             ? favoriteTracks 
-            : isRemote 
-                ? (collection.tracks && collection.tracks.length > 0 ? collection.tracks : tracks) 
-                : tracks
+            : isDownloaded
+                ? downloadedTracks
+                : isRemote 
+                    ? (collection.tracks && collection.tracks.length > 0 ? collection.tracks : tracks) 
+                    : tracks
     );
 
     let artUrl = $derived(
@@ -189,6 +206,9 @@
 
     async function loadData() {
         if (collection.id === "favorites" || collection.source === "remote") {
+            return;
+        } else if (collection.id === "downloaded") {
+            await libraryStore.fetchDownloadedTracks();
             return;
         } else if (collection.kind === "album") {
             const albumId = Number(collection.id);
@@ -431,10 +451,14 @@
 
 <div class="view-album">
     <div class="album-header">
-        <div class="art-container" class:favorites-art-container={collection.id === "favorites"}>
+        <div class="art-container" class:favorites-art-container={collection.id === "favorites"} class:downloaded-art-container={collection.id === "downloaded"}>
             {#if collection.id === "favorites"}
                 <div class="favorites-art-gradient">
                     <HeartIcon size={54} weight="fill" color="#D4A86E" class="favorites-heart-icon" />
+                </div>
+            {:else if collection.id === "downloaded"}
+                <div class="downloaded-art-gradient">
+                    <DownloadSimpleIcon size={54} weight="bold" color="#D4A86E" class="downloaded-header-icon" />
                 </div>
             {:else if collection.cover_art_url && !coverFailed}
                 <img src={collection.cover_art_url} alt={collectionTitle} class="art-img" loading="eager" onerror={() => (coverFailed = true)} />
@@ -571,7 +595,7 @@
                     />
                 {/if}
 
-                {#if displayTracks.length > 0}
+                {#if displayTracks.length > 0 && !isDownloaded}
                     <PillButton
                         variant="secondary"
                         size="sm"
@@ -1176,6 +1200,12 @@
         box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
     }
 
+    .art-container.downloaded-art-container {
+        border: 1px solid rgba(212, 168, 110, 0.25);
+        background: #121215;
+        box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    }
+
     .favorites-art-gradient {
         width: 100%;
         height: 100%;
@@ -1187,7 +1217,22 @@
         justify-content: center;
     }
 
+    .downloaded-art-gradient {
+        width: 100%;
+        height: 100%;
+        background: 
+            radial-gradient(circle at 20% 20%, rgba(212, 168, 110, 0.16) 0%, rgba(181, 142, 98, 0.05) 45%, transparent 72%),
+            linear-gradient(135deg, #131c17 0%, #203529 55%, #0d1511 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
     :global(.favorites-heart-icon) {
+        filter: drop-shadow(0 4px 16px rgba(212, 168, 110, 0.35));
+    }
+
+    :global(.downloaded-header-icon) {
         filter: drop-shadow(0 4px 16px rgba(212, 168, 110, 0.35));
     }
 

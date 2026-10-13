@@ -165,3 +165,13 @@ pub async fn clear_completed_downloads(state: State<'_, AppState>) -> Result<(),
         .map_err(|e| e.to_string())?;
     resp_rx.await.map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn get_downloaded_tracks(state: State<'_, AppState>) -> Result<Vec<crate::LocalTrack>, String> {
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    state
+        .db_tx
+        .send(DbRequest::GetDownloadedTracks { resp: resp_tx })
+        .map_err(|e| e.to_string())?;
+    resp_rx.await.map_err(|e| e.to_string())?
+}

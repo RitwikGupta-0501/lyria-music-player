@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toastStore } from "./toast.svelte";
+import { libraryStore } from "./library.svelte";
 
 export interface DownloadCandidateItem {
     native_id: string;
@@ -122,6 +123,8 @@ export class DownloadStore {
                     if (foundItem) {
                         toastStore.success(`Downloaded "${foundItem.track_title}"`);
                     }
+                    libraryStore.fetchDownloadedTracks();
+                    libraryStore.fetchAlbums();
                 } else if (event.payload.status === "failed") {
                     toastStore.error(`Failed to download ${foundItem ? `"${foundItem.track_title}"` : "track"}: ${event.payload.error || "Unknown error"}`);
                 }

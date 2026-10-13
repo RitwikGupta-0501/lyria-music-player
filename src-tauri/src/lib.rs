@@ -1980,6 +1980,7 @@ pub fn run() {
             download::commands::get_downloads_dir,
             download::commands::open_downloads_folder,
             download::commands::clear_completed_downloads,
+            download::commands::get_downloaded_tracks,
             // Lyrics commands
             get_lyrics,
             get_lyrics_providers,
