@@ -6,6 +6,7 @@ use crate::download::models::{AlbumTrackDownloadInput, ProviderCandidate};
 use crate::AppState;
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn download_track(
     state: State<'_, AppState>,
     title: String,
@@ -13,6 +14,7 @@ pub async fn download_track(
     album: Option<String>,
     track_number: Option<u32>,
     duration_ms: Option<u64>,
+    native_id: Option<String>,
     preferred_provider: Option<String>,
 ) -> Result<String, String> {
     state
@@ -23,9 +25,23 @@ pub async fn download_track(
             album,
             track_number,
             duration_ms,
+            native_id,
             preferred_provider,
         )
         .await
+}
+
+#[tauri::command]
+pub async fn search_download_candidates(
+    state: State<'_, AppState>,
+    provider_id: String,
+    query: String,
+) -> Result<Vec<crate::download::models::DownloadCandidateItem>, String> {
+    state
+        .provider_manager
+        .search_download_candidates(&provider_id, &query)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

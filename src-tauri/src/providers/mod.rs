@@ -1268,6 +1268,70 @@ impl ProviderManager {
 
         Ok(result)
     }
+
+    pub async fn search_download_candidates(
+        &self,
+        provider_id: &str,
+        query: &str,
+    ) -> Result<Vec<crate::download::DownloadCandidateItem>, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let query_str = query.to_string();
+
+        let _permit = self
+            .download_semaphore
+            .acquire()
+            .await
+            .map_err(|_| SandboxError::ScriptError {
+                script: provider_id.clone(),
+                message: "Download semaphore closed".into(),
+            })?;
+
+        let plugin_arc = self
+            .get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS)
+            .await?;
+
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&query_str).unwrap_or_default();
+            plugin
+                .call::<&[u8], &[u8]>("search_download_candidates", &json_input)
+                .map(|res| res.to_vec())
+        })
+        .await
+        {
+            Ok(Ok(bytes)) if !bytes.is_empty() => Some(bytes),
+            _ => None,
+        };
+
+        if let Some(bytes) = res_bytes {
+            if let Ok(candidates) =
+                serde_json::from_slice::<Vec<crate::download::DownloadCandidateItem>>(&bytes)
+            {
+                return Ok(candidates);
+            }
+        }
+
+        // Fallback: If plugin did not export "search_download_candidates", invoke standard "search"
+        if let Ok(tracks) = self.search(&provider_id, query).await {
+            let candidates: Vec<crate::download::DownloadCandidateItem> = tracks
+                .into_iter()
+                .map(|t| crate::download::DownloadCandidateItem {
+                    native_id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album,
+                    duration_ms: t.duration_ms,
+                    artwork_url: t.cover_art_url,
+                    codec: None,
+                    bitrate_kbps: None,
+                    extra_info: t.quality_hint,
+                })
+                .collect();
+            return Ok(candidates);
+        }
+
+        Ok(Vec::new())
+    }
 }
 pub fn check_url_allowed(url: &str) -> Result<(), String> {
     if url.starts_with("file://") {

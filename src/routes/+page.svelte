@@ -5,6 +5,7 @@
     import { flagsStore } from "$lib/stores/flags.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { lyricsStore } from "$lib/stores/lyrics.svelte";
+    import { downloadStore } from "$lib/stores/download.svelte";
 
     import Sidebar from "$lib/components/Sidebar.svelte";
     import PlayerBar from "$lib/components/PlayerBar.svelte";
@@ -92,6 +93,7 @@
             await settingsStore.init();
             await flagsStore.init();
             await lyricsStore.init();
+            await downloadStore.init();
 
             if (flagsStore.isEnabled("page_explore")) {
                 exploreStore.init().catch(err => console.error("Explore prefetch error:", err));

@@ -2424,6 +2424,7 @@ pub struct DownloadItemRecord {
     pub retry_count: u32,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    pub native_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2460,8 +2461,8 @@ pub fn enqueue_download_job(
             "INSERT INTO download_items (
                 id, download_id, track_title, artist, album, track_number,
                 provider_id, download_url, dest_file_path, temp_file_path,
-                total_bytes, downloaded_bytes, status, error_message, retry_count
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                total_bytes, downloaded_bytes, status, error_message, retry_count, native_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             rusqlite::params![
                 &item.id,
                 &item.download_id,
@@ -2478,6 +2479,7 @@ pub fn enqueue_download_job(
                 &item.status,
                 &item.error_message,
                 item.retry_count,
+                &item.native_id,
             ],
         ).map_err(|e| e.to_string())?;
     }
@@ -2637,7 +2639,8 @@ pub fn get_download_queue(conn: &Connection) -> Result<Vec<DownloadJobSummary>, 
     let mut item_stmt = conn.prepare(
         "SELECT id, download_id, track_title, artist, album, track_number, provider_id, download_url,
                 dest_file_path, temp_file_path, total_bytes, downloaded_bytes, status, error_message,
-                retry_count, strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+                retry_count, strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at),
+                native_id
          FROM download_items
          WHERE download_id = ?1
          ORDER BY track_number ASC, id ASC",
@@ -2666,6 +2669,7 @@ pub fn get_download_queue(conn: &Connection) -> Result<Vec<DownloadJobSummary>, 
                 retry_count: row.get(14)?,
                 created_at: row.get(15)?,
                 updated_at: row.get(16)?,
+                native_id: row.get(17).ok().flatten(),
             })
         }).map_err(|e| e.to_string())?.flatten().collect();
 
@@ -2682,7 +2686,8 @@ pub fn get_active_download_items(conn: &Connection) -> Result<Vec<DownloadItemRe
     let mut stmt = conn.prepare(
         "SELECT id, download_id, track_title, artist, album, track_number, provider_id, download_url,
                 dest_file_path, temp_file_path, total_bytes, downloaded_bytes, status, error_message,
-                retry_count, strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+                retry_count, strftime('%Y-%m-%dT%H:%M:%fZ', created_at), strftime('%Y-%m-%dT%H:%M:%fZ', updated_at),
+                native_id
          FROM download_items
          WHERE status IN ('queued', 'downloading', 'resolving', 'processing')
          ORDER BY created_at ASC",
@@ -2709,6 +2714,7 @@ pub fn get_active_download_items(conn: &Connection) -> Result<Vec<DownloadItemRe
             retry_count: row.get(14)?,
             created_at: row.get(15)?,
             updated_at: row.get(16)?,
+            native_id: row.get(17).ok().flatten(),
         })
     }).map_err(|e| e.to_string())?.flatten().collect();
 

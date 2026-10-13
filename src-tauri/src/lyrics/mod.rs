@@ -303,7 +303,7 @@ impl LyricsManager {
             resp: save_tx,
         }).map_err(|e| e.to_string())?;
 
-        let _ = save_rx.await.map_err(|e| e.to_string())??;
+        save_rx.await.map_err(|e| e.to_string())??;
 
         tracing::info!("Manually applied lyrics from provider '{}' for key '{}'", candidate.provider_id, canonical_key);
         Ok(lyrics)

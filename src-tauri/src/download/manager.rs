@@ -75,6 +75,7 @@ impl DownloadManager {
     }
 
     /// Enqueues and begins a single track download
+    #[allow(clippy::too_many_arguments)]
     pub async fn enqueue_track_download(
         &self,
         title: String,
@@ -82,6 +83,7 @@ impl DownloadManager {
         album: Option<String>,
         track_number: Option<u32>,
         _duration_ms: Option<u64>,
+        native_id: Option<String>,
         preferred_provider: Option<String>,
     ) -> Result<String, String> {
         let download_id = uuid::Uuid::new_v4().to_string();
@@ -101,7 +103,7 @@ impl DownloadManager {
         let download = DownloadRecord {
             id: download_id.clone(),
             entity_type: "track".to_string(),
-            entity_id: None,
+            entity_id: native_id.clone(),
             title: title.clone(),
             artist: artist.clone(),
             album: album.clone(),
@@ -130,6 +132,7 @@ impl DownloadManager {
             retry_count: 0,
             created_at: None,
             updated_at: None,
+            native_id,
         };
 
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
@@ -196,6 +199,7 @@ impl DownloadManager {
                 retry_count: 0,
                 created_at: None,
                 updated_at: None,
+                native_id: t.native_id.clone(),
             });
         }
 
@@ -310,7 +314,7 @@ impl DownloadManager {
             album: item.album.clone(),
             duration_ms: None,
             isrc: None,
-            native_id: None,
+            native_id: item.native_id.clone(),
             quality_preference: DownloadQualityPreference::Lossless,
         };
 
