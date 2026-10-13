@@ -1976,6 +1976,7 @@ pub fn run() {
             download::commands::get_download_providers,
             download::commands::set_preferred_download_provider,
             download::commands::get_preferred_download_provider,
+            download::commands::search_download_candidates,
             // Lyrics commands
             get_lyrics,
             get_lyrics_providers,

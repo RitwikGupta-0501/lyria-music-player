@@ -424,6 +424,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     let _ = conn.execute("ALTER TABLE tracks ADD COLUMN genre TEXT", []);
     let _ = conn.execute("ALTER TABLE song_telemetry ADD COLUMN genre TEXT", []);
     let _ = conn.execute("ALTER TABLE lyrics_cache ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE download_items ADD COLUMN native_id TEXT", []);
 
     Ok(conn)
 }

@@ -46,6 +46,22 @@ fn test_download_models_serialization_roundtrip() {
         serde_json::from_str(&res_json).expect("deserialize result");
     assert_eq!(result, res_de);
     assert_eq!(res_de.codec.extension(), "flac");
+
+    let candidate = DownloadCandidateItem {
+        native_id: "track_123".to_string(),
+        title: "Starboy".to_string(),
+        artist: "The Weeknd".to_string(),
+        album: Some("Starboy".to_string()),
+        duration_ms: Some(230000),
+        artwork_url: Some("https://cdn.example.com/art/starboy.jpg".to_string()),
+        codec: Some(AudioCodec::Flac),
+        bitrate_kbps: Some(1411),
+        extra_info: Some("Lossless FLAC".to_string()),
+    };
+    let cand_json = serde_json::to_string(&candidate).expect("serialize candidate");
+    let cand_de: DownloadCandidateItem =
+        serde_json::from_str(&cand_json).expect("deserialize candidate");
+    assert_eq!(candidate, cand_de);
 }
 
 #[test]
@@ -346,6 +362,7 @@ fn test_download_db_enqueue_and_progress_lifecycle() {
             retry_count: 0,
             created_at: None,
             updated_at: None,
+            native_id: None,
         },
         crate::db::queries::DownloadItemRecord {
             id: "item-2".to_string(),
@@ -365,6 +382,7 @@ fn test_download_db_enqueue_and_progress_lifecycle() {
             retry_count: 0,
             created_at: None,
             updated_at: None,
+            native_id: None,
         },
     ];
 
@@ -509,6 +527,7 @@ fn test_album_batch_enqueue_atomic_transaction() {
             retry_count: 0,
             created_at: None,
             updated_at: None,
+            native_id: None,
         })
         .collect();
 
@@ -558,6 +577,64 @@ fn test_storage_sanitization_advanced_edge_cases() {
     );
 
     assert_eq!(dest, Path::new("/var/music/Björk/Homogenic/01 - Hunter.flac"));
+}
+
+#[test]
+fn test_download_native_id_propagation_and_persistence() {
+    let temp_db = tempfile::NamedTempFile::new().expect("temp file");
+    let mut conn = crate::db::schema::init_db(temp_db.path()).expect("init db");
+
+    let download_id = "test-native-id-job".to_string();
+    let native_id = "209150978007162880".to_string();
+
+    let download = crate::db::queries::DownloadRecord {
+        id: download_id.clone(),
+        entity_type: "track".to_string(),
+        entity_id: Some(native_id.clone()),
+        title: "Radio".to_string(),
+        artist: "Bershy".to_string(),
+        album: None,
+        total_items: 1,
+        completed_items: 0,
+        status: "queued".to_string(),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let items = vec![crate::db::queries::DownloadItemRecord {
+        id: "item-native-1".to_string(),
+        download_id: download_id.clone(),
+        track_title: "Radio".to_string(),
+        artist: "Bershy".to_string(),
+        album: None,
+        track_number: None,
+        provider_id: Some("monochrome".to_string()),
+        download_url: None,
+        dest_file_path: None,
+        temp_file_path: None,
+        total_bytes: 0,
+        downloaded_bytes: 0,
+        status: "queued".to_string(),
+        error_message: None,
+        retry_count: 0,
+        created_at: None,
+        updated_at: None,
+        native_id: Some(native_id.clone()),
+    }];
+
+    crate::db::queries::enqueue_download_job(&mut conn, &download, &items)
+        .expect("enqueue job with native_id");
+
+    // 1. Verify get_active_download_items retrieves native_id correctly
+    let active = crate::db::queries::get_active_download_items(&conn).expect("get active items");
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].native_id.as_deref(), Some("209150978007162880"));
+
+    // 2. Verify get_download_queue retrieves native_id correctly
+    let queue = crate::db::queries::get_download_queue(&conn).expect("get queue");
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].download.entity_id.as_deref(), Some("209150978007162880"));
+    assert_eq!(queue[0].items[0].native_id.as_deref(), Some("209150978007162880"));
 }
 
 
