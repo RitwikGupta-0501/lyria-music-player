@@ -81,6 +81,7 @@ export class DownloadStore {
     preferredProvider = $state<string | null>(null);
     queue = $state<DownloadJobSummary[]>([]);
     progressMap = $state<Record<string, DownloadProgressPayload>>({});
+    downloadsDir = $state<string>("");
 
     // Manual Candidate Picker State
     isCandidateSearchOpen = $state(false);
@@ -101,6 +102,7 @@ export class DownloadStore {
     async init() {
         await this.fetchProviders();
         await this.fetchQueue();
+        await this.fetchDownloadsDir();
         await this.setupEventListeners();
     }
 
@@ -345,6 +347,33 @@ export class DownloadStore {
     async cancelDownload(downloadId: string) {
         await invoke("cancel_download", { downloadId });
         await this.fetchQueue();
+    }
+
+    async fetchDownloadsDir() {
+        try {
+            const dir = await invoke<string>("get_downloads_dir");
+            this.downloadsDir = dir || "";
+        } catch (e) {
+            console.error("Failed to fetch downloads dir:", e);
+        }
+    }
+
+    async openDownloadsFolder() {
+        try {
+            await invoke("open_downloads_folder");
+        } catch (e) {
+            console.error("Failed to open downloads folder:", e);
+        }
+    }
+
+    async clearCompletedDownloads() {
+        try {
+            await invoke("clear_completed_downloads");
+            await this.fetchQueue();
+            toastStore.info("Cleared completed downloads history");
+        } catch (e) {
+            console.error("Failed to clear completed downloads:", e);
+        }
     }
 
     cleanup() {

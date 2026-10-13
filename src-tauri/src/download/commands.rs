@@ -141,3 +141,27 @@ pub async fn get_preferred_download_provider(
         _ => Ok(None),
     }
 }
+
+#[tauri::command]
+pub fn get_downloads_dir(app: tauri::AppHandle) -> Result<String, String> {
+    crate::download::storage::get_default_downloads_dir(&app)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn open_downloads_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = crate::download::storage::get_default_downloads_dir(&app)?;
+    tauri_plugin_opener::reveal_item_in_dir(&dir)
+        .or_else(|_| tauri_plugin_opener::open_path(&dir, None::<&str>))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_completed_downloads(state: State<'_, AppState>) -> Result<(), String> {
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    state
+        .db_tx
+        .send(DbRequest::ClearCompletedDownloads { resp: resp_tx })
+        .map_err(|e| e.to_string())?;
+    resp_rx.await.map_err(|e| e.to_string())?
+}

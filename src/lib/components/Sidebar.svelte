@@ -1,7 +1,8 @@
 <script lang="ts">
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { flagsStore } from "$lib/stores/flags.svelte";
-    import { List, House, Disc, PuzzlePiece, Gear, Compass } from "phosphor-svelte";
+    import { downloadStore } from "$lib/stores/download.svelte";
+    import { List, House, Disc, PuzzlePiece, Gear, Compass, Tray } from "phosphor-svelte";
     
     let { activeView = $bindable("albums") } = $props<{ activeView?: string }>();
     
@@ -20,6 +21,7 @@
             items.push({ id: "explore", label: "Explore", icon: Compass });
         }
         items.push({ id: "library", label: "Library", icon: Disc });
+        items.push({ id: "downloads", label: "Downloads", icon: Tray });
         items.push({ id: "providers", label: "Extensions", icon: PuzzlePiece });
         return items;
     });
@@ -109,11 +111,17 @@
                             size={21} 
                             weight={isActive ? "fill" : "regular"} 
                         />
+                        {#if item.id === "downloads" && downloadStore.activeCount > 0}
+                            <span class="sidebar-dl-badge">{downloadStore.activeCount}</span>
+                        {/if}
                     </div>
 
                     <!-- Label (Fluid Collapse) -->
                     <div class="label-wrapper" class:visible={sidebarOpen}>
                         <span class="label">{item.label}</span>
+                        {#if item.id === "downloads" && downloadStore.activeCount > 0}
+                            <span class="sidebar-dl-count-pill">{downloadStore.activeCount}</span>
+                        {/if}
                     </div>
                 </button>
             {/each}
@@ -470,5 +478,34 @@
 
     .settings-item:hover .settings-icon {
         transform: rotate(90deg);
+    }
+
+    .sidebar-dl-badge {
+        position: absolute;
+        top: -6px;
+        right: -8px;
+        background: #ffd285;
+        color: #121212;
+        font-size: 0.62rem;
+        font-weight: 800;
+        min-width: 15px;
+        height: 15px;
+        border-radius: 9999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 3px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
+
+    .sidebar-dl-count-pill {
+        margin-left: auto;
+        background: rgba(255, 210, 133, 0.15);
+        color: #ffd285;
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 0.1rem 0.45rem;
+        border-radius: 9999px;
     }
 </style>

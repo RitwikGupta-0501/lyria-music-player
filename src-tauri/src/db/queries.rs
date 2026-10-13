@@ -2727,6 +2727,14 @@ pub fn delete_download_job(conn: &Connection, download_id: &str) -> Result<(), S
     Ok(())
 }
 
+pub fn clear_completed_downloads(conn: &Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM download_items WHERE status = 'completed'", [])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM downloads WHERE status = 'completed'", [])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn get_cached_lyrics(
     conn: &Connection,
     canonical_key: &str,
