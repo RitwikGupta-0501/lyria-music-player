@@ -582,8 +582,17 @@ async fn set_preferred_lyrics_provider(
 async fn clear_lyrics_cache(
     state: State<'_, AppState>,
     canonical_key: Option<String>,
+    target_title: Option<String>,
+    target_artist: Option<String>,
 ) -> Result<(), String> {
-    state.lyrics_manager.clear_cache(canonical_key).await
+    let key = if canonical_key.is_some() {
+        canonical_key
+    } else if let (Some(t), Some(a)) = (target_title, target_artist) {
+        Some(state.lyrics_manager.generate_track_key(&t, &a))
+    } else {
+        None
+    };
+    state.lyrics_manager.clear_cache(key).await
 }
 
 #[tauri::command]
@@ -598,9 +607,11 @@ async fn search_lyrics(
 #[tauri::command]
 async fn apply_selected_lyrics(
     state: State<'_, AppState>,
-    canonical_key: String,
+    target_title: String,
+    target_artist: String,
     candidate: lyrics::models::LyricsSearchResultItem,
 ) -> Result<lyrics::models::LyricsResult, String> {
+    let canonical_key = state.lyrics_manager.generate_track_key(&target_title, &target_artist);
     state.lyrics_manager.apply_selected_lyrics(&canonical_key, &candidate).await
 }
 
