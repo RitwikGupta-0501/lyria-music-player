@@ -3,11 +3,12 @@
     import PlaybackTab from "./settings/PlaybackTab.svelte";
     import AppearanceTab from "./settings/AppearanceTab.svelte";
     import ShortcutsTab from "./settings/ShortcutsTab.svelte";
+    import DownloadsTab from "./settings/DownloadsTab.svelte";
     import DataTab from "./settings/DataTab.svelte";
     import AdvancedTab from "./settings/AdvancedTab.svelte";
     import { onMount } from "svelte";
 
-    let activeTab = $state<"playback" | "appearance" | "shortcuts" | "data" | "advanced">("playback");
+    let activeTab = $state<"playback" | "appearance" | "shortcuts" | "downloads" | "data" | "advanced">("playback");
 
     onMount(async () => {
         await settingsStore.init();
@@ -43,6 +44,13 @@
             </button>
             <button
                 class="nav-item"
+                class:active={activeTab === "downloads"}
+                onclick={() => (activeTab = "downloads")}
+            >
+                Downloads
+            </button>
+            <button
+                class="nav-item"
                 class:active={activeTab === "data"}
                 onclick={() => (activeTab = "data")}
             >
@@ -67,6 +75,8 @@
                 <AppearanceTab />
             {:else if activeTab === "shortcuts"}
                 <ShortcutsTab />
+            {:else if activeTab === "downloads"}
+                <DownloadsTab />
             {:else if activeTab === "data"}
                 <DataTab />
             {:else if activeTab === "advanced"}
