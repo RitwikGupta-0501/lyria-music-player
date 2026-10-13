@@ -1,6 +1,7 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
-    import { X } from "phosphor-svelte";
+    import { X, MagnifyingGlass } from "phosphor-svelte";
+    import { lyricsStore } from "$lib/stores/lyrics.svelte";
 
     let { 
         title, 
@@ -37,9 +38,29 @@
             {:else}
                 <h2 class="drawer-title">{title}</h2>
             {/if}
-            <button class="close-btn" onclick={onClose} aria-label="Close">
-                <X size={20} weight="bold" />
-            </button>
+            <div class="drawer-actions">
+                {#if activeTab === "lyrics"}
+                    <button
+                        type="button"
+                        class="header-action-btn"
+                        class:active={lyricsStore.isSearchOpen}
+                        onclick={() => {
+                            if (lyricsStore.isSearchOpen) {
+                                lyricsStore.closeSearch();
+                            } else {
+                                lyricsStore.openSearch();
+                            }
+                        }}
+                        title={lyricsStore.isSearchOpen ? "Close search (Esc)" : "Search other lyrics"}
+                        aria-label="Search lyrics"
+                    >
+                        <MagnifyingGlass size={17} weight={lyricsStore.isSearchOpen ? "bold" : "regular"} />
+                    </button>
+                {/if}
+                <button class="close-btn" onclick={onClose} aria-label="Close">
+                    <X size={20} weight="bold" />
+                </button>
+            </div>
         </div>
 
         <div class="drawer-body">
@@ -129,6 +150,38 @@
         color: #ffffff;
         font-weight: 600;
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .drawer-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .header-action-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 9999px;
+        background: transparent;
+        border: 1px solid transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--echo-text-2, #888);
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        padding: 0;
+    }
+
+    .header-action-btn:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        color: var(--echo-text-1, #eee);
+    }
+
+    .header-action-btn.active {
+        background-color: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.2);
+        color: #ffffff;
     }
 
     .close-btn {

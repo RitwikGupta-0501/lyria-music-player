@@ -320,18 +320,6 @@
     {:else if lyricsStore.isSynced}
         {@const lines = lyricsStore.currentLyrics?.lines || []}
         {@const curMs = audioStore.currentTime * 1000}
-        <div class="lyrics-top-bar">
-            <button
-                type="button"
-                class="search-mode-link"
-                onclick={() => lyricsStore.openSearch()}
-                title="Search and select different lyrics"
-            >
-                <MagnifyingGlass size={13} weight="bold" />
-                <span>Wrong lyrics?</span>
-            </button>
-        </div>
-
         <div class="lyrics-list">
             <!-- Instrumental intro before first line -->
             {#if lines.length > 0 && lines[0].time_ms >= 6000}
@@ -408,18 +396,6 @@
         {/if}
     {:else}
         <!-- Plain unsynchronized lyrics -->
-        <div class="lyrics-top-bar">
-            <button
-                type="button"
-                class="search-mode-link"
-                onclick={() => lyricsStore.openSearch()}
-                title="Search and select different lyrics"
-            >
-                <MagnifyingGlass size={13} weight="bold" />
-                <span>Wrong lyrics?</span>
-            </button>
-        </div>
-
         <div class="plain-lyrics">
             <pre class="plain-text">{lyricsStore.currentLyrics?.raw_plain || ""}</pre>
             {#if lyricsStore.currentLyrics?.provider_name}
@@ -749,36 +725,6 @@
     }
 
     /* Top actions & footer triggers */
-    .lyrics-top-bar {
-        display: flex;
-        justify-content: flex-end;
-        width: 100%;
-        margin-bottom: -1rem;
-        z-index: 5;
-    }
-
-    .search-mode-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        color: var(--echo-text-2, #888);
-        font-family: var(--echo-font-body, inherit);
-        font-size: 0.75rem;
-        font-weight: 500;
-        padding: 0.25rem 0.65rem;
-        border-radius: 9999px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .search-mode-link:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.16);
-        color: var(--echo-text-1, #eee);
-    }
-
     .footer-dot {
         margin: 0 0.4rem;
         opacity: 0.4;
