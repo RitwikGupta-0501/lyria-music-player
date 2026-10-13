@@ -27,6 +27,7 @@
     import GlobalSearch from "$lib/components/GlobalSearch.svelte";
     import ExploreView from "$lib/components/ExploreView.svelte";
     import HomeView from "$lib/components/HomeView.svelte";
+    import DownloadCandidateModal from "$lib/components/DownloadCandidateModal.svelte";
 
     let activeView = $state("home");
     let sidebarOpen = $state(false);
@@ -216,4 +217,5 @@
 
 <FullScreenPlayer bind:isOpen={fullScreenOpen} onToggleQueue={toggleQueue} />
 <GlobalSearch bind:isOpen={globalSearchOpen} />
+<DownloadCandidateModal />
 <ToastContainer />

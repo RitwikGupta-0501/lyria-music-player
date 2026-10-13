@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { toastStore } from "./toast.svelte";
 
 export interface DownloadCandidateItem {
     native_id: string;
@@ -114,11 +115,76 @@ export class DownloadStore {
         const unlistenStatus = await listen<DownloadStatusPayload>(
             "download://status",
             async (event) => {
+                const foundItem = this.findItemById(event.payload.item_id);
+                if (event.payload.status === "completed") {
+                    if (foundItem) {
+                        toastStore.success(`Downloaded "${foundItem.track_title}"`);
+                    }
+                } else if (event.payload.status === "failed") {
+                    toastStore.error(`Failed to download ${foundItem ? `"${foundItem.track_title}"` : "track"}: ${event.payload.error || "Unknown error"}`);
+                }
                 await this.fetchQueue();
             }
         );
 
         this.unlisteners.push(unlistenProgress, unlistenStatus);
+    }
+
+    findItemById(itemId: string): DownloadItemRecord | null {
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.id === itemId) return item;
+            }
+        }
+        return null;
+    }
+
+    get activeCount(): number {
+        let count = 0;
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "downloading" || item.status === "queued") {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    isTrackDownloading(title?: string | null, artist?: string | null): boolean {
+        if (!title) return false;
+        const normTitle = title.trim().toLowerCase();
+        const normArtist = artist ? artist.trim().toLowerCase() : "";
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "downloading" || item.status === "queued") {
+                    if (item.track_title.trim().toLowerCase() === normTitle) {
+                        if (!normArtist || item.artist.trim().toLowerCase() === normArtist) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    isTrackDownloaded(title?: string | null, artist?: string | null): boolean {
+        if (!title) return false;
+        const normTitle = title.trim().toLowerCase();
+        const normArtist = artist ? artist.trim().toLowerCase() : "";
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "completed") {
+                    if (item.track_title.trim().toLowerCase() === normTitle) {
+                        if (!normArtist || item.artist.trim().toLowerCase() === normArtist) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     async fetchProviders() {
@@ -159,6 +225,7 @@ export class DownloadStore {
         native_id?: string | null;
         preferred_provider?: string | null;
     }): Promise<string> {
+        toastStore.info(`Starting download: "${params.title}"`);
         const downloadId = await invoke<string>("download_track", {
             title: params.title,
             artist: params.artist,
@@ -166,6 +233,34 @@ export class DownloadStore {
             trackNumber: params.track_number ?? null,
             durationMs: params.duration_ms ?? null,
             nativeId: params.native_id ?? null,
+            preferredProvider: params.preferred_provider ?? this.preferredProvider,
+        });
+
+        await this.fetchQueue();
+        return downloadId;
+    }
+
+    async downloadAlbum(params: {
+        album_title: string;
+        artist: string;
+        tracks: Array<{
+            title: string;
+            track_number?: number | null;
+            duration_ms?: number | null;
+            native_id?: string | null;
+        }>;
+        preferred_provider?: string | null;
+    }): Promise<string> {
+        toastStore.info(`Starting album download: "${params.album_title}" (${params.tracks.length} tracks)`);
+        const downloadId = await invoke<string>("download_album", {
+            albumTitle: params.album_title,
+            artist: params.artist,
+            tracks: params.tracks.map((t) => ({
+                title: t.title,
+                track_number: t.track_number ?? null,
+                duration_ms: t.duration_ms ?? null,
+                native_id: t.native_id ?? null,
+            })),
             preferredProvider: params.preferred_provider ?? this.preferredProvider,
         });
 

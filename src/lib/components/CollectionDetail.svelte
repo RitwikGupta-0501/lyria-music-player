@@ -9,6 +9,7 @@
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
+    import { downloadStore } from "$lib/stores/download.svelte";
     import {
         Playlist as PlaylistIcon,
         Disc as DiscIcon,
@@ -20,6 +21,8 @@
         PencilIcon,
         Heart as HeartIcon,
         DotsSixVertical as GripIcon,
+        DownloadSimple as DownloadSimpleIcon,
+        Sparkle as SparkleIcon,
     } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import PillButton from "$lib/components/common/PillButton.svelte";
@@ -408,6 +411,20 @@
             await audioStore.setQueue(queueTracks, 0);
         }
     }
+
+    function downloadCollection() {
+        if (!displayTracks || displayTracks.length === 0) return;
+        downloadStore.downloadAlbum({
+            album_title: collectionTitle,
+            artist: collectionSubtitle || "Unknown Artist",
+            tracks: displayTracks.map((t: any, idx: number) => ({
+                title: t.title,
+                track_number: idx + 1,
+                duration_ms: t.duration_ms ?? null,
+                native_id: null,
+            })),
+        });
+    }
 </script>
 
 <svelte:window onclick={() => activeDropdown = null} />
@@ -553,6 +570,17 @@
                         title={isSaved ? (isPlaylist ? "Unsave playlist" : "Unsave album") : (isPlaylist ? "Save playlist" : "Save album")}
                     />
                 {/if}
+
+                {#if displayTracks.length > 0}
+                    <PillButton
+                        variant="secondary"
+                        size="sm"
+                        icon={DownloadSimpleIcon}
+                        label="Download All"
+                        onclick={downloadCollection}
+                        title="Download all tracks in collection"
+                    />
+                {/if}
             </div>
         </div>
     </div>
@@ -643,17 +671,49 @@
                         >
                             <HeartIcon size={15} weight={isTrackLiked ? "fill" : "regular"} color={isTrackLiked ? "#ffd285" : "rgba(255,255,255,0.3)"} />
                         </button>
-                        {#if isCustomLocalPlaylist}
-                            <button
-                                class="more-btn"
-                                onclick={(e) => toggleDropdown(e, i)}
-                                aria-label="More options"
-                            >
-                                <DotsThreeIcon size={20} weight="bold" />
-                            </button>
+                        <button
+                            class="more-btn"
+                            onclick={(e) => toggleDropdown(e, i)}
+                            aria-label="More options"
+                        >
+                            <DotsThreeIcon size={20} weight="bold" />
+                        </button>
 
-                            {#if activeDropdown === i}
-                                <div class="dropdown glass-panel">
+                        {#if activeDropdown === i}
+                            <div class="dropdown glass-panel">
+                                <button
+                                    class="dropdown-row"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        activeDropdown = null;
+                                        downloadStore.downloadTrack({
+                                            title: track.title,
+                                            artist: track.artist || collectionSubtitle || "Unknown Artist",
+                                            album: collectionTitle,
+                                            duration_ms: track.duration_ms,
+                                        });
+                                    }}
+                                >
+                                    <DownloadSimpleIcon size={14} />
+                                    Download Track
+                                </button>
+                                <button
+                                    class="dropdown-row"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        activeDropdown = null;
+                                        downloadStore.openCandidateSearch({
+                                            title: track.title,
+                                            artist: track.artist || collectionSubtitle || "Unknown Artist",
+                                            album: collectionTitle,
+                                            duration_ms: track.duration_ms,
+                                        });
+                                    }}
+                                >
+                                    <SparkleIcon size={14} />
+                                    Select Quality & Source...
+                                </button>
+                                {#if isCustomLocalPlaylist}
                                     <button
                                         class="dropdown-row text-danger"
                                         onclick={(e) => removeTrack(e, track.id)}
@@ -661,8 +721,8 @@
                                         <TrashIcon size={14} />
                                         Remove from Playlist
                                     </button>
-                                </div>
-                            {/if}
+                                {/if}
+                            </div>
                         {/if}
                     </div>
                 </div>

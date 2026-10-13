@@ -1,9 +1,10 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
     import EqualizerWave from "$lib/components/common/EqualizerWave.svelte";
-    import { Play, Pause } from "phosphor-svelte";
+    import { Play, Pause, DownloadSimple, ArrowClockwise, CheckCircle } from "phosphor-svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
+    import { downloadStore } from "$lib/stores/download.svelte";
     import { resolveCoverArt } from "$lib/utils/media";
     import { getInitial, isCurrentTrack, getTrackDisplayMetric, sanitizeAlbumName } from "$lib/utils/format";
 
@@ -82,6 +83,39 @@
     function handlePlayOverlayClick(e: MouseEvent) {
         e.stopPropagation();
         exploreStore.playTrack(track, resolvedProviderId);
+    }
+
+    let isDownloading = $derived(downloadStore.isTrackDownloading(track?.title, track?.artist));
+    let isDownloaded = $derived(downloadStore.isTrackDownloaded(track?.title, track?.artist));
+
+    function handleDownloadClick(e: MouseEvent) {
+        e.stopPropagation();
+        if (e.shiftKey || e.altKey) {
+            downloadStore.openCandidateSearch({
+                title: track.title,
+                artist: track.artist || "Unknown Artist",
+                album: track.album,
+                duration_ms: track.duration_ms,
+            });
+        } else {
+            downloadStore.downloadTrack({
+                title: track.title,
+                artist: track.artist || "Unknown Artist",
+                album: track.album,
+                duration_ms: track.duration_ms,
+            });
+        }
+    }
+
+    function handleDownloadContextMenu(e: MouseEvent) {
+        e.stopPropagation();
+        e.preventDefault();
+        downloadStore.openCandidateSearch({
+            title: track.title,
+            artist: track.artist || "Unknown Artist",
+            album: track.album,
+            duration_ms: track.duration_ms,
+        });
     }
 </script>
 
@@ -165,7 +199,26 @@
         <span class="provider-tag">{track.provider_name}</span>
     {/if}
 
-    <!-- 6. Custom Slot or Track Metric (Duration / Plays / Views) -->
+    <!-- 6. Download Action Button -->
+    <button
+        type="button"
+        class="row-dl-action"
+        class:is-active={isDownloading || isDownloaded}
+        onclick={handleDownloadClick}
+        oncontextmenu={handleDownloadContextMenu}
+        title={isDownloading ? "Downloading..." : isDownloaded ? "Downloaded (Right-click to select source)" : "Download track (Right-click for options)"}
+        aria-label="Download track"
+    >
+        {#if isDownloading}
+            <ArrowClockwise size={14} class="spin" color="#ffd285" />
+        {:else if isDownloaded}
+            <CheckCircle size={14} weight="fill" color="#34d399" />
+        {:else}
+            <DownloadSimple size={14} />
+        {/if}
+    </button>
+
+    <!-- 7. Custom Slot or Track Metric (Duration / Plays / Views) -->
     {#if rightSnippet}
         {@render rightSnippet()}
     {:else if metric}
@@ -380,5 +433,44 @@
         font-family: var(--lyria-font-mono);
         flex-shrink: 0;
         margin-left: 0.3rem;
+    }
+
+    .row-dl-action {
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.35);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.15s ease, color 0.15s ease, transform 0.15s ease;
+        flex-shrink: 0;
+    }
+
+    .track-row:hover .row-dl-action,
+    .row-dl-action.is-active {
+        opacity: 1;
+    }
+
+    .row-dl-action:hover {
+        color: #ffd285;
+        transform: scale(1.15);
+    }
+
+    .row-dl-action:focus-visible {
+        opacity: 1;
+        outline: 2px solid #ffd285;
+    }
+
+    :global(.spin) {
+        animation: spin-kf 0.9s linear infinite;
+    }
+
+    @keyframes spin-kf {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
     }
 </style>
