@@ -2740,7 +2740,7 @@ pub fn get_cached_lyrics(
         Ok(None)
     } else {
         let mut stmt = conn.prepare_cached(
-            "SELECT lyrics_json FROM lyrics_cache WHERE canonical_key = ?1 ORDER BY updated_at DESC LIMIT 1",
+            "SELECT lyrics_json FROM lyrics_cache WHERE canonical_key = ?1 ORDER BY is_manual DESC, updated_at DESC LIMIT 1",
         ).map_err(|e| e.to_string())?;
         let mut rows = stmt.query(rusqlite::params![canonical_key]).map_err(|e| e.to_string())?;
         if let Some(row) = rows.next().map_err(|e| e.to_string())? {
@@ -2757,6 +2757,7 @@ pub fn save_cached_lyrics(
     conn: &Connection,
     canonical_key: &str,
     lyrics: &crate::lyrics::LyricsResult,
+    is_manual: bool,
 ) -> Result<(), String> {
     let lyrics_json = serde_json::to_string(lyrics).map_err(|e| e.to_string())?;
     let format_str = match lyrics.format {
@@ -2764,16 +2765,18 @@ pub fn save_cached_lyrics(
         crate::lyrics::LyricsFormat::Plain => "plain",
     };
     let instrumental_int = if lyrics.instrumental { 1 } else { 0 };
+    let is_manual_int = if is_manual { 1 } else { 0 };
 
     conn.execute(
-        "INSERT INTO lyrics_cache (canonical_key, provider_id, format, lyrics_json, instrumental, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+        "INSERT INTO lyrics_cache (canonical_key, provider_id, format, lyrics_json, instrumental, is_manual, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
          ON CONFLICT(canonical_key, provider_id) DO UPDATE SET
             format = excluded.format,
             lyrics_json = excluded.lyrics_json,
             instrumental = excluded.instrumental,
+            is_manual = excluded.is_manual,
             updated_at = CURRENT_TIMESTAMP",
-        rusqlite::params![canonical_key, lyrics.provider_id, format_str, lyrics_json, instrumental_int],
+        rusqlite::params![canonical_key, lyrics.provider_id, format_str, lyrics_json, instrumental_int, is_manual_int],
     ).map_err(|e| e.to_string())?;
 
     Ok(())

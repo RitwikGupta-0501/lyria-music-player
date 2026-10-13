@@ -785,6 +785,61 @@ impl ProviderManager {
         Ok(None)
     }
 
+    pub async fn search_lyrics(
+        &self,
+        provider_id: &str,
+        query: &str,
+    ) -> Result<Vec<crate::lyrics::LyricsSearchResultItem>, SandboxError> {
+        let provider_id = provider_id.to_string();
+        let query_clone = query.to_string();
+
+        let _permit = self.search_semaphore.acquire().await.map_err(|_| SandboxError::ScriptError {
+            script: provider_id.clone(),
+            message: "Semaphore closed".into(),
+        })?;
+
+        let plugin_arc = self.get_or_create_plugin(&provider_id, SEARCH_TIMEOUT_SECS).await?;
+
+        let res_bytes = match spawn_blocking(move || {
+            let mut plugin = plugin_arc.lock().unwrap();
+            let json_input = serde_json::to_vec(&query_clone).unwrap_or_default();
+            plugin.call::<&[u8], &[u8]>("search_lyrics", &json_input).map(|res| res.to_vec())
+        }).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                tracing::warn!("search_lyrics plugin call failed for provider '{}': {}", provider_id, e);
+                return Ok(Vec::new());
+            }
+            Err(e) => {
+                tracing::warn!("search_lyrics spawn_blocking failed for provider '{}': {}", provider_id, e);
+                return Ok(Vec::new());
+            }
+        };
+
+        if res_bytes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let provider_name = self.providers.read().unwrap()
+            .get(&provider_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| provider_id.clone());
+
+        let mut results: Vec<crate::lyrics::LyricsSearchResultItem> =
+            serde_json::from_slice(&res_bytes).unwrap_or_default();
+
+        for item in &mut results {
+            if item.provider_id.is_empty() {
+                item.provider_id = provider_id.clone();
+            }
+            if item.provider_name.is_empty() {
+                item.provider_name = provider_name.clone();
+            }
+        }
+
+        Ok(results)
+    }
+
     pub fn get_lyrics_eligible_providers(&self) -> Vec<String> {
         self.providers
             .read()

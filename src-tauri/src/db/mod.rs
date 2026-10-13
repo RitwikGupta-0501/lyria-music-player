@@ -245,6 +245,7 @@ pub enum DbRequest {
     SaveCachedLyrics {
         canonical_key: String,
         lyrics: crate::lyrics::LyricsResult,
+        is_manual: bool,
         resp: oneshot::Sender<Result<(), String>>,
     },
     ClearLyricsCache {
@@ -549,8 +550,8 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                     let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());
                     let _ = resp.send(res);
                 }
-                DbRequest::SaveCachedLyrics { canonical_key, lyrics, resp } => {
-                    let res = queries::save_cached_lyrics(&conn, &canonical_key, &lyrics);
+                DbRequest::SaveCachedLyrics { canonical_key, lyrics, is_manual, resp } => {
+                    let res = queries::save_cached_lyrics(&conn, &canonical_key, &lyrics, is_manual);
                     let _ = resp.send(res);
                 }
                 DbRequest::ClearLyricsCache { canonical_key, resp } => {

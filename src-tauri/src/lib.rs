@@ -586,6 +586,24 @@ async fn clear_lyrics_cache(
     state.lyrics_manager.clear_cache(canonical_key).await
 }
 
+#[tauri::command]
+async fn search_lyrics(
+    state: State<'_, AppState>,
+    query: String,
+    provider_override: Option<String>,
+) -> Result<Vec<lyrics::models::LyricsSearchResultItem>, String> {
+    state.lyrics_manager.search_lyrics(&query, provider_override.as_deref()).await
+}
+
+#[tauri::command]
+async fn apply_selected_lyrics(
+    state: State<'_, AppState>,
+    canonical_key: String,
+    candidate: lyrics::models::LyricsSearchResultItem,
+) -> Result<lyrics::models::LyricsResult, String> {
+    state.lyrics_manager.apply_selected_lyrics(&canonical_key, &candidate).await
+}
+
 
 #[tauri::command]
 async fn browse_provider_album(
@@ -1952,6 +1970,8 @@ pub fn run() {
             get_lyrics_providers,
             set_preferred_lyrics_provider,
             clear_lyrics_cache,
+            search_lyrics,
+            apply_selected_lyrics,
         ]);
 
     builder
