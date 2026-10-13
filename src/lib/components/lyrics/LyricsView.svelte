@@ -2,6 +2,7 @@
     import { lyricsStore, type LyricLine } from "$lib/stores/lyrics.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { MicrophoneStage, ArrowClockwise, Sparkle } from "phosphor-svelte";
+    import { fade } from "svelte/transition";
 
     let { variant = "drawer" } = $props<{
         variant?: "drawer" | "fullscreen";
@@ -11,31 +12,67 @@
     let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
     let manualScrollPause = $state(false);
 
+    // Smoothly scroll the container to center a specific line element
+    function scrollToIndex(index: number, smooth = true) {
+        if (!containerEl || index < 0) return;
+        const el = containerEl.querySelector(`[data-index="${index}"]`) as HTMLElement | null;
+        if (!el) return;
+
+        const containerRect = containerEl.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const targetScrollTop =
+            containerEl.scrollTop + (elRect.top - containerRect.top) - containerEl.clientHeight / 2 + elRect.height / 2;
+
+        containerEl.scrollTo({
+            top: Math.max(0, targetScrollTop),
+            behavior: smooth ? "smooth" : "instant",
+        });
+    }
+
     // Auto-scroll the active line into center view
     $effect(() => {
         const activeIdx = lyricsStore.activeLineIndex;
         if (activeIdx < 0 || manualScrollPause || !containerEl) return;
-
-        const el = containerEl.querySelector(`[data-index="${activeIdx}"]`) as HTMLElement | null;
-        if (el) {
-            el.scrollIntoView({
-                behavior: "smooth",
-                block: "center",
-            });
-        }
+        scrollToIndex(activeIdx, true);
     });
 
-    // Detect user manual scroll to prevent fighting the auto-scroll for 3.5 seconds
+    // Detect user manual scroll to prevent fighting the auto-scroll for 4 seconds
     function handleUserScroll() {
         manualScrollPause = true;
         if (scrollTimeout) clearTimeout(scrollTimeout);
         scrollTimeout = setTimeout(() => {
             manualScrollPause = false;
-        }, 3500);
+        }, 4000);
     }
 
     function handleLineClick(index: number) {
-        lyricsStore.seekToLine(index);
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = null;
+        }
+        manualScrollPause = false;
+        lyricsStore.seekToLine(index, 150);
+        scrollToIndex(index, true);
+    }
+
+    function handleInterludeClick(targetMs: number) {
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = null;
+        }
+        manualScrollPause = false;
+        audioStore.seek(targetMs / 1000);
+    }
+
+    function resumeSyncNow() {
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = null;
+        }
+        manualScrollPause = false;
+        if (lyricsStore.activeLineIndex >= 0) {
+            scrollToIndex(lyricsStore.activeLineIndex, true);
+        }
     }
 
     function retryWithProvider(providerId: string) {
@@ -93,10 +130,31 @@
             </div>
         </div>
     {:else if lyricsStore.isSynced}
+        {@const lines = lyricsStore.currentLyrics?.lines || []}
+        {@const curMs = audioStore.currentTime * 1000}
         <div class="lyrics-list">
-            {#each lyricsStore.currentLyrics?.lines || [] as line, index}
+            <!-- Instrumental intro before first line -->
+            {#if lines.length > 0 && lines[0].time_ms >= 6000}
+                {@const isIntroActive = curMs < lines[0].time_ms}
+                <button
+                    type="button"
+                    class="instrumental-break"
+                    class:active={isIntroActive}
+                    onclick={() => handleInterludeClick(0)}
+                    title="Instrumental intro (jump to start)"
+                >
+                    <span class="break-dot"></span>
+                    <span class="break-dot"></span>
+                    <span class="break-dot"></span>
+                </button>
+            {/if}
+
+            {#each lines as line, index}
                 {@const isActive = index === lyricsStore.activeLineIndex}
                 {@const isPast = lyricsStore.activeLineIndex >= 0 && index < lyricsStore.activeLineIndex}
+                {@const nextLine = lines[index + 1]}
+                {@const gapMs = nextLine ? nextLine.time_ms - line.time_ms : 0}
+
                 <button
                     class="lyric-line"
                     class:active={isActive}
@@ -107,6 +165,22 @@
                 >
                     <span class="line-text">{line.text || "♪"}</span>
                 </button>
+
+                <!-- Instrumental break between lines if gap >= 7 seconds -->
+                {#if gapMs >= 7000}
+                    {@const isBreakActive = curMs >= line.time_ms + 2500 && curMs < nextLine.time_ms}
+                    <button
+                        type="button"
+                        class="instrumental-break"
+                        class:active={isBreakActive}
+                        onclick={() => handleInterludeClick(line.time_ms + 2500)}
+                        title="Instrumental break (jump to section)"
+                    >
+                        <span class="break-dot"></span>
+                        <span class="break-dot"></span>
+                        <span class="break-dot"></span>
+                    </button>
+                {/if}
             {/each}
 
             {#if lyricsStore.currentLyrics?.provider_name}
@@ -115,6 +189,19 @@
                 </footer>
             {/if}
         </div>
+
+        {#if manualScrollPause && lyricsStore.activeLineIndex >= 0}
+            <button
+                type="button"
+                class="sync-pill-btn"
+                transition:fade={{ duration: 150 }}
+                onclick={resumeSyncNow}
+                title="Re-sync with current playback"
+            >
+                <Sparkle size={13} weight="fill" />
+                <span>Sync with playback</span>
+            </button>
+        {/if}
     {:else}
         <!-- Plain unsynchronized lyrics -->
         <div class="plain-lyrics">
@@ -340,5 +427,104 @@
         color: var(--echo-text-2, #666);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+    }
+
+    .instrumental-break {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.4rem 0.75rem;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        border-radius: 9999px;
+        opacity: 0.35;
+        transition: all 0.25s ease;
+        align-self: flex-start;
+        margin: -0.25rem 0;
+    }
+
+    .fullscreen .instrumental-break {
+        padding: 0.6rem 1rem;
+        gap: 0.5rem;
+    }
+
+    .instrumental-break:hover {
+        opacity: 0.8;
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .instrumental-break.active {
+        opacity: 0.95;
+    }
+
+    .break-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: var(--echo-text-2, #888);
+        transition: all 0.3s ease;
+    }
+
+    .fullscreen .break-dot {
+        width: 8px;
+        height: 8px;
+    }
+
+    .instrumental-break.active .break-dot {
+        background-color: #ffffff;
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+        animation: pulseDot 1.4s infinite ease-in-out;
+    }
+
+    .instrumental-break.active .break-dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .instrumental-break.active .break-dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes pulseDot {
+        0%, 100% {
+            transform: scale(0.85);
+            opacity: 0.5;
+        }
+        50% {
+            transform: scale(1.35);
+            opacity: 1;
+        }
+    }
+
+    .sync-pill-btn {
+        position: sticky;
+        bottom: 1.5rem;
+        align-self: center;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(18, 18, 24, 0.88);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #ffffff;
+        font-family: var(--echo-font-body, inherit);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        padding: 0.5rem 1.125rem;
+        border-radius: 9999px;
+        cursor: pointer;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        z-index: 10;
+        margin-top: -2.75rem;
+    }
+
+    .sync-pill-btn:hover {
+        background: rgba(30, 30, 38, 0.98);
+        border-color: rgba(255, 255, 255, 0.3);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
     }
 </style>

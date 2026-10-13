@@ -344,7 +344,6 @@ export class AudioStore {
 
         try {
             await invoke("seek_audio", { position });
-            this.queueNextAudio();
         } catch (e) {
             console.error("Seek failed:", e);
         }

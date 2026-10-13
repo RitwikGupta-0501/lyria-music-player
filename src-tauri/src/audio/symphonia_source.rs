@@ -227,13 +227,18 @@ impl SymphoniaSource {
             let secs = pos.as_secs_f64();
             // SeekMode::Coarse works even for FLAC files without a SEEKTABLE —
             // Symphonia falls back to a bisection search over the byte stream.
-            let _ = format.seek(
+            tracing::info!("[SYMPHONIA SEEK] Requesting seek to {secs:.3}s");
+            let seek_result = format.seek(
                 SeekMode::Coarse,
                 SeekTo::Time {
                     time: Time { seconds: secs as u64, frac: secs.fract() },
                     track_id: None,
                 },
             );
+            match &seek_result {
+                Ok(seeked_to) => tracing::info!("[SYMPHONIA SEEK] OK — actual_ts={}", seeked_to.actual_ts),
+                Err(e) => tracing::error!("[SYMPHONIA SEEK] FAILED: {e}"),
+            }
             decoder.reset();
         }
 

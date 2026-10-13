@@ -38,19 +38,24 @@ export class LyricsStore {
     activeTrackKey = $state<string | null>(null);
     autoScroll = $state(true);
 
-    // Active line index derived directly from audioStore.currentTime at 60fps
+    // Active line index derived directly from audioStore.currentTime via O(log N) binary search
     activeLineIndex = $derived.by(() => {
-        if (!this.currentLyrics || this.currentLyrics.format !== "synced" || !this.currentLyrics.lines?.length) {
+        const lines = this.currentLyrics?.lines;
+        if (!this.currentLyrics || this.currentLyrics.format !== "synced" || !lines?.length) {
             return -1;
         }
         const curMs = audioStore.currentTime * 1000;
-        const lines = this.currentLyrics.lines;
+        let low = 0;
+        let high = lines.length - 1;
         let active = -1;
-        for (let i = 0; i < lines.length; i++) {
-            if (lines[i].time_ms <= curMs) {
-                active = i;
+
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            if (lines[mid].time_ms <= curMs) {
+                active = mid;
+                low = mid + 1;
             } else {
-                break;
+                high = mid - 1;
             }
         }
         return active;
@@ -125,13 +130,14 @@ export class LyricsStore {
         }
     }
 
-    seekToLine(index: number) {
+    seekToLine(index: number, preRollMs = 0) {
         if (!this.currentLyrics || !this.currentLyrics.lines || index < 0 || index >= this.currentLyrics.lines.length) {
             return;
         }
         const line = this.currentLyrics.lines[index];
-        const targetSec = line.time_ms / 1000;
-        audioStore.seek(targetSec);
+        // Subtract lead-in pre-roll if provided so the vocal attack / consonant isn't clipped
+        const targetMs = Math.max(0, line.time_ms - preRollMs);
+        audioStore.seek(targetMs / 1000);
     }
 
     async setPreferredProvider(providerId: string | null) {
