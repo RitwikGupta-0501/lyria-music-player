@@ -28,7 +28,7 @@
                 <TabPills
                     tabs={tabs}
                     bind:activeTab={activeTab}
-                    size="sm"
+                    size="md"
                     ariaLabel="Right drawer tabs"
                 />
             {:else}
