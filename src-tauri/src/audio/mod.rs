@@ -168,6 +168,7 @@ pub fn start_audio_thread(
         let mut seek_offset: f64 = 0.0;
         let mut sink_pos_baseline: f64 = 0.0;
         let mut is_seeking = false;
+        let mut is_loading = false;
         let mut seek_generation: u64 = 0;
         let (seek_tx, seek_rx) = std::sync::mpsc::channel::<(u64, f64, Result<SymphoniaSource, String>, bool)>();
         let (advance_tx, advance_rx) = std::sync::mpsc::channel::<()>();
@@ -192,6 +193,7 @@ pub fn start_audio_thread(
                 duration_hint: Option<u64>,
             },
             QueueNext {
+                gen: u64,
                 source: TrackSource,
                 title: String,
                 artist: Option<String>,
@@ -211,6 +213,7 @@ pub fn start_audio_thread(
                 res: Result<SymphoniaSource, String>,
             },
             QueueNext {
+                gen: u64,
                 source: TrackSource,
                 title: String,
                 artist: Option<String>,
@@ -245,7 +248,7 @@ pub fn start_audio_thread(
                         };
                         let _ = load_res_tx.send(LoadResponse::Load { gen, source, title, artist, album, duration_hint, res });
                     }
-                    LoadRequest::QueueNext { source, title, artist, album, duration_hint } => {
+                    LoadRequest::QueueNext { gen, source, title, artist, album, duration_hint } => {
                         let res = match &source {
                             TrackSource::Local(path) => {
                                 SymphoniaSource::from_path(path, audio_config_clone.clone()).map_err(|e| e.to_string())
@@ -258,7 +261,7 @@ pub fn start_audio_thread(
                                 }
                             }
                         };
-                        let _ = load_res_tx.send(LoadResponse::QueueNext { source, title, artist, album, duration_hint, res });
+                        let _ = load_res_tx.send(LoadResponse::QueueNext { gen, source, title, artist, album, duration_hint, res });
                     }
                 }
             }
@@ -292,6 +295,7 @@ pub fn start_audio_thread(
                         if gen == seek_generation {
                             match res {
                                 Ok(src) => {
+                                    is_loading = false;
                                     let hint_sec = duration_hint.map(|ms| ms as f64 / 1000.0).filter(|&d| d > 0.0);
                                     let probed_sec = src.total_duration().map(|d| d.as_secs_f64()).filter(|&d| d > 0.0);
                                     
@@ -332,6 +336,7 @@ pub fn start_audio_thread(
                                     );
                                 }
                                 Err(e) => {
+                                    is_loading = false;
                                     eprintln!("Audio load failed: {e}");
                                     let _ = app_handle.emit("audio-error", e);
                                     current_track_path.clear();
@@ -339,41 +344,53 @@ pub fn start_audio_thread(
                                     emit_sync(&app_handle, "Stopped", 0.0, "", 0.0);
                                 }
                             }
+                        } else {
+                            // Stale load response — generation has advanced (e.g. seek or new load)
+                            is_loading = false;
                         }
                     }
-                    LoadResponse::QueueNext { source, title, artist, album, duration_hint, res } => {
-                        let seg_path = match &source {
-                            TrackSource::Local(path) => path.to_string_lossy().to_string(),
-                            TrackSource::Remote(url, _) => url.to_string(),
-                        };
-                        match res {
-                            Ok(src) => {
-                                let hint_sec = duration_hint.map(|ms| ms as f64 / 1000.0).filter(|&d| d > 0.0);
-                                let probed_sec = src.total_duration().map(|d| d.as_secs_f64()).filter(|&d| d > 0.0);
-                                let seg_duration = match &source {
-                                    TrackSource::Remote(..) => hint_sec.or(probed_sec).unwrap_or(0.0),
-                                    TrackSource::Local(..) => probed_sec.or(hint_sec).unwrap_or(0.0),
-                                };
+                    LoadResponse::QueueNext { gen, source, title, artist, album, duration_hint, res } => {
+                        tracing::info!(
+                            "[QUEUE NEXT RX] Received: result_gen={gen}  current_seek_gen={seek_generation}  match={}",
+                            gen == seek_generation
+                        );
+                        if gen == seek_generation {
+                            let seg_path = match &source {
+                                TrackSource::Local(path) => path.to_string_lossy().to_string(),
+                                TrackSource::Remote(url, _) => url.to_string(),
+                            };
+                            match res {
+                                Ok(src) => {
+                                    tracing::info!("[QUEUE NEXT RX] gen={gen} accepted — appending to sink: {seg_path}");
+                                    let hint_sec = duration_hint.map(|ms| ms as f64 / 1000.0).filter(|&d| d > 0.0);
+                                    let probed_sec = src.total_duration().map(|d| d.as_secs_f64()).filter(|&d| d > 0.0);
+                                    let seg_duration = match &source {
+                                        TrackSource::Remote(..) => hint_sec.or(probed_sec).unwrap_or(0.0),
+                                        TrackSource::Local(..) => probed_sec.or(hint_sec).unwrap_or(0.0),
+                                    };
 
-                                queued_tracks.push_back(QueuedTrackMeta {
-                                    source: source.clone(),
-                                    title,
-                                    artist,
-                                    album,
-                                    duration_sec: seg_duration,
-                                    track_path: seg_path,
-                                });
+                                    queued_tracks.push_back(QueuedTrackMeta {
+                                        source: source.clone(),
+                                        title,
+                                        artist,
+                                        album,
+                                        duration_sec: seg_duration,
+                                        track_path: seg_path,
+                                    });
 
-                                let adv_tx = advance_tx.clone();
-                                let tracked = TrackedSource::new(src, move || {
-                                    let _ = adv_tx.send(());
-                                });
-                                if let Some(s) = &sink { s.append(tracked); }
+                                    let adv_tx = advance_tx.clone();
+                                    let tracked = TrackedSource::new(src, move || {
+                                        let _ = adv_tx.send(());
+                                    });
+                                    if let Some(s) = &sink { s.append(tracked); }
+                                }
+                                Err(e) => {
+                                    eprintln!("Audio queue_next failed: {e}");
+                                    let _ = app_handle.emit("audio-error", e);
+                                }
                             }
-                            Err(e) => {
-                                eprintln!("Audio queue_next failed: {e}");
-                                let _ = app_handle.emit("audio-error", e);
-                            }
+                        } else {
+                            tracing::info!("[QUEUE NEXT RX] gen={gen} is STALE (current={seek_generation}) — discarding queued audio");
                         }
                     }
                 }
@@ -381,10 +398,15 @@ pub fn start_audio_thread(
 
             // Drain completed async seek operations
             while let Ok((gen, _seek_pos, res, was_paused)) = seek_rx.try_recv() {
+                tracing::info!(
+                    "[SEEK RX] Received seek result: result_gen={gen}  current_seek_gen={seek_generation}  match={}",
+                    gen == seek_generation
+                );
                 if gen == seek_generation {
                     is_seeking = false;
                     match res {
                         Ok(src) => {
+                            tracing::info!("[SEEK RX] gen={gen} OK — recreating sink and appending seeked source");
                             if let Some(s) = &sink {
                                 s.stop();
                             }
@@ -406,9 +428,13 @@ pub fn start_audio_thread(
                                 s.append(tracked);
                                 if !was_paused {
                                     s.play();
+                                    tracing::info!("[SEEK RX] gen={gen} sink.play() called (was playing before seek)");
                                     media_controls.set_playback_status(true);
+                                } else {
+                                    tracing::info!("[SEEK RX] gen={gen} leaving sink paused (was paused before seek)");
                                 }
                             } else {
+                                tracing::error!("[SEEK RX] gen={gen} sink is None after recreate — cannot play");
                                 media_controls.set_playback_status(false);
                             }
 
@@ -419,6 +445,7 @@ pub fn start_audio_thread(
                                 "Playing"
                             };
                             let pos = get_active_pos(&sink, sink_pos_baseline, seek_offset);
+                            tracing::info!("[SEEK RX] gen={gen} emitting player-sync: state={state_str} pos={pos:.3}s");
                             emit_sync(
                                 &app_handle,
                                 state_str,
@@ -427,8 +454,13 @@ pub fn start_audio_thread(
                                 current_duration,
                             );
                         }
-                        Err(e) => eprintln!("Audio seek failed: {e}"),
+                        Err(e) => {
+                            tracing::error!("[SEEK RX] gen={gen} seek decode FAILED: {e}");
+                            eprintln!("Audio seek failed: {e}");
+                        }
                     }
+                } else {
+                    tracing::info!("[SEEK RX] gen={gen} is stale (current={seek_generation}) — discarding");
                 }
             }
 
@@ -462,7 +494,7 @@ pub fn start_audio_thread(
 
             // Track End Detection (Queue completely drained and playback finished)
             let sink_is_empty = sink.as_ref().is_none_or(|s| s.empty());
-            if sink_is_empty && !is_seeking && !current_track_path.is_empty() && queued_tracks.is_empty() {
+            if sink_is_empty && !is_seeking && !is_loading && !current_track_path.is_empty() && queued_tracks.is_empty() {
                 let _ = app_handle.emit("track-ended", ());
                 current_track_path.clear();
                 current_track_source = None;
@@ -507,6 +539,7 @@ pub fn start_audio_thread(
                             TrackSource::Remote(url, _) => url.to_string(),
                         };
                         
+                        is_loading = true;
                         let _ = load_req_tx.send(LoadRequest::Load {
                             gen: seek_generation,
                             source,
@@ -518,6 +551,7 @@ pub fn start_audio_thread(
                     }
                     AudioCommand::QueueNext { source, title, artist, album, duration_hint } => {
                         let _ = load_req_tx.send(LoadRequest::QueueNext {
+                            gen: seek_generation,
                             source,
                             title,
                             artist,
@@ -594,6 +628,7 @@ pub fn start_audio_thread(
                     }
                     AudioCommand::Seek(pos) => {
                         if current_track_path.is_empty() {
+                            tracing::info!("[SEEK] Seek({pos:.3}s) ignored — no track loaded");
                             continue;
                         }
                         queued_tracks.clear();
@@ -601,8 +636,12 @@ pub fn start_audio_thread(
                         is_seeking = true;
                         let gen = seek_generation;
                         let was_paused = sink.as_ref().is_none_or(|s| s.is_paused());
+                        tracing::info!(
+                            "[SEEK] Command received: pos={pos:.3}s  gen={gen}  was_paused={was_paused}  track={current_track_path}"
+                        );
                         if let Some(s) = &sink {
                             s.stop();
+                            tracing::info!("[SEEK] Sink stopped");
                         }
                         seek_offset = pos;
                         sink_pos_baseline = 0.0;
@@ -622,12 +661,16 @@ pub fn start_audio_thread(
                         let config_clone = audio_config.clone();
                         let seek_pos = Duration::from_secs_f64(pos);
 
+                        tracing::info!("[SEEK] Spawning seek thread for gen={gen} pos={pos:.3}s");
                         thread::spawn(move || {
+                            tracing::info!("[SEEK THREAD] gen={gen} starting decode at {pos:.3}s");
                             let res = match &source_clone {
                                 Some(TrackSource::Local(path)) => {
+                                    tracing::info!("[SEEK THREAD] gen={gen} local path: {path:?}");
                                     SymphoniaSource::from_path_seeked(path, seek_pos, config_clone).map_err(|e| e.to_string())
                                 }
                                 Some(TrackSource::Remote(url, headers)) => {
+                                    tracing::info!("[SEEK THREAD] gen={gen} remote url: {url}");
                                     if url.path().ends_with(".m3u8") {
                                         SymphoniaSource::from_hls_seeked(url.clone(), client_clone, runtime_clone, seek_pos, config_clone).map_err(|e| e.to_string())
                                     } else {
@@ -636,6 +679,10 @@ pub fn start_audio_thread(
                                 }
                                 None => Err("No track source".to_string()),
                             };
+                            match &res {
+                                Ok(_) => tracing::info!("[SEEK THREAD] gen={gen} decode OK — sending result"),
+                                Err(e) => tracing::error!("[SEEK THREAD] gen={gen} decode FAILED: {e}"),
+                            }
                             let _ = seek_tx_clone.send((gen, pos, res, was_paused));
                         });
                     }

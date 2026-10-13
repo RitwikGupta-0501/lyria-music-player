@@ -4,6 +4,7 @@
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { flagsStore } from "$lib/stores/flags.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
+    import { lyricsStore } from "$lib/stores/lyrics.svelte";
 
     import Sidebar from "$lib/components/Sidebar.svelte";
     import PlayerBar from "$lib/components/PlayerBar.svelte";
@@ -12,6 +13,7 @@
     import KeyboardHandler from "$lib/components/KeyboardHandler.svelte";
     import ToastContainer from "$lib/components/ToastContainer.svelte";
     import ProvidersView from "$lib/components/ProvidersView.svelte";
+    import LyricsView from "$lib/components/lyrics/LyricsView.svelte";
 
     import AlbumGrid from "$lib/components/AlbumGrid.svelte";
     import ArtistDetail from "$lib/components/ArtistDetail.svelte";
@@ -27,26 +29,45 @@
 
     let activeView = $state("home");
     let queueOpen = $state(false);
+    let lyricsOpen = $state(false);
+    let rightDrawerTab = $state<"queue" | "lyrics">("queue");
     let fullScreenOpen = $state(false);
     let globalSearchOpen = $state(false);
 
-    let drawerOpen = $derived(queueOpen || exploreStore.activeDrawerCollection !== null);
+    let drawerOpen = $derived(queueOpen || lyricsOpen || exploreStore.activeDrawerCollection !== null);
     
     function getDrawerTitle() {
-        if (queueOpen) return "Up Next";
         if (exploreStore.activeDrawerCollection?.kind === "album") return "Album Details";
         if (exploreStore.activeDrawerCollection?.id?.toString().startsWith("horizon-")) return "Adjacent Horizon";
         if (exploreStore.activeDrawerCollection?.kind === "playlist") {
             if (exploreStore.activeDrawerCollection?.subtitle?.includes("Radio")) return "Radio Mix";
             return "Playlist Details";
         }
-        return "";
+        if (rightDrawerTab === "lyrics") return "Lyrics";
+        return "Up Next";
     }
 
     function closeDrawer() {
         queueOpen = false;
+        lyricsOpen = false;
         exploreStore.closeDrawerCollection();
     }
+
+    // Automatically fetch lyrics when track changes
+    $effect(() => {
+        const track = audioStore.currentQueueTrack;
+        if (track) {
+            lyricsStore.fetchForCurrentTrack();
+        }
+    });
+
+    // Sync tab when queue is toggled directly
+    $effect(() => {
+        if (queueOpen) {
+            rightDrawerTab = "queue";
+            lyricsOpen = false;
+        }
+    });
 
     // One-time initialization — runs once on mount, never re-runs on state change.
     onMount(() => {
@@ -58,10 +79,13 @@
             await libraryStore.fetchSavedPlaylists();
             await settingsStore.init();
             await flagsStore.init();
+            await lyricsStore.init();
+
             if (flagsStore.isEnabled("page_explore")) {
                 exploreStore.init().catch(err => console.error("Explore prefetch error:", err));
             }
         })();
+
 
         const handleSearch = () => { globalSearchOpen = true; };
         const handleNavigateExplore = () => { activeView = "explore"; };
@@ -153,21 +177,44 @@
         title={getDrawerTitle()} 
         isOpen={drawerOpen} 
         onClose={closeDrawer}
+        tabs={exploreStore.activeDrawerCollection ? [] : [
+            { id: "queue", label: "Up Next" },
+            { id: "lyrics", label: "Lyrics" }
+        ]}
+        bind:activeTab={rightDrawerTab}
     >
-        {#if queueOpen}
-            <QueueSidebar bind:open={queueOpen} />
-        {:else if exploreStore.activeDrawerCollection}
+        {#if exploreStore.activeDrawerCollection}
             <CollectionDetail 
                 collection={exploreStore.activeDrawerCollection} 
                 onBack={closeDrawer} 
                 onDeleted={closeDrawer}
             />
+        {:else if rightDrawerTab === "lyrics"}
+            <LyricsView variant="drawer" />
+        {:else}
+            <QueueSidebar bind:open={queueOpen} />
         {/if}
     </RightDrawer>
 </div>
 
 <!-- Floating player lives outside the grid, fixed bottom center -->
-<PlayerBar bind:queueOpen bind:fullScreenOpen />
+<PlayerBar 
+    bind:queueOpen 
+    bind:fullScreenOpen 
+    bind:lyricsOpen 
+    onToggleLyrics={() => {
+        if (lyricsOpen && rightDrawerTab === "lyrics") {
+            lyricsOpen = false;
+            queueOpen = false;
+        } else {
+            lyricsOpen = true;
+            queueOpen = false;
+            rightDrawerTab = "lyrics";
+            exploreStore.closeDrawerCollection();
+        }
+    }}
+/>
+
 
 <FullScreenPlayer bind:isOpen={fullScreenOpen} onToggleQueue={() => { queueOpen = !queueOpen; }} />
 <GlobalSearch bind:isOpen={globalSearchOpen} />
