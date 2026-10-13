@@ -58,3 +58,20 @@ pub struct LyricsProviderMeta {
     pub priority: i32,
     pub status: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LyricsSearchResultItem {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    pub format: LyricsFormat,
+    pub provider_id: String,
+    pub provider_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_text: Option<String>,
+}
+
