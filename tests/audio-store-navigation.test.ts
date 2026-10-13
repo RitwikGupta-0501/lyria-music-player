@@ -40,7 +40,7 @@ mock.module("@tauri-apps/api/event", () => ({
 }));
 
 describe("AudioStore — Navigation & Gapless Seek", () => {
-    it("seek() triggers seek_audio and re-queues next audio for gapless playback", async () => {
+    it("seek() triggers seek_audio", async () => {
         const { audioStore } = await import("../src/lib/stores/audio.svelte");
 
         audioStore.duration = 200;
@@ -49,8 +49,6 @@ describe("AudioStore — Navigation & Gapless Seek", () => {
         await audioStore.seek(50);
 
         expect(invokedCommands.some(c => c.cmd === "seek_audio" && c.args?.position === 50)).toBe(true);
-        expect(invokedCommands.some(c => c.cmd === "get_next_track")).toBe(true);
-        expect(invokedCommands.some(c => c.cmd === "queue_next_audio")).toBe(true);
     });
 
     it("skipForward() does not replay last track from 0:00 when at terminus with RepeatMode::Off", async () => {

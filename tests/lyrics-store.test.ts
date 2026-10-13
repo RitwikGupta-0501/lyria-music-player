@@ -23,6 +23,36 @@ mock.module("@tauri-apps/api/core", () => ({
                 instrumental: false
             });
         }
+        if (cmd === "search_lyrics") {
+            return Promise.resolve([
+                {
+                    id: "cand-1",
+                    title: "Creep",
+                    artist: "Radiohead",
+                    album: "Pablo Honey",
+                    duration_ms: 238000,
+                    format: "synced",
+                    provider_id: "lrclib-wasm",
+                    provider_name: "LRCLIB",
+                    preview_text: "When you were here before"
+                }
+            ]);
+        }
+        if (cmd === "apply_selected_lyrics") {
+            return Promise.resolve({
+                provider_id: args.candidate.provider_id,
+                provider_name: args.candidate.provider_name,
+                format: args.candidate.format,
+                lines: [
+                    { time_ms: 12000, text: "When you were here before" }
+                ],
+                offset_ms: 0,
+                instrumental: false
+            });
+        }
+        if (cmd === "clear_lyrics_cache") {
+            return Promise.resolve();
+        }
         return Promise.resolve();
     }),
     listen: mock(() => Promise.resolve(() => {})),
@@ -121,4 +151,37 @@ describe("LyricsStore — Synchronized Active Line Derivation & Seeking", () => 
         expect(lyricsStore.isSynced).toBe(false);
         expect(lyricsStore.activeLineIndex).toBe(-1);
     });
+
+    it("manages manual search lifecycle and applies candidate selection", async () => {
+        const { lyricsStore } = await import("../src/lib/stores/lyrics.svelte");
+        const { audioStore } = await import("../src/lib/stores/audio.svelte");
+
+        audioStore.currentQueueTrack = {
+            id: 1,
+            title: "Creep (Live 2011)",
+            artist: "Radiohead",
+            file_path: "/test.mp3"
+        };
+
+        // Open search pre-fills query
+        lyricsStore.openSearch();
+        expect(lyricsStore.isSearchOpen).toBe(true);
+        expect(lyricsStore.searchQuery).toBe("Radiohead Creep (Live 2011)");
+
+        // Execute search
+        await lyricsStore.executeSearch("Radiohead Creep");
+        expect(lyricsStore.searchResults.length).toBe(1);
+        expect(lyricsStore.searchResults[0].id).toBe("cand-1");
+
+        // Select and apply candidate
+        await lyricsStore.selectAndApply(lyricsStore.searchResults[0]);
+        expect(lyricsStore.isSearchOpen).toBe(false);
+        expect(lyricsStore.currentLyrics?.provider_id).toBe("lrclib-wasm");
+        expect(lyricsStore.currentLyrics?.lines[0].text).toBe("When you were here before");
+
+        // Revert to auto
+        await lyricsStore.revertToAuto();
+        expect(lyricsStore.currentLyrics).not.toBeNull();
+    });
 });
+

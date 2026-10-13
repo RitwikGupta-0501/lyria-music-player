@@ -22,13 +22,22 @@
         queueOpen = $bindable(false), 
         fullScreenOpen = $bindable(false),
         lyricsOpen = $bindable(false),
+        isQueueOpen,
+        isLyricsOpen,
+        onToggleQueue,
         onToggleLyrics,
     } = $props<{
         queueOpen?: boolean;
         fullScreenOpen?: boolean;
         lyricsOpen?: boolean;
+        isQueueOpen?: boolean;
+        isLyricsOpen?: boolean;
+        onToggleQueue?: () => void;
         onToggleLyrics?: () => void;
     }>();
+
+    let queueActive = $derived(isQueueOpen !== undefined ? isQueueOpen : queueOpen);
+    let lyricsActive = $derived(isLyricsOpen !== undefined ? isLyricsOpen : lyricsOpen);
 
 
     /* ── Album art for now-playing track ── */
@@ -294,19 +303,22 @@
                 </button>
                 <button
                     class="ctrl-btn"
-                    class:active={lyricsOpen}
+                    class:active={lyricsActive}
                     onclick={() => {
                         if (onToggleLyrics) onToggleLyrics();
                         else lyricsOpen = !lyricsOpen;
                     }}
                     title="Lyrics"
                 >
-                    <MicrophoneStage size={16} weight={lyricsOpen ? "fill" : "bold"} />
+                    <MicrophoneStage size={16} weight={lyricsActive ? "fill" : "bold"} />
                 </button>
                 <button
                     class="ctrl-btn"
-                    class:active={queueOpen}
-                    onclick={() => { queueOpen = !queueOpen; }}
+                    class:active={queueActive}
+                    onclick={() => {
+                        if (onToggleQueue) onToggleQueue();
+                        else queueOpen = !queueOpen;
+                    }}
                     title="Queue"
                 >
                     <ListNumbers size={16} weight="bold" />

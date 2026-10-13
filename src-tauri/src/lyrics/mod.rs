@@ -87,6 +87,7 @@ impl LyricsManager {
                     let _ = self.db_tx.send(DbRequest::SaveCachedLyrics {
                         canonical_key: canonical_key.clone(),
                         lyrics: lyrics.clone(),
+                        is_manual: false,
                         resp: save_tx,
                     });
 
@@ -229,4 +230,83 @@ impl LyricsManager {
         rx.await.map_err(|e| e.to_string())??;
         Ok(())
     }
+
+    /// Freeform search across candidate lyrics providers
+    pub async fn search_lyrics(
+        &self,
+        query: &str,
+        provider_override: Option<&str>,
+    ) -> Result<Vec<LyricsSearchResultItem>, String> {
+        let trimmed_query = query.trim();
+        if trimmed_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let candidate_providers = if let Some(override_id) = provider_override {
+            vec![override_id.to_string()]
+        } else {
+            self.resolve_provider_cascade().await?
+        };
+
+        if candidate_providers.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut aggregated: Vec<LyricsSearchResultItem> = Vec::new();
+
+        for provider_id in &candidate_providers {
+            match self.provider_manager.search_lyrics(provider_id, trimmed_query).await {
+                Ok(items) => {
+                    aggregated.extend(items);
+                }
+                Err(e) => {
+                    tracing::warn!("Error searching lyrics on provider '{}': {}", provider_id, e);
+                }
+            }
+        }
+
+        Ok(aggregated)
+    }
+
+    /// Manually applies a user-selected candidate to the given track canonical key, pinning it in SQLite
+    pub async fn apply_selected_lyrics(
+        &self,
+        canonical_key: &str,
+        candidate: &LyricsSearchResultItem,
+    ) -> Result<LyricsResult, String> {
+        let query = LyricsQuery {
+            title: candidate.title.clone(),
+            artist: candidate.artist.clone(),
+            album: candidate.album.clone(),
+            duration_ms: candidate.duration_ms,
+            isrc: None,
+            track_id: Some(candidate.id.clone()),
+        };
+
+        let fetched = self.provider_manager.fetch_lyrics(&candidate.provider_id, &query).await
+            .map_err(|e| format!("Failed to fetch lyrics: {}", e))?;
+
+        let mut lyrics = match fetched {
+            Some(l) => l,
+            None => return Err("Provider returned no lyrics for selected candidate".to_string()),
+        };
+
+        lyrics.provider_id = candidate.provider_id.clone();
+        lyrics.provider_name = candidate.provider_name.clone();
+
+        // Save to SQLite cache with is_manual = true under canonical_key
+        let (save_tx, save_rx) = oneshot::channel();
+        self.db_tx.send(DbRequest::SaveCachedLyrics {
+            canonical_key: canonical_key.to_string(),
+            lyrics: lyrics.clone(),
+            is_manual: true,
+            resp: save_tx,
+        }).map_err(|e| e.to_string())?;
+
+        let _ = save_rx.await.map_err(|e| e.to_string())??;
+
+        tracing::info!("Manually applied lyrics from provider '{}' for key '{}'", candidate.provider_id, canonical_key);
+        Ok(lyrics)
+    }
 }
+

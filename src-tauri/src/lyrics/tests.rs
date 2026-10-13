@@ -109,8 +109,8 @@ fn test_sqlite_lyrics_cache_operations() {
         copyright: None,
     };
 
-    // Save
-    crate::db::queries::save_cached_lyrics(&conn, canonical_key, &lyrics).unwrap();
+    // Save automated
+    crate::db::queries::save_cached_lyrics(&conn, canonical_key, &lyrics, false).unwrap();
 
     // Retrieve
     let cached = crate::db::queries::get_cached_lyrics(&conn, canonical_key, Some("lrclib")).unwrap();
@@ -119,6 +119,17 @@ fn test_sqlite_lyrics_cache_operations() {
     assert_eq!(hit.provider_id, "lrclib");
     assert_eq!(hit.lines.len(), 1);
     assert_eq!(hit.lines[0].text, "Mama, just killed a man");
+
+    // Save manual selection from another provider
+    let mut manual_lyrics = lyrics.clone();
+    manual_lyrics.provider_id = "netease".to_string();
+    manual_lyrics.lines[0].text = "Mama, just killed a man (NetEase Manual)".to_string();
+    crate::db::queries::save_cached_lyrics(&conn, canonical_key, &manual_lyrics, true).unwrap();
+
+    // Generic get_cached_lyrics without provider override must prioritize manual selection
+    let top_hit = crate::db::queries::get_cached_lyrics(&conn, canonical_key, None).unwrap().unwrap();
+    assert_eq!(top_hit.provider_id, "netease");
+    assert_eq!(top_hit.lines[0].text, "Mama, just killed a man (NetEase Manual)");
 
     // Clear
     crate::db::queries::clear_lyrics_cache(&conn, Some(canonical_key)).unwrap();

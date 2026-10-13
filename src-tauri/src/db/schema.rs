@@ -402,6 +402,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
             format TEXT NOT NULL,
             lyrics_json TEXT NOT NULL,
             instrumental INTEGER NOT NULL DEFAULT 0,
+            is_manual INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(canonical_key, provider_id)
@@ -422,6 +423,7 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     // Migrations
     let _ = conn.execute("ALTER TABLE tracks ADD COLUMN genre TEXT", []);
     let _ = conn.execute("ALTER TABLE song_telemetry ADD COLUMN genre TEXT", []);
+    let _ = conn.execute("ALTER TABLE lyrics_cache ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0", []);
 
     Ok(conn)
 }
