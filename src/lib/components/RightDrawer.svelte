@@ -39,7 +39,7 @@
                 <h2 class="drawer-title">{title}</h2>
             {/if}
             <div class="drawer-actions">
-                {#if activeTab === "lyrics"}
+                {#if tabs && tabs.length > 0 && activeTab === "lyrics"}
                     <button
                         type="button"
                         class="header-action-btn"

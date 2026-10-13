@@ -28,13 +28,34 @@
     import HomeView from "$lib/components/HomeView.svelte";
 
     let activeView = $state("home");
-    let queueOpen = $state(false);
-    let lyricsOpen = $state(false);
+    let sidebarOpen = $state(false);
     let rightDrawerTab = $state<"queue" | "lyrics">("queue");
     let fullScreenOpen = $state(false);
     let globalSearchOpen = $state(false);
 
-    let drawerOpen = $derived(queueOpen || lyricsOpen || exploreStore.activeDrawerCollection !== null);
+    let drawerOpen = $derived(sidebarOpen || exploreStore.activeDrawerCollection !== null);
+    let isQueueActive = $derived(sidebarOpen && rightDrawerTab === "queue" && exploreStore.activeDrawerCollection === null);
+    let isLyricsActive = $derived(sidebarOpen && rightDrawerTab === "lyrics" && exploreStore.activeDrawerCollection === null);
+
+    function toggleQueue() {
+        if (isQueueActive) {
+            sidebarOpen = false;
+        } else {
+            exploreStore.closeDrawerCollection();
+            rightDrawerTab = "queue";
+            sidebarOpen = true;
+        }
+    }
+
+    function toggleLyrics() {
+        if (isLyricsActive) {
+            sidebarOpen = false;
+        } else {
+            exploreStore.closeDrawerCollection();
+            rightDrawerTab = "lyrics";
+            sidebarOpen = true;
+        }
+    }
     
     function getDrawerTitle() {
         if (exploreStore.activeDrawerCollection?.kind === "album") return "Album Details";
@@ -48,8 +69,7 @@
     }
 
     function closeDrawer() {
-        queueOpen = false;
-        lyricsOpen = false;
+        sidebarOpen = false;
         exploreStore.closeDrawerCollection();
     }
 
@@ -58,14 +78,6 @@
         const track = audioStore.currentQueueTrack;
         if (track) {
             lyricsStore.fetchForCurrentTrack();
-        }
-    });
-
-    // Sync tab when queue is toggled directly
-    $effect(() => {
-        if (queueOpen) {
-            rightDrawerTab = "queue";
-            lyricsOpen = false;
         }
     });
 
@@ -111,10 +123,10 @@
         };
     });
 
-    // When a collection is opened, close the queue so the drawer shows collection details
+    // When a collection is opened, reset sidebarOpen so the drawer purely reflects collection details
     $effect(() => {
         if (exploreStore.activeDrawerCollection !== null) {
-            queueOpen = false;
+            sidebarOpen = false;
         }
     });
 
@@ -124,13 +136,6 @@
             activeView = flagsStore.isEnabled("page_explore") ? "explore" : "albums";
         } else if (activeView === "explore" && flagsStore.loaded && !flagsStore.isEnabled("page_explore")) {
             activeView = flagsStore.isEnabled("page_home") ? "home" : "albums";
-        }
-    });
-
-    // When queue is opened, clear any active drawer collection
-    $effect(() => {
-        if (queueOpen) {
-            exploreStore.closeDrawerCollection();
         }
     });
 
@@ -163,9 +168,9 @@
         {:else if activeView === "artist"}
             <ArtistDetail onBack={() => { activeView = "explore"; }} />
         {:else if activeView === "albums"}
-            <AlbumGrid bind:activeView onSelectAlbum={(a) => { exploreStore.openLocalAlbum(a); queueOpen = false; }} selectedAlbumId={exploreStore.activeDrawerCollection?.id} />
+            <AlbumGrid bind:activeView onSelectAlbum={(a) => { exploreStore.openLocalAlbum(a); sidebarOpen = false; }} selectedAlbumId={exploreStore.activeDrawerCollection?.id} />
         {:else if activeView === "playlists"}
-            <PlaylistView bind:activeView onSelectPlaylist={(p) => { exploreStore.openLocalPlaylist(p); queueOpen = false; }} />
+            <PlaylistView bind:activeView onSelectPlaylist={(p) => { exploreStore.openLocalPlaylist(p); sidebarOpen = false; }} />
         {:else if activeView === "providers"}
             <ProvidersView />
         {:else if activeView === "settings"}
@@ -192,30 +197,21 @@
         {:else if rightDrawerTab === "lyrics"}
             <LyricsView variant="drawer" />
         {:else}
-            <QueueSidebar bind:open={queueOpen} />
+            <QueueSidebar />
         {/if}
     </RightDrawer>
 </div>
 
 <!-- Floating player lives outside the grid, fixed bottom center -->
 <PlayerBar 
-    bind:queueOpen 
     bind:fullScreenOpen 
-    bind:lyricsOpen 
-    onToggleLyrics={() => {
-        if (lyricsOpen && rightDrawerTab === "lyrics") {
-            lyricsOpen = false;
-            queueOpen = false;
-        } else {
-            lyricsOpen = true;
-            queueOpen = false;
-            rightDrawerTab = "lyrics";
-            exploreStore.closeDrawerCollection();
-        }
-    }}
+    isQueueOpen={isQueueActive}
+    isLyricsOpen={isLyricsActive}
+    onToggleQueue={toggleQueue}
+    onToggleLyrics={toggleLyrics}
 />
 
 
-<FullScreenPlayer bind:isOpen={fullScreenOpen} onToggleQueue={() => { queueOpen = !queueOpen; }} />
+<FullScreenPlayer bind:isOpen={fullScreenOpen} onToggleQueue={toggleQueue} />
 <GlobalSearch bind:isOpen={globalSearchOpen} />
 <ToastContainer />

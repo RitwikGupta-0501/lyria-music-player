@@ -6,7 +6,7 @@
     import { X, Trash, Pause, Play, BookmarkSimple, DotsSixVertical } from "phosphor-svelte";
     import PromptModal from "$lib/components/PromptModal.svelte";
     import EqualizerWave from "$lib/components/common/EqualizerWave.svelte";
-    let { open = $bindable(false) } = $props<{ open?: boolean }>();
+    let { open = $bindable(true) } = $props<{ open?: boolean }>();
 
     let draggedIndex = $state(-1);
     let dragoverIndex = $state(-1);
@@ -141,8 +141,7 @@
     }
 </script>
 
-{#if open}
-    <div class="queue-view">
+<div class="queue-view">
         <div class="queue-header">
             <span class="queue-title">Queue</span>
             <div class="header-actions">
@@ -245,7 +244,6 @@
             onClose={() => (showSaveModal = false)}
         />
     {/if}
-{/if}
 
 <style>
     .queue-view {
