@@ -410,6 +410,25 @@ impl DownloadManager {
             return;
         }
 
+        // 4b. Embed audio metadata tags into physical file container
+        let tag_dest = dest_path.clone();
+        let tag_title = item.track_title.clone();
+        let tag_artist = item.artist.clone();
+        let tag_album = item.album.clone();
+        let tag_num = item.track_number;
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = crate::download::storage::write_audio_metadata(
+                &tag_dest,
+                &tag_title,
+                &tag_artist,
+                tag_album.as_deref(),
+                tag_num,
+            ) {
+                tracing::warn!("Failed to write metadata tags to '{:?}': {}", tag_dest, e);
+            }
+        })
+        .await;
+
         // 5. Ingest into SQLite library
         let track_data = TrackData {
             title: item.track_title.clone(),

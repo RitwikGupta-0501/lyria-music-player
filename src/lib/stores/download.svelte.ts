@@ -115,24 +115,35 @@ export class DownloadStore {
             }
         );
 
-        const unlistenStatus = await listen<DownloadStatusPayload>(
-            "download://status",
-            async (event) => {
-                const foundItem = this.findItemById(event.payload.item_id);
-                if (event.payload.status === "completed") {
-                    if (foundItem) {
-                        toastStore.success(`Downloaded "${foundItem.track_title}"`);
-                    }
-                    libraryStore.fetchDownloadedTracks();
-                    libraryStore.fetchAlbums();
-                } else if (event.payload.status === "failed") {
-                    toastStore.error(`Failed to download ${foundItem ? `"${foundItem.track_title}"` : "track"}: ${event.payload.error || "Unknown error"}`);
-                }
-                await this.fetchQueue();
+        const handleStatus = async (payload: DownloadStatusPayload) => {
+            const foundItem = this.findItemById(payload.item_id);
+            if (foundItem) {
+                foundItem.status = payload.status;
+                if (payload.error) foundItem.error_message = payload.error;
             }
+            if (payload.status === "completed") {
+                if (foundItem) {
+                    toastStore.success(`Downloaded "${foundItem.track_title}"`);
+                }
+                libraryStore.fetchDownloadedTracks();
+                libraryStore.fetchAlbums();
+            } else if (payload.status === "failed") {
+                toastStore.error(`Failed to download ${foundItem ? `"${foundItem.track_title}"` : "track"}: ${payload.error || "Unknown error"}`);
+            }
+            await this.fetchQueue();
+        };
+
+        const unlistenItemStatus = await listen<DownloadStatusPayload>(
+            "download://item-status",
+            (event) => handleStatus(event.payload)
         );
 
-        this.unlisteners.push(unlistenProgress, unlistenStatus);
+        const unlistenStatus = await listen<DownloadStatusPayload>(
+            "download://status",
+            (event) => handleStatus(event.payload)
+        );
+
+        this.unlisteners.push(unlistenProgress, unlistenItemStatus, unlistenStatus);
     }
 
     findItemById(itemId: string): DownloadItemRecord | null {
@@ -148,7 +159,7 @@ export class DownloadStore {
         let count = 0;
         for (const job of this.queue) {
             for (const item of job.items) {
-                if (item.status === "downloading" || item.status === "queued") {
+                if (item.status === "downloading" || item.status === "queued" || item.status === "resolving") {
                     count++;
                 }
             }
@@ -162,7 +173,7 @@ export class DownloadStore {
         const normArtist = artist ? artist.trim().toLowerCase() : "";
         for (const job of this.queue) {
             for (const item of job.items) {
-                if (item.status === "downloading" || item.status === "queued") {
+                if (item.status === "downloading" || item.status === "queued" || item.status === "resolving") {
                     if (item.track_title.trim().toLowerCase() === normTitle) {
                         if (!normArtist || item.artist.trim().toLowerCase() === normArtist) {
                             return true;

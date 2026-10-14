@@ -426,5 +426,31 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
     let _ = conn.execute("ALTER TABLE lyrics_cache ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE download_items ADD COLUMN native_id TEXT", []);
 
+    // Consolidate "Unknown Album" entries into a single canonical ("Unknown Album", "Various Artists")
+    let _ = (|| -> SqlResult<()> {
+        conn.execute(
+            "INSERT OR IGNORE INTO albums (title, artist) VALUES ('Unknown Album', 'Various Artists')",
+            [],
+        )?;
+        let canonical_id: Option<i64> = conn.query_row(
+            "SELECT id FROM albums WHERE title = 'Unknown Album' AND artist = 'Various Artists' LIMIT 1",
+            [],
+            |row| row.get(0),
+        ).ok();
+        if let Some(canonical_id) = canonical_id {
+            let _ = conn.execute(
+                "UPDATE tracks SET album_id = ?1 WHERE album_id IN (
+                    SELECT id FROM albums WHERE title = 'Unknown Album' AND id != ?1
+                ) OR album_id IS NULL",
+                [canonical_id],
+            );
+            let _ = conn.execute(
+                "DELETE FROM albums WHERE title = 'Unknown Album' AND id != ?1",
+                [canonical_id],
+            );
+        }
+        Ok(())
+    })();
+
     Ok(conn)
 }

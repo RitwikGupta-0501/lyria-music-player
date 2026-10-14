@@ -36,6 +36,8 @@ import { exploreStore } from "$lib/stores/explore.svelte";
         const remoteSavedOnly = saved.filter(s => {
             // Explicitly exclude any saved entry tagged with provider_id "local"
             if (s.provider_id === "local") return false;
+            // Exclude Unknown Album from remote duplicates
+            if (s.title?.trim().toLowerCase() === "unknown album") return false;
             // Exclude if ID matches a local album ID
             if (localIds.has(String(s.id))) return false;
             // Exclude if title and artist match any local album canonically

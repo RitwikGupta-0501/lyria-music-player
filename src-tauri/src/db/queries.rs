@@ -51,7 +51,7 @@ pub fn get_local_tracks(conn: &Connection, limit: u32, offset: u32) -> Result<Ve
 
 pub fn get_albums(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<Album>, String> {
     let mut albums = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY artist, title LIMIT ?1 OFFSET ?2").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY (CASE WHEN title = 'Unknown Album' THEN 1 ELSE 0 END), artist, title LIMIT ?1 OFFSET ?2").map_err(|e| e.to_string())?;
     let album_iter = stmt.query_map([&limit, &offset], |row| {
         Ok(Album {
             id: row.get(0)?,
@@ -70,7 +70,7 @@ pub fn get_albums(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<Albu
 
 pub fn get_recent_albums(conn: &Connection, limit: u32) -> Result<Vec<Album>, String> {
     let mut albums = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY id DESC LIMIT ?1").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums WHERE title != 'Unknown Album' ORDER BY id DESC LIMIT ?1").map_err(|e| e.to_string())?;
     let album_iter = stmt.query_map([&limit], |row| {
         Ok(Album {
             id: row.get(0)?,
@@ -407,8 +407,18 @@ pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<us
     let mut album_cache: std::collections::HashMap<(String, String), Option<i64>> = std::collections::HashMap::new();
 
     for track in tracks {
-        let album_title = track.album.unwrap_or_else(|| "Unknown Album".to_string());
-        let album_artist = track.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string());
+        let is_unknown_album = match &track.album {
+            Some(a) => a.trim().is_empty() || a.trim().eq_ignore_ascii_case("Unknown Album"),
+            None => true,
+        };
+        let (album_title, album_artist) = if is_unknown_album {
+            ("Unknown Album".to_string(), "Various Artists".to_string())
+        } else {
+            (
+                track.album.as_deref().unwrap_or("Unknown Album").trim().to_string(),
+                track.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string()),
+            )
+        };
         let cache_key = (album_title.clone(), album_artist.clone());
 
         let album_id = if let Some(&id) = album_cache.get(&cache_key) {
@@ -2555,8 +2565,12 @@ pub fn complete_download_item(
         ).map_err(|e| e.to_string())?;
     }
 
-    let album_title = track_data.album.as_deref().unwrap_or("Unknown Album");
-    let album_artist = track_data.artist.as_deref().unwrap_or("Unknown Artist");
+    let (album_title, album_artist) = match track_data.album.as_deref() {
+        Some(a) if !a.trim().is_empty() && !a.trim().eq_ignore_ascii_case("Unknown Album") => {
+            (a.trim(), track_data.artist.as_deref().unwrap_or("Unknown Artist"))
+        }
+        _ => ("Unknown Album", "Various Artists"),
+    };
 
     tx.execute(
         "INSERT OR IGNORE INTO albums (title, artist) VALUES (?1, ?2)",

@@ -1,7 +1,8 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import { downloadStore, type DownloadJobSummary, type DownloadItemRecord } from "$lib/stores/download.svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
-    import { formatDuration } from "$lib/utils/format";
+    import { formatDuration, isCurrentTrack } from "$lib/utils/format";
     import {
         Tray,
         FolderOpen,
@@ -16,12 +17,17 @@
         ArrowSquareOut,
     } from "phosphor-svelte";
 
+    onMount(async () => {
+        await downloadStore.fetchQueue();
+        await downloadStore.fetchDownloadsDir();
+    });
+
     // Split queue into active, completed, and failed
     let activeItems = $derived.by(() => {
         const list: Array<{ job: DownloadJobSummary["download"]; item: DownloadItemRecord }> = [];
         for (const job of downloadStore.queue) {
             for (const item of job.items) {
-                if (item.status === "downloading" || item.status === "queued" || item.status === "paused") {
+                if (item.status === "downloading" || item.status === "queued" || item.status === "paused" || item.status === "resolving") {
                     list.push({ job: job.download, item });
                 }
             }
@@ -79,15 +85,38 @@
         return Math.min(100, Math.round((downloaded / total) * 100));
     }
 
-    function handlePlayCompleted(item: DownloadItemRecord) {
+    function isItemPlaying(item: DownloadItemRecord): boolean {
+        return (
+            isCurrentTrack(
+                { title: item.track_title, artist: item.artist, file_path: item.dest_file_path },
+                audioStore.currentQueueTrack
+            ) && audioStore.playbackState === "Playing"
+        );
+    }
+
+    function isItemActive(item: DownloadItemRecord): boolean {
+        return isCurrentTrack(
+            { title: item.track_title, artist: item.artist, file_path: item.dest_file_path },
+            audioStore.currentQueueTrack
+        );
+    }
+
+    function togglePlayCompleted(item: DownloadItemRecord) {
         if (!item.dest_file_path) return;
-        audioStore.playInterrupt({
-            id: item.id,
-            title: item.track_title,
-            artist: item.artist,
-            album: item.album || "Singles & EP",
-            file_path: item.dest_file_path,
-        });
+        if (isItemPlaying(item)) {
+            audioStore.pause();
+        } else if (isItemActive(item) && audioStore.playbackState === "Paused") {
+            audioStore.play();
+        } else {
+            audioStore.playInterrupt({
+                id: item.id,
+                title: item.track_title,
+                artist: item.artist,
+                album: item.album || "Singles & EP",
+                file_path: item.dest_file_path,
+                is_local: true,
+            });
+        }
     }
 </script>
 
@@ -181,7 +210,9 @@
                                                 title="Resume download"
                                                 aria-label="Resume download"
                                             >
-                                                <Play size={15} weight="fill" />
+                                                <span class="icon-optical-wrap">
+                                                    <Play size={14} weight="fill" />
+                                                </span>
                                             </button>
                                         {:else}
                                             <button 
@@ -284,6 +315,7 @@
 
                     <div class="completed-table glass-panel">
                         {#each completedItems as { job, item } (item.id)}
+                            {@const playing = isItemPlaying(item)}
                             <div class="completed-row group">
                                 <div class="thumb-col">
                                     <div class="completed-icon">
@@ -311,11 +343,18 @@
                                 <div class="play-action-col">
                                     <button 
                                         class="play-circle-btn" 
-                                        onclick={() => handlePlayCompleted(item)}
-                                        title="Play track"
-                                        aria-label="Play {item.track_title}"
+                                        class:is-playing={playing}
+                                        onclick={() => togglePlayCompleted(item)}
+                                        title={playing ? "Pause track" : "Play track"}
+                                        aria-label="{playing ? 'Pause' : 'Play'} {item.track_title}"
                                     >
-                                        <Play size={13} weight="fill" />
+                                        {#if playing}
+                                            <Pause size={13} weight="fill" />
+                                        {:else}
+                                            <span class="icon-optical-wrap">
+                                                <Play size={13} weight="fill" />
+                                            </span>
+                                        {/if}
                                     </button>
                                 </div>
                             </div>
@@ -810,8 +849,10 @@
     }
 
     .play-circle-btn {
-        width: 30px;
-        height: 30px;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        box-sizing: border-box;
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.12);
@@ -820,12 +861,26 @@
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        transition: transform 0.15s ease, background 0.15s ease;
+        transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .play-circle-btn.is-playing {
+        background: var(--echo-primary, #ffd285);
+        color: #121212;
+        border-color: var(--echo-primary, #ffd285);
     }
 
     .play-circle-btn:hover {
-        background: #ffd285;
+        background: var(--echo-primary, #ffd285);
         color: #121212;
+        border-color: var(--echo-primary, #ffd285);
         transform: scale(1.08);
+    }
+
+    .icon-optical-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: translateX(1px);
     }
 </style>

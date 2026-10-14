@@ -399,11 +399,14 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        transform: translateZ(0);
+        will-change: transform;
+        backface-visibility: hidden;
         transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease, filter 0.2s ease;
     }
 
     .nav-item:hover .icon-container {
-        transform: scale(1.1);
+        transform: scale(1.1) translateZ(0);
     }
 
     /* Label Container with Fluid Collapse */
