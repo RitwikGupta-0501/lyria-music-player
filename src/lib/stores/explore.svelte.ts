@@ -333,6 +333,7 @@ export class ExploreStore {
     activeSearchFilter = $state<string>("all"); // "all", "songs", "albums", "artists", "playlists"
     activeSourceFilters = $state<string[]>(["local", settingsStore.getEffectiveRemoteProvider()]);
     isSourceMenuOpen = $state(false);
+    availableSources = $state<SourceOption[]>([...AVAILABLE_SOURCES]);
 
     rawSections = $state<SearchCategorySection[]>([]);
     isSearching = $state(false);
@@ -1063,7 +1064,48 @@ export class ExploreStore {
         }
     }
 
+    async updateAvailableSources() {
+        try {
+            const providers = await invoke<any[]>("get_providers");
+            if (providers && providers.length > 0) {
+                const songProviders = providers.filter((p: any) => {
+                    if (p.status !== "enabled") return false;
+                    const caps: string[] = p.capabilities || [];
+                    // Strictly exclude extensions made for lyrics
+                    if (caps.some((c: string) => c.toLowerCase() === "lyrics")) return false;
+                    return caps.some((c: string) => ["search", "explore", "resolve", "stream"].includes(c.toLowerCase()));
+                });
+
+                this.availableSources = [
+                    { id: "local", name: "Local Library", badge: "LOSSLESS" },
+                    ...songProviders.map((p: any) => ({
+                        id: p.id,
+                        name: p.name || p.id,
+                        badge: "WASM",
+                    })),
+                ];
+
+                const validIds = new Set(this.availableSources.map(s => s.id));
+                this.activeSourceFilters = this.activeSourceFilters.filter(id => validIds.has(id));
+                if (this.activeSourceFilters.length === 0) {
+                    this.activeSourceFilters = ["local"];
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load explore sources:", e);
+        }
+    }
+
+    getEffectiveRemoteSongProvider(): string {
+        const preferred = settingsStore.getEffectiveRemoteProvider();
+        const isSongProvider = this.availableSources.some(s => s.id === preferred && s.id !== "local");
+        if (isSongProvider) return preferred;
+        const fallback = this.availableSources.find(s => s.id !== "local");
+        return fallback ? fallback.id : "youtube-wasm";
+    }
+
     async init(force = false) {
+        await this.updateAvailableSources();
         const hasWarmCache = !force && this.loadFeedFromStorage();
         if (hasWarmCache) {
             this.isLoading = false;
@@ -1156,10 +1198,11 @@ export class ExploreStore {
                 }
             })();
 
+            const remoteProvider = this.getEffectiveRemoteSongProvider();
             const remotePromise = (async () => {
                 try {
                     const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
-                        providerId: settingsStore.getEffectiveRemoteProvider(),
+                        providerId: remoteProvider,
                         query: trimmed,
                         filter: filterArg,
                     });
@@ -1219,7 +1262,7 @@ export class ExploreStore {
                             name: item.data.name,
                             avatarUrl: item.data.avatar_url,
                             bio: null,
-                            providerId: settingsStore.getEffectiveRemoteProvider(),
+                            providerId: remoteProvider,
                         }).catch(() => {});
                     }
                 }
@@ -1295,8 +1338,9 @@ export class ExploreStore {
         if (this.searchCache.has(cacheKey)) return;
 
         try {
+            const remoteProvider = this.getEffectiveRemoteSongProvider();
             const res = await invoke<CategorizedSearchResult>("search_provider_categorized", {
-                providerId: settingsStore.getEffectiveRemoteProvider(),
+                providerId: remoteProvider,
                 query,
                 filter: category,
             });

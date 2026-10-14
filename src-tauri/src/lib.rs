@@ -654,6 +654,9 @@ async fn search_provider_categorized(
     query: String,
     filter: Option<String>,
 ) -> Result<crate::providers::CategorizedSearchResult, String> {
+    if state.provider_manager.is_lyrics_provider(&provider_id) {
+        return Err(format!("Provider '{}' is a lyrics extension and cannot be searched for songs", provider_id));
+    }
     let input = crate::providers::SearchQueryInput { query, filter };
     let results = state.provider_manager
         .search_categorized(&provider_id, &input)
@@ -665,6 +668,9 @@ async fn search_provider_categorized(
 
 #[tauri::command]
 async fn search_provider(state: State<'_, AppState>, provider_id: String, query: String) -> Result<Vec<TrackResult>, String> {
+    if state.provider_manager.is_lyrics_provider(&provider_id) {
+        return Err(format!("Provider '{}' is a lyrics extension and cannot be searched for songs", provider_id));
+    }
     let results = state.provider_manager
         .search(&provider_id, &query)
         .await

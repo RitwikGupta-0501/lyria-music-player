@@ -46,6 +46,7 @@
                     .filter((p: any) => {
                         if (p.status !== "enabled") return false;
                         const caps: string[] = p.capabilities || [];
+                        if (caps.some(c => c.toLowerCase() === "lyrics")) return false;
                         return caps.some(c => ["resolve", "stream", "url_resolver"].includes(c.toLowerCase()));
                     })
                     .map((p: any) => ({

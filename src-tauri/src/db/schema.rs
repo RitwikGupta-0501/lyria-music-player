@@ -428,6 +428,16 @@ pub fn init_db<P: AsRef<std::path::Path>>(db_path: P) -> SqlResult<Connection> {
 
     // Consolidate "Unknown Album" entries into a single canonical ("Unknown Album", "Various Artists")
     let _ = (|| -> SqlResult<()> {
+        let needs_consolidation: bool = conn.query_row(
+            "SELECT 1 FROM tracks WHERE album_id IS NULL OR album_id IN (SELECT id FROM albums WHERE title = 'Unknown Album') LIMIT 1",
+            [],
+            |_| Ok(true),
+        ).unwrap_or(false);
+
+        if !needs_consolidation {
+            return Ok(());
+        }
+
         conn.execute(
             "INSERT OR IGNORE INTO albums (title, artist) VALUES ('Unknown Album', 'Various Artists')",
             [],

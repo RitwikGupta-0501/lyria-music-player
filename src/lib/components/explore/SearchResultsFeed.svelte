@@ -86,7 +86,7 @@
             <div class="source-dropdown-backdrop" role="button" tabindex="-1" onclick={() => { isSourceMenuOpen = false; }} onkeydown={() => { isSourceMenuOpen = false; }}></div>
             <div class="custom-select-menu">
                 <div class="source-menu-header">Filter Sources</div>
-                {#each AVAILABLE_SOURCES as src}
+                {#each exploreStore.availableSources as src}
                     <button 
                         class="source-checkbox-item" 
                         onclick={() => exploreStore.toggleSourceFilter(src.id)}

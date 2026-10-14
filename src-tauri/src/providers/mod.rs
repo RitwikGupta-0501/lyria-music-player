@@ -850,6 +850,14 @@ impl ProviderManager {
             .collect()
     }
 
+    pub fn is_lyrics_provider(&self, provider_id: &str) -> bool {
+        self.providers
+            .read()
+            .unwrap()
+            .get(provider_id)
+            .is_some_and(|p| p.capabilities.iter().any(|c| c.eq_ignore_ascii_case("lyrics")))
+    }
+
     pub async fn get_all_explore_modules(&self) -> Vec<AggregatedModule> {
         let explore_providers: Vec<(String, String)> = self.providers
             .read()
