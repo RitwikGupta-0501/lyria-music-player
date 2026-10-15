@@ -79,6 +79,49 @@ pub async fn resume_download(
 }
 
 #[tauri::command]
+pub async fn retry_download(
+    state: State<'_, AppState>,
+    download_id: String,
+    preferred_provider: Option<String>,
+) -> Result<(), String> {
+    state
+        .download_manager
+        .resume_download(&download_id, preferred_provider)
+        .await
+}
+
+#[tauri::command]
+pub async fn retry_download_item(
+    state: State<'_, AppState>,
+    item_id: String,
+    preferred_provider: Option<String>,
+) -> Result<(), String> {
+    state
+        .download_manager
+        .retry_download_item(&item_id, preferred_provider)
+        .await
+}
+
+#[tauri::command]
+pub async fn dismiss_download_item(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<(), String> {
+    state.download_manager.dismiss_download_item(&item_id).await
+}
+
+#[tauri::command]
+pub async fn retry_all_failed_downloads(
+    state: State<'_, AppState>,
+    preferred_provider: Option<String>,
+) -> Result<Vec<String>, String> {
+    state
+        .download_manager
+        .retry_all_failed(preferred_provider)
+        .await
+}
+
+#[tauri::command]
 pub async fn cancel_download(
     state: State<'_, AppState>,
     download_id: String,

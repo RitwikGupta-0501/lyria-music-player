@@ -243,8 +243,34 @@ impl DownloadManager {
 
         let this = self.clone();
         tokio::spawn(async move {
-            this.process_queued_items(preferred_provider).await;
-            this.is_worker_active.store(false, Ordering::SeqCst);
+            loop {
+                this.process_queued_items(preferred_provider.clone()).await;
+                this.is_worker_active.store(false, Ordering::SeqCst);
+
+                // Double check if any items were queued while we were wrapping up
+                let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+                if this
+                    .db_tx
+                    .send(DbRequest::GetActiveDownloadItems { resp: resp_tx })
+                    .is_err()
+                {
+                    break;
+                }
+                let has_queued = match resp_rx.await {
+                    Ok(Ok(items)) => items.iter().any(|i| i.status == "queued"),
+                    _ => false,
+                };
+
+                if has_queued
+                    && this
+                        .is_worker_active
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                {
+                    continue;
+                }
+                break;
+            }
         });
     }
 
@@ -472,7 +498,20 @@ impl DownloadManager {
         temp_path: &Path,
         cancel_token: &CancellationToken,
     ) -> Result<(), String> {
-        let resume_offset = if temp_path.exists() {
+        let build_request = |offset: u64| {
+            let mut req = self.reqwest_client.get(&source.download_url);
+            if let Some(ref headers) = source.headers {
+                for (k, v) in headers {
+                    req = req.header(k, v);
+                }
+            }
+            if offset > 0 {
+                req = req.header("Range", format!("bytes={}-", offset));
+            }
+            req
+        };
+
+        let mut resume_offset = if temp_path.exists() {
             tokio::fs::metadata(temp_path)
                 .await
                 .map(|m| m.len())
@@ -481,24 +520,31 @@ impl DownloadManager {
             0
         };
 
-        let mut req_builder = self.reqwest_client.get(&source.download_url);
-        if let Some(ref headers) = source.headers {
-            for (k, v) in headers {
-                req_builder = req_builder.header(k, v);
-            }
-        }
-
-        if resume_offset > 0 {
-            req_builder = req_builder.header("Range", format!("bytes={}-", resume_offset));
-        }
-
-        let mut resp = req_builder
+        let mut resp = build_request(resume_offset)
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
 
-        let status = resp.status();
-        let (mut file, mut current_bytes, total_bytes) = if status == StatusCode::PARTIAL_CONTENT {
+        let mut status = resp.status();
+
+        // If a resume offset was requested but the server returned 416 (Range Not Satisfiable),
+        // the existing .part file is stale, already equal to/larger than the remote stream, or the server
+        // does not accept range requests on this resource. Automatically reset and restart from byte 0.
+        if resume_offset > 0 && status == StatusCode::RANGE_NOT_SATISFIABLE {
+            tracing::warn!(
+                "Received HTTP 416 for '{}' with resume_offset={} bytes; resetting and restarting from byte 0",
+                item.track_title,
+                resume_offset
+            );
+            resume_offset = 0;
+            resp = build_request(0)
+                .send()
+                .await
+                .map_err(|e| format!("HTTP request failed on retry: {}", e))?;
+            status = resp.status();
+        }
+
+        let (mut file, mut current_bytes, total_bytes) = if status == StatusCode::PARTIAL_CONTENT && resume_offset > 0 {
             let total = resp
                 .content_length()
                 .map(|len| resume_offset + len)
@@ -511,7 +557,7 @@ impl DownloadManager {
                 .await
                 .map_err(|e| format!("Failed to open temp file for append: {}", e))?;
             (f, resume_offset, total)
-        } else if status.is_success() {
+        } else if status.is_success() || status == StatusCode::PARTIAL_CONTENT {
             let total = resp
                 .content_length()
                 .or(source.content_length_bytes)
@@ -631,8 +677,59 @@ impl DownloadManager {
 
         resp_rx.await.map_err(|e| e.to_string())??;
 
+        self.resolver.reset_circuit_breaker();
         self.trigger_processing_loop(preferred_provider);
         Ok(())
+    }
+
+    pub async fn retry_download_item(
+        &self,
+        item_id: &str,
+        preferred_provider: Option<String>,
+    ) -> Result<(), String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.db_tx
+            .send(DbRequest::RetryDownloadItem {
+                item_id: item_id.to_string(),
+                resp: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
+
+        let download_id = resp_rx.await.map_err(|e| e.to_string())??;
+
+        self.emit_item_status(item_id, &download_id, "queued", None);
+        self.resolver.reset_circuit_breaker();
+        self.trigger_processing_loop(preferred_provider);
+        Ok(())
+    }
+
+    pub async fn dismiss_download_item(&self, item_id: &str) -> Result<(), String> {
+        self.cleanup_token(item_id).await;
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.db_tx
+            .send(DbRequest::DismissDownloadItem {
+                item_id: item_id.to_string(),
+                resp: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
+
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn retry_all_failed(
+        &self,
+        preferred_provider: Option<String>,
+    ) -> Result<Vec<String>, String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.db_tx
+            .send(DbRequest::RetryAllFailedDownloads { resp: resp_tx })
+            .map_err(|e| e.to_string())?;
+
+        let download_ids = resp_rx.await.map_err(|e| e.to_string())??;
+
+        self.resolver.reset_circuit_breaker();
+        self.trigger_processing_loop(preferred_provider);
+        Ok(download_ids)
     }
 
     pub async fn cancel_download(&self, download_id: &str) -> Result<(), String> {

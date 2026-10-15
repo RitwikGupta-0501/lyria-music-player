@@ -2622,6 +2622,16 @@ pub fn set_download_job_status(
              WHERE download_id = ?2 AND status NOT IN ('completed')",
             rusqlite::params![status, download_id],
         ).map_err(|e| e.to_string())?;
+    } else if status == "queued" {
+        conn.execute(
+            "UPDATE download_items
+             SET status = 'queued',
+                 error_message = NULL,
+                 retry_count = CASE WHEN status = 'failed' THEN retry_count + 1 ELSE retry_count END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE download_id = ?1 AND status NOT IN ('completed')",
+            rusqlite::params![download_id],
+        ).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -2739,6 +2749,112 @@ pub fn delete_download_job(conn: &Connection, download_id: &str) -> Result<(), S
     conn.execute("DELETE FROM downloads WHERE id = ?1", [download_id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn retry_download_item(
+    conn: &Connection,
+    item_id: &str,
+) -> Result<String, String> {
+    let download_id: String = conn.query_row(
+        "SELECT download_id FROM download_items WHERE id = ?1",
+        [item_id],
+        |row| row.get(0),
+    ).map_err(|e| format!("Download item not found: {}", e))?;
+
+    conn.execute(
+        "UPDATE download_items
+         SET status = 'queued',
+             error_message = NULL,
+             retry_count = retry_count + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1",
+        rusqlite::params![item_id],
+    ).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE downloads
+         SET status = 'queued',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status != 'downloading'",
+        rusqlite::params![download_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(download_id)
+}
+
+pub fn dismiss_download_item(
+    conn: &Connection,
+    item_id: &str,
+) -> Result<(), String> {
+    let download_id: Option<String> = conn.query_row(
+        "SELECT download_id FROM download_items WHERE id = ?1",
+        [item_id],
+        |row| row.get(0),
+    ).ok();
+
+    conn.execute("DELETE FROM download_items WHERE id = ?1", [item_id])
+        .map_err(|e| e.to_string())?;
+
+    if let Some(ref did) = download_id {
+        let remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM download_items WHERE download_id = ?1",
+            [did],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        if remaining == 0 {
+            let _ = conn.execute("DELETE FROM downloads WHERE id = ?1", [did]);
+        } else {
+            let completed: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM download_items WHERE download_id = ?1 AND status = 'completed'",
+                [did],
+                |row| row.get(0),
+            ).unwrap_or(0);
+
+            let new_status = if completed >= remaining { "completed" } else { "downloading" };
+            let _ = conn.execute(
+                "UPDATE downloads
+                 SET total_items = ?1,
+                     completed_items = ?2,
+                     status = ?3,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?4",
+                rusqlite::params![remaining, completed, new_status, did],
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub fn retry_all_failed_downloads(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT download_id FROM download_items WHERE status = 'failed'"
+    ).map_err(|e| e.to_string())?;
+
+    let download_ids: Vec<String> = stmt.query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    conn.execute(
+        "UPDATE download_items
+         SET status = 'queued',
+             error_message = NULL,
+             retry_count = retry_count + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE status = 'failed'",
+        [],
+    ).map_err(|e| e.to_string())?;
+
+    for did in &download_ids {
+        let _ = conn.execute(
+            "UPDATE downloads SET status = 'queued', updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            [did],
+        );
+    }
+
+    Ok(download_ids)
 }
 
 pub fn clear_completed_downloads(conn: &Connection) -> Result<(), String> {

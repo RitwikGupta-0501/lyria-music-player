@@ -77,6 +77,16 @@ export interface DownloadStatusPayload {
     error?: string | null;
 }
 
+export function sanitizeArtist(artist?: string | null): string {
+    if (!artist) return "";
+    const trimmed = artist.trim();
+    const low = trimmed.toLowerCase();
+    if (low === "unknown" || low === "unknown artist") {
+        return "";
+    }
+    return trimmed;
+}
+
 export class DownloadStore {
     providers = $state<ProviderCandidate[]>([]);
     preferredProvider = $state<string | null>(null);
@@ -170,12 +180,13 @@ export class DownloadStore {
     isTrackDownloading(title?: string | null, artist?: string | null): boolean {
         if (!title) return false;
         const normTitle = title.trim().toLowerCase();
-        const normArtist = artist ? artist.trim().toLowerCase() : "";
+        const normArtist = sanitizeArtist(artist).toLowerCase();
         for (const job of this.queue) {
             for (const item of job.items) {
                 if (item.status === "downloading" || item.status === "queued" || item.status === "resolving") {
                     if (item.track_title.trim().toLowerCase() === normTitle) {
-                        if (!normArtist || item.artist.trim().toLowerCase() === normArtist) {
+                        const itemArtist = sanitizeArtist(item.artist).toLowerCase();
+                        if (!normArtist || !itemArtist || itemArtist === normArtist) {
                             return true;
                         }
                     }
@@ -188,12 +199,13 @@ export class DownloadStore {
     isTrackDownloaded(title?: string | null, artist?: string | null): boolean {
         if (!title) return false;
         const normTitle = title.trim().toLowerCase();
-        const normArtist = artist ? artist.trim().toLowerCase() : "";
+        const normArtist = sanitizeArtist(artist).toLowerCase();
         for (const job of this.queue) {
             for (const item of job.items) {
                 if (item.status === "completed") {
                     if (item.track_title.trim().toLowerCase() === normTitle) {
-                        if (!normArtist || item.artist.trim().toLowerCase() === normArtist) {
+                        const itemArtist = sanitizeArtist(item.artist).toLowerCase();
+                        if (!normArtist || !itemArtist || itemArtist === normArtist) {
                             return true;
                         }
                     }
@@ -241,10 +253,11 @@ export class DownloadStore {
         native_id?: string | null;
         preferred_provider?: string | null;
     }): Promise<string> {
+        const cleanArtist = sanitizeArtist(params.artist);
         toastStore.info(`Starting download: "${params.title}"`);
         const downloadId = await invoke<string>("download_track", {
             title: params.title,
-            artist: params.artist,
+            artist: cleanArtist,
             album: params.album ?? null,
             trackNumber: params.track_number ?? null,
             durationMs: params.duration_ms ?? null,
@@ -267,10 +280,11 @@ export class DownloadStore {
         }>;
         preferred_provider?: string | null;
     }): Promise<string> {
+        const cleanArtist = sanitizeArtist(params.artist);
         toastStore.info(`Starting album download: "${params.album_title}" (${params.tracks.length} tracks)`);
         const downloadId = await invoke<string>("download_album", {
             albumTitle: params.album_title,
-            artist: params.artist,
+            artist: cleanArtist,
             tracks: params.tracks.map((t) => ({
                 title: t.title,
                 track_number: t.track_number ?? null,
@@ -290,8 +304,9 @@ export class DownloadStore {
         album?: string | null;
         duration_ms?: number | null;
     }, providerId?: string) {
-        this.targetTrackInfo = track;
-        this.searchQuery = `${track.title} ${track.artist}`.trim();
+        const cleanArtist = sanitizeArtist(track.artist);
+        this.targetTrackInfo = { ...track, artist: cleanArtist };
+        this.searchQuery = cleanArtist ? `${track.title.trim()} ${cleanArtist}`.trim() : track.title.trim();
         this.searchProviderId = providerId || this.preferredProvider || (this.providers[0]?.id ?? null);
         this.searchResults = [];
         this.searchError = null;
@@ -353,6 +368,59 @@ export class DownloadStore {
     async resumeDownload(downloadId: string, preferredProvider?: string) {
         await invoke("resume_download", {
             downloadId,
+            preferredProvider: preferredProvider || null,
+        });
+        await this.fetchQueue();
+    }
+
+    async retryDownload(downloadId: string, preferredProvider?: string) {
+        // Optimistically set failed items in this job to queued
+        const job = this.queue.find((j) => j.download.id === downloadId);
+        if (job) {
+            for (const item of job.items) {
+                if (item.status === "failed") {
+                    item.status = "queued";
+                    item.error_message = null;
+                }
+            }
+        }
+        await invoke("retry_download", {
+            downloadId,
+            preferredProvider: preferredProvider || null,
+        });
+        await this.fetchQueue();
+    }
+
+    async retryDownloadItem(itemId: string, preferredProvider?: string) {
+        // Optimistically set item to queued so UI moves it from failed to in-progress instantly
+        const foundItem = this.findItemById(itemId);
+        if (foundItem) {
+            foundItem.status = "queued";
+            foundItem.error_message = null;
+        }
+        await invoke("retry_download_item", {
+            itemId,
+            preferredProvider: preferredProvider || null,
+        });
+        await this.fetchQueue();
+    }
+
+    async dismissDownloadItem(itemId: string) {
+        await invoke("dismiss_download_item", { itemId });
+        await this.fetchQueue();
+    }
+
+    async retryAllFailed(preferredProvider?: string) {
+        // Optimistically set all failed items to queued
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "failed") {
+                    item.status = "queued";
+                    item.error_message = null;
+                }
+            }
+        }
+        await invoke("retry_all_failed_downloads", {
             preferredProvider: preferredProvider || null,
         });
         await this.fetchQueue();

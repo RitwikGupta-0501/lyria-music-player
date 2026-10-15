@@ -101,6 +101,10 @@ impl DownloadResolver {
         Self { circuit_breaker }
     }
 
+    pub fn reset_circuit_breaker(&self) {
+        self.circuit_breaker.reset_all();
+    }
+
     pub fn sort_candidates(
         &self,
         mut candidates: Vec<ProviderCandidate>,

@@ -637,4 +637,338 @@ fn test_download_native_id_propagation_and_persistence() {
     assert_eq!(queue[0].items[0].native_id.as_deref(), Some("209150978007162880"));
 }
 
+#[test]
+fn test_retry_download_job_status_transition() {
+    let temp_db = tempfile::NamedTempFile::new().expect("temp file");
+    let mut conn = crate::db::schema::init_db(temp_db.path()).expect("init db");
+
+    let download_id = "test-dl-retry-job";
+    let download = crate::db::queries::DownloadRecord {
+        id: download_id.to_string(),
+        entity_type: "album".to_string(),
+        entity_id: None,
+        title: "The Dark Side of the Moon".to_string(),
+        artist: "Pink Floyd".to_string(),
+        album: Some("The Dark Side of the Moon".to_string()),
+        total_items: 2,
+        completed_items: 0,
+        status: "queued".to_string(),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let items = vec![
+        crate::db::queries::DownloadItemRecord {
+            id: "track-1".to_string(),
+            download_id: download_id.to_string(),
+            track_title: "Speak to Me".to_string(),
+            artist: "Pink Floyd".to_string(),
+            album: Some("The Dark Side of the Moon".to_string()),
+            track_number: Some(1),
+            provider_id: None,
+            download_url: None,
+            dest_file_path: None,
+            temp_file_path: None,
+            total_bytes: 0,
+            downloaded_bytes: 0,
+            status: "queued".to_string(),
+            error_message: None,
+            retry_count: 0,
+            created_at: None,
+            updated_at: None,
+            native_id: None,
+        },
+        crate::db::queries::DownloadItemRecord {
+            id: "track-2".to_string(),
+            download_id: download_id.to_string(),
+            track_title: "Breathe".to_string(),
+            artist: "Pink Floyd".to_string(),
+            album: Some("The Dark Side of the Moon".to_string()),
+            track_number: Some(2),
+            provider_id: None,
+            download_url: None,
+            dest_file_path: None,
+            temp_file_path: None,
+            total_bytes: 0,
+            downloaded_bytes: 0,
+            status: "queued".to_string(),
+            error_message: None,
+            retry_count: 0,
+            created_at: None,
+            updated_at: None,
+            native_id: None,
+        },
+    ];
+
+    crate::db::queries::enqueue_download_job(&mut conn, &download, &items).expect("enqueue");
+
+    // Fail track 1, pause track 2
+    crate::db::queries::set_download_item_status(&conn, "track-1", "failed", Some("HTTP 503 Service Unavailable")).expect("fail track 1");
+    crate::db::queries::set_download_item_status(&conn, "track-2", "paused", None).expect("pause track 2");
+
+    // Active items should now be 0 since none are queued or downloading
+    let active = crate::db::queries::get_active_download_items(&conn).expect("get active");
+    assert_eq!(active.len(), 0);
+
+    // Call set_download_job_status with "queued" (as resume_download does)
+    crate::db::queries::set_download_job_status(&conn, download_id, "queued").expect("resume/retry job");
+
+    let active_after = crate::db::queries::get_active_download_items(&conn).expect("get active after retry");
+    assert_eq!(active_after.len(), 2);
+
+    let t1 = active_after.iter().find(|i| i.id == "track-1").unwrap();
+    assert_eq!(t1.status, "queued");
+    assert_eq!(t1.error_message, None);
+    assert_eq!(t1.retry_count, 1);
+
+    let t2 = active_after.iter().find(|i| i.id == "track-2").unwrap();
+    assert_eq!(t2.status, "queued");
+    assert_eq!(t2.error_message, None);
+    assert_eq!(t2.retry_count, 0); // Was paused, not failed, so retry_count not incremented
+}
+
+#[test]
+fn test_retry_download_item_granular() {
+    let temp_db = tempfile::NamedTempFile::new().expect("temp file");
+    let mut conn = crate::db::schema::init_db(temp_db.path()).expect("init db");
+
+    let download_id = "test-single-retry";
+    let download = crate::db::queries::DownloadRecord {
+        id: download_id.to_string(),
+        entity_type: "track".to_string(),
+        entity_id: None,
+        title: "Time".to_string(),
+        artist: "Pink Floyd".to_string(),
+        album: None,
+        total_items: 1,
+        completed_items: 0,
+        status: "queued".to_string(),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let items = vec![crate::db::queries::DownloadItemRecord {
+        id: "item-time-1".to_string(),
+        download_id: download_id.to_string(),
+        track_title: "Time".to_string(),
+        artist: "Pink Floyd".to_string(),
+        album: None,
+        track_number: None,
+        provider_id: None,
+        download_url: None,
+        dest_file_path: None,
+        temp_file_path: None,
+        total_bytes: 0,
+        downloaded_bytes: 0,
+        status: "failed".to_string(),
+        error_message: Some("Stream resolution timeout".to_string()),
+        retry_count: 0,
+        created_at: None,
+        updated_at: None,
+        native_id: None,
+    }];
+
+    crate::db::queries::enqueue_download_job(&mut conn, &download, &items).expect("enqueue");
+
+    // Call retry_download_item
+    let returned_did = crate::db::queries::retry_download_item(&conn, "item-time-1").expect("retry item");
+    assert_eq!(returned_did, download_id);
+
+    let active = crate::db::queries::get_active_download_items(&conn).expect("get active");
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].id, "item-time-1");
+    assert_eq!(active[0].status, "queued");
+    assert_eq!(active[0].error_message, None);
+    assert_eq!(active[0].retry_count, 1);
+
+    let queue = crate::db::queries::get_download_queue(&conn).expect("get queue");
+    assert_eq!(queue[0].download.status, "queued");
+}
+
+#[test]
+fn test_dismiss_download_item_lifecycle() {
+    let temp_db = tempfile::NamedTempFile::new().expect("temp file");
+    let mut conn = crate::db::schema::init_db(temp_db.path()).expect("init db");
+
+    let download_id = "test-dismiss-dl";
+    let download = crate::db::queries::DownloadRecord {
+        id: download_id.to_string(),
+        entity_type: "album".to_string(),
+        entity_id: None,
+        title: "Wish You Were Here".to_string(),
+        artist: "Pink Floyd".to_string(),
+        album: Some("Wish You Were Here".to_string()),
+        total_items: 2,
+        completed_items: 0,
+        status: "downloading".to_string(),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let items = vec![
+        crate::db::queries::DownloadItemRecord {
+            id: "wywh-1".to_string(),
+            download_id: download_id.to_string(),
+            track_title: "Shine On You Crazy Diamond".to_string(),
+            artist: "Pink Floyd".to_string(),
+            album: Some("Wish You Were Here".to_string()),
+            track_number: Some(1),
+            provider_id: None,
+            download_url: None,
+            dest_file_path: None,
+            temp_file_path: None,
+            total_bytes: 0,
+            downloaded_bytes: 0,
+            status: "queued".to_string(),
+            error_message: None,
+            retry_count: 0,
+            created_at: None,
+            updated_at: None,
+            native_id: None,
+        },
+        crate::db::queries::DownloadItemRecord {
+            id: "wywh-2".to_string(),
+            download_id: download_id.to_string(),
+            track_title: "Welcome to the Machine".to_string(),
+            artist: "Pink Floyd".to_string(),
+            album: Some("Wish You Were Here".to_string()),
+            track_number: Some(2),
+            provider_id: None,
+            download_url: None,
+            dest_file_path: None,
+            temp_file_path: None,
+            total_bytes: 0,
+            downloaded_bytes: 0,
+            status: "failed".to_string(),
+            error_message: Some("Not found".to_string()),
+            retry_count: 0,
+            created_at: None,
+            updated_at: None,
+            native_id: None,
+        },
+    ];
+
+    crate::db::queries::enqueue_download_job(&mut conn, &download, &items).expect("enqueue");
+
+    // Complete item 1
+    let track_data = crate::db::TrackData {
+        title: "Shine On You Crazy Diamond".to_string(),
+        artist: Some("Pink Floyd".to_string()),
+        album: Some("Wish You Were Here".to_string()),
+        genre: None,
+        track_number: Some(1),
+        file_path: "/music/Shine.flac".to_string(),
+    };
+    crate::db::queries::complete_download_item(&mut conn, "wywh-1", "/music/Shine.flac", &track_data).expect("complete item 1");
+
+    // Dismiss the failed item 2
+    crate::db::queries::dismiss_download_item(&conn, "wywh-2").expect("dismiss item 2");
+
+    // Verify parent download remains, total_items updated to 1, completed_items is 1, status transitions to completed
+    let queue = crate::db::queries::get_download_queue(&conn).expect("get queue");
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].download.total_items, 1);
+    assert_eq!(queue[0].download.completed_items, 1);
+    assert_eq!(queue[0].download.status, "completed");
+    assert_eq!(queue[0].items.len(), 1);
+    assert_eq!(queue[0].items[0].id, "wywh-1");
+
+    // Now dismiss item 1 -> remaining is 0, so entire download job is removed
+    crate::db::queries::dismiss_download_item(&conn, "wywh-1").expect("dismiss item 1");
+    let queue_after = crate::db::queries::get_download_queue(&conn).expect("get queue after");
+    assert_eq!(queue_after.len(), 0);
+}
+
+#[test]
+fn test_retry_all_failed_downloads() {
+    let temp_db = tempfile::NamedTempFile::new().expect("temp file");
+    let mut conn = crate::db::schema::init_db(temp_db.path()).expect("init db");
+
+    let download = crate::db::queries::DownloadRecord {
+        id: "dl-batch-failed".to_string(),
+        entity_type: "album".to_string(),
+        entity_id: None,
+        title: "Animals".to_string(),
+        artist: "Pink Floyd".to_string(),
+        album: Some("Animals".to_string()),
+        total_items: 2,
+        completed_items: 0,
+        status: "queued".to_string(),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let items = vec![
+        crate::db::queries::DownloadItemRecord {
+            id: "animals-1".to_string(),
+            download_id: "dl-batch-failed".to_string(),
+            track_title: "Dogs".to_string(),
+            artist: "Pink Floyd".to_string(),
+            album: Some("Animals".to_string()),
+            track_number: Some(1),
+            provider_id: None,
+            download_url: None,
+            dest_file_path: None,
+            temp_file_path: None,
+            total_bytes: 0,
+            downloaded_bytes: 0,
+            status: "failed".to_string(),
+            error_message: Some("Connection reset".to_string()),
+            retry_count: 0,
+            created_at: None,
+            updated_at: None,
+            native_id: None,
+        },
+        crate::db::queries::DownloadItemRecord {
+            id: "animals-2".to_string(),
+            download_id: "dl-batch-failed".to_string(),
+            track_title: "Pigs".to_string(),
+            artist: "Pink Floyd".to_string(),
+            album: Some("Animals".to_string()),
+            track_number: Some(2),
+            provider_id: None,
+            download_url: None,
+            dest_file_path: None,
+            temp_file_path: None,
+            total_bytes: 0,
+            downloaded_bytes: 0,
+            status: "failed".to_string(),
+            error_message: Some("HTTP 404".to_string()),
+            retry_count: 1,
+            created_at: None,
+            updated_at: None,
+            native_id: None,
+        },
+    ];
+
+    crate::db::queries::enqueue_download_job(&mut conn, &download, &items).expect("enqueue");
+
+    let retried_jobs = crate::db::queries::retry_all_failed_downloads(&conn).expect("retry all failed");
+    assert_eq!(retried_jobs, vec!["dl-batch-failed".to_string()]);
+
+    let active = crate::db::queries::get_active_download_items(&conn).expect("get active");
+    assert_eq!(active.len(), 2);
+    let d1 = active.iter().find(|i| i.id == "animals-1").unwrap();
+    assert_eq!(d1.status, "queued");
+    assert_eq!(d1.error_message, None);
+    assert_eq!(d1.retry_count, 1);
+
+    let d2 = active.iter().find(|i| i.id == "animals-2").unwrap();
+    assert_eq!(d2.status, "queued");
+    assert_eq!(d2.error_message, None);
+    assert_eq!(d2.retry_count, 2);
+}
+
+#[test]
+fn test_circuit_breaker_reset_all_via_resolver() {
+    let cb = Arc::new(CircuitBreaker::new(1, Duration::from_secs(60)));
+    let resolver = DownloadResolver::new(cb.clone());
+
+    cb.record_failure("provider_trip");
+    assert!(!cb.is_available("provider_trip"));
+
+    resolver.reset_circuit_breaker();
+    assert!(cb.is_available("provider_trip"));
+}
+
 
