@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
     import EqualizerWave from "$lib/components/common/EqualizerWave.svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
     import { Play, Pause, DownloadSimple, ArrowClockwise, CheckCircle } from "phosphor-svelte";
     import { audioStore } from "$lib/stores/audio.svelte";
     import { exploreStore } from "$lib/stores/explore.svelte";
@@ -90,17 +91,18 @@
 
     function handleDownloadClick(e: MouseEvent) {
         e.stopPropagation();
+        const artist = (track.artist && track.artist.toLowerCase() !== "unknown artist" && track.artist.toLowerCase() !== "unknown") ? track.artist : "";
         if (e.shiftKey || e.altKey) {
             downloadStore.openCandidateSearch({
                 title: track.title,
-                artist: track.artist || "Unknown Artist",
+                artist,
                 album: track.album,
                 duration_ms: track.duration_ms,
             });
         } else {
             downloadStore.downloadTrack({
                 title: track.title,
-                artist: track.artist || "Unknown Artist",
+                artist,
                 album: track.album,
                 duration_ms: track.duration_ms,
             });
@@ -110,9 +112,10 @@
     function handleDownloadContextMenu(e: MouseEvent) {
         e.stopPropagation();
         e.preventDefault();
+        const artist = (track.artist && track.artist.toLowerCase() !== "unknown artist" && track.artist.toLowerCase() !== "unknown") ? track.artist : "";
         downloadStore.openCandidateSearch({
             title: track.title,
-            artist: track.artist || "Unknown Artist",
+            artist,
             album: track.album,
             duration_ms: track.duration_ms,
         });
@@ -210,7 +213,7 @@
         aria-label="Download track"
     >
         {#if isDownloading}
-            <ArrowClockwise size={14} class="spin" color="#ffd285" />
+            <Loader size={14} color="primary" />
         {:else if isDownloaded}
             <CheckCircle size={14} weight="fill" color="#34d399" />
         {:else}
@@ -465,12 +468,4 @@
         outline: 2px solid #ffd285;
     }
 
-    :global(.spin) {
-        animation: spin-kf 0.9s linear infinite;
-    }
-
-    @keyframes spin-kf {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
 </style>

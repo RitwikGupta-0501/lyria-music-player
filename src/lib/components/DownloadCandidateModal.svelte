@@ -11,6 +11,7 @@
         CheckCircle,
         WarningCircle
     } from "phosphor-svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
 
     let searchInput = $state("");
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,9 +118,7 @@
                         aria-label="Search candidates"
                     />
                     {#if downloadStore.isSearching}
-                        <div class="spinner" aria-label="Searching candidates...">
-                            <ArrowClockwise size={16} class="spin" />
-                        </div>
+                        <Loader size={16} color="primary" />
                     {/if}
                 </div>
 
@@ -149,7 +148,7 @@
             <div class="candidates-container">
                 {#if downloadStore.isSearching && downloadStore.searchResults.length === 0}
                     <div class="state-message">
-                        <ArrowClockwise size={28} class="spin" />
+                        <Loader size={28} color="primary" />
                         <p>Querying {downloadStore.searchProviderId} for audio candidates...</p>
                     </div>
                 {:else if downloadStore.searchError}
@@ -368,20 +367,6 @@
         color: rgba(255, 255, 255, 0.35);
     }
 
-    .spinner {
-        display: flex;
-        align-items: center;
-        color: #ffd285;
-    }
-
-    :global(.spin) {
-        animation: spin-kf 0.9s linear infinite;
-    }
-
-    @keyframes spin-kf {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
 
     .provider-tabs {
         display: flex;

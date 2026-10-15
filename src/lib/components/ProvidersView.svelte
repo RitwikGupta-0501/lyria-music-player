@@ -2,9 +2,10 @@
     import { invoke } from '@tauri-apps/api/core';
     import { onMount, tick } from 'svelte';
     import { open } from '@tauri-apps/plugin-dialog';
-    import { PlayCircle, PuzzlePiece, MagnifyingGlass, SpinnerGap, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, Trash, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin, UploadSimple, FileArchive, FolderPlus, CaretDown } from 'phosphor-svelte';
+    import { PlayCircle, PuzzlePiece, MagnifyingGlass, ArrowRight, CheckCircle, XCircle, ArrowsClockwise, SlidersHorizontal, Trash, FolderOpen, ShieldCheck, Copy, AppleLogo, SoundcloudLogo, SpotifyLogo, MapPin, UploadSimple, FileArchive, FolderPlus, CaretDown } from 'phosphor-svelte';
     import { audioStore } from '../stores/audio.svelte';
     import { toastStore } from '$lib/stores/toast.svelte';
+    import Loader from '$lib/components/common/Loader.svelte';
 
     interface ProviderInfo {
         id: string;
@@ -399,7 +400,7 @@ async function handleVerifyChecksum() {
                                 title="Import extension"
                             >
                                 {#if isImporting}
-                                    <SpinnerGap class="spin" size={16} />
+                                    <Loader size={16} color="current" />
                                     <span>Importing...</span>
                                 {:else}
                                     <UploadSimple size={16} />
@@ -437,7 +438,7 @@ async function handleVerifyChecksum() {
                             }
                         }} disabled={isScanning} title="Sync extensions">
                             {#if isScanning}
-                                <SpinnerGap class="spin" size={16} />
+                                <Loader size={16} color="current" />
                                 <span>Syncing...</span>
                             {:else}
                                 <ArrowsClockwise size={16} />
@@ -602,7 +603,7 @@ async function handleVerifyChecksum() {
                                         </div>
                                         <button class="bento-action-btn" onclick={handleVerifyChecksum} disabled={isVerifyingChecksum || !activeProvider.checksum}>
                                             {#if isVerifyingChecksum}
-                                                <SpinnerGap size={16} class="spin" />
+                                                <Loader size={16} color="current" />
                                                 Verifying...
                                             {:else if checksumVerified}
                                                 <CheckCircle size={16} weight="fill" style="color: var(--color-success, #22c55e);" />
@@ -673,7 +674,7 @@ async function handleVerifyChecksum() {
                                     <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
                                         <button class="primary" onclick={saveSettings} disabled={isSavingSettings} style="display: flex; gap: 0.5rem; align-items: center;">
                                             {#if isSavingSettings}
-                                                <SpinnerGap class="spin" size={16} /> Saving...
+                                                <Loader size={16} color="current" /> Saving...
                                             {:else}
                                                 Save Settings
                                             {/if}
@@ -697,7 +698,7 @@ async function handleVerifyChecksum() {
                                     />
                                     <button class="search-btn" onclick={testSearch} disabled={isSearching || !searchQuery.trim()}>
                                         {#if isSearching}
-                                            <SpinnerGap class="spin" size={20} />
+                                            <Loader size={18} color="current" />
                                         {:else}
                                             Test
                                         {/if}
@@ -733,7 +734,7 @@ async function handleVerifyChecksum() {
                                                 </div>
                                                 <button class="play-btn" title={track.stream_url} onclick={() => playTrack(track)} disabled={currentlyLoadingTrackId === track.id}>
                                                     {#if currentlyLoadingTrackId === track.id}
-                                                        <SpinnerGap class="spin text-accent" size={28} />
+                                                        <Loader size={26} color="primary" />
                                                     {:else}
                                                         <PlayCircle size={28} weight="fill" />
                                                     {/if}
@@ -769,7 +770,7 @@ async function handleVerifyChecksum() {
                     <button class="cancel-btn" onclick={() => showDeleteConfirm = false} disabled={isDeleting}>Cancel</button>
                     <button class="danger-btn" onclick={handleDeleteProvider} disabled={isDeleting}>
                         {#if isDeleting}
-                            <SpinnerGap size={16} class="spinner" />
+                            <Loader size={16} color="current" />
                             <span>Uninstalling...</span>
                         {:else}
                             <Trash size={16} />
@@ -1355,13 +1356,6 @@ async function handleVerifyChecksum() {
         gap: 1rem;
     }
 
-    :global(.spin) {
-        animation: -global-spin 1s linear infinite;
-    }
-
-    @keyframes -global-spin {
-        100% { transform: rotate(360deg); }
-    }
     .tab-btn {
         background: transparent;
         border: none;

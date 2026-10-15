@@ -40,6 +40,16 @@
         return null;
     }
 
+    function parseArtistFromSubtitle(subtitle?: string): string {
+        if (!subtitle) return "";
+        const parts = subtitle.split(/[•·\u2022]/).map(s => s.trim()).filter(Boolean);
+        const filtered = parts.filter(p => {
+            const l = p.toLowerCase();
+            return l !== "song" && l !== "video" && l !== "track" && l !== "single" && l !== "ep" && l !== "album";
+        });
+        return filtered[0] || parts[0] || "";
+    }
+
     const FILTER_CHIPS = [
         { id: "all", label: "All" },
         { id: "songs", label: "Songs" },
@@ -187,7 +197,7 @@
                                                     exploreStore.playTrack({
                                                         id: item.data.id,
                                                         title: item.data.title,
-                                                        artist: item.data.subtitle,
+                                                        artist: parseArtistFromSubtitle(item.data.subtitle),
                                                         cover_art_url: item.data.cover_art_url,
                                                         provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                     });
@@ -213,7 +223,7 @@
                                                         exploreStore.playTrack({
                                                             id: item.data.id,
                                                             title: item.data.title,
-                                                            artist: item.data.subtitle,
+                                                            artist: parseArtistFromSubtitle(item.data.subtitle),
                                                             cover_art_url: item.data.cover_art_url,
                                                             provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                         });
@@ -252,7 +262,7 @@
                                                                 exploreStore.playTrack({
                                                                     id: item.data.id,
                                                                     title: item.data.title,
-                                                                    artist: item.data.subtitle,
+                                                                    artist: parseArtistFromSubtitle(item.data.subtitle),
                                                                     cover_art_url: item.data.cover_art_url,
                                                                     provider_id: item.data.provider_id || settingsStore.getEffectiveRemoteProvider(),
                                                                 });
@@ -278,9 +288,10 @@
                                                             class="artist-inline-btn"
                                                             onclick={(e) => {
                                                                 e.stopPropagation();
+                                                                const artistName = parseArtistFromSubtitle(item.data.subtitle);
                                                                 exploreStore.openArtist({
-                                                                    id: item.data.subtitle,
-                                                                    name: item.data.subtitle,
+                                                                    id: artistName,
+                                                                    name: artistName,
                                                                 });
                                                             }}
                                                         >

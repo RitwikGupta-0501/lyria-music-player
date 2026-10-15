@@ -21,6 +21,7 @@
         CheckCircle,
         ArrowClockwise,
     } from "phosphor-svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
     
     let { 
         queueOpen = $bindable(false), 
@@ -218,8 +219,10 @@
                         {#if hasTrack}
                             {@const currentTrackObj = audioStore.currentQueueTrack}
                             {@const trackTitleStr = currentTrackObj?.title || (audioStore.currentTrack !== "None" ? audioStore.currentTrack : "")}
-                            {@const trackArtistStr = currentTrackObj?.artist || "unknown"}
-                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr })}
+                            {@const rawArtist = currentTrackObj?.artist?.trim() || ""}
+                            {@const isUnknownArtist = !rawArtist || rawArtist.toLowerCase() === "unknown" || rawArtist.toLowerCase() === "unknown artist"}
+                            {@const trackArtistStr = isUnknownArtist ? "" : rawArtist}
+                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr || "unknown" })}
                             {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === trackKey.toLowerCase().trim())}
                             <button 
                                 class="like-btn" 
@@ -229,7 +232,7 @@
                                     if (trackTitleStr) {
                                         libraryStore.toggleLike({
                                             title: trackTitleStr,
-                                            artist: trackArtistStr,
+                                            artist: trackArtistStr || "Unknown Artist",
                                             canonical_key: trackKey,
                                             cover_art_url: (currentTrackObj?.source as any)?.cover_art_url || playerArtUrl || undefined,
                                             duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : undefined,
@@ -281,7 +284,7 @@
                                 aria-label="Download track"
                             >
                                 {#if isDownloading}
-                                    <ArrowClockwise size={13} class="spin" color="#ffd285" />
+                                    <Loader size={13} color="primary" />
                                 {:else if isDownloaded}
                                     <CheckCircle size={13} weight="fill" color="#34d399" />
                                 {:else}
@@ -1054,12 +1057,4 @@
         border-color: rgba(255, 210, 133, 0.5);
     }
 
-    :global(.spin) {
-        animation: spin-kf 0.9s linear infinite;
-    }
-
-    @keyframes spin-kf {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
 </style>

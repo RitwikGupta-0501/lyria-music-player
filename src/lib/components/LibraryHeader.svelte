@@ -99,13 +99,4 @@
         padding-bottom: 0.5rem;
     }
 
-    /* Spinner keyframe */
-    :global(.spin) {
-        animation: -global-spin 1s linear infinite;
-    }
-
-    @keyframes -global-spin {
-        from { transform: rotate(0deg); }
-        to   { transform: rotate(360deg); }
-    }
 </style>

@@ -75,7 +75,7 @@
         libraryStore.downloadedTracks.map(t => ({
             id: t.id,
             title: t.title,
-            artist: t.artist || "Unknown Artist",
+            artist: t.artist || "",
             album: "",
             file_path: t.file_path,
             cover_art_url: null,
@@ -111,6 +111,11 @@
     let collectionSubtitle = $derived(
         collection.subtitle || 
         (isPlaylist ? "Playlist" : "Unknown Artist")
+    );
+    let albumArtistFallback = $derived(
+        !isPlaylist && collectionSubtitle && collectionSubtitle.toLowerCase() !== "unknown artist" && collectionSubtitle.toLowerCase() !== "unknown"
+            ? collectionSubtitle
+            : ""
     );
 
     let draggedIndex = $state(-1);
@@ -274,7 +279,7 @@
             const trackPayload = {
                 id: current.id,
                 title: current.title,
-                artist: current.artist,
+                artist: current.artist || albumArtistFallback,
                 album: collection.title,
                 remote_track_id: current.id,
                 provider_id: pId,
@@ -296,7 +301,7 @@
             const queueTracks = displayTracks.map((t: any) => ({
                 id: t.id,
                 title: t.title,
-                artist: t.artist,
+                artist: t.artist || albumArtistFallback,
                 album: collection.title,
                 remote_track_id: t.id,
                 provider_id: t.provider_id || pId,
@@ -312,7 +317,7 @@
             const trackPayload = {
                 id: current.id,
                 title: current.title,
-                artist: current.artist,
+                artist: current.artist || albumArtistFallback,
                 album: collection.title,
                 file_path: current.file_path,
                 track_number: current.track_number,
@@ -331,7 +336,7 @@
         const queueTracks = displayTracks.map((t: any) => ({
             id: t.id,
             title: t.title,
-            artist: t.artist,
+            artist: t.artist || albumArtistFallback,
             album: collection.title,
             file_path: t.file_path,
             track_number: t.track_number,
@@ -381,7 +386,7 @@
                 const queueTracks = displayTracks.map((t: any) => ({
                     id: t.id,
                     title: t.title,
-                    artist: t.artist,
+                    artist: t.artist || albumArtistFallback,
                     album: collection.title,
                     remote_track_id: t.id,
                     provider_id: t.provider_id || pId,
@@ -393,7 +398,7 @@
                 const queueTracks = displayTracks.map((t: any) => ({
                     id: t.id,
                     title: t.title,
-                    artist: t.artist,
+                    artist: t.artist || albumArtistFallback,
                     album: collection.title,
                     file_path: t.file_path,
                     track_number: t.track_number,
@@ -411,7 +416,7 @@
             const queueTracks = shuffled.map((t: any) => ({
                 id: t.id,
                 title: t.title,
-                artist: t.artist,
+                artist: t.artist || albumArtistFallback,
                 album: collection.title,
                 remote_track_id: t.id,
                 provider_id: t.provider_id || pId,
@@ -423,7 +428,7 @@
             const queueTracks = shuffled.map((t: any) => ({
                 id: t.id,
                 title: t.title,
-                artist: t.artist,
+                artist: t.artist || albumArtistFallback,
                 album: collection.title,
                 file_path: t.file_path,
                 track_number: t.track_number,
@@ -436,7 +441,7 @@
         if (!displayTracks || displayTracks.length === 0) return;
         downloadStore.downloadAlbum({
             album_title: collectionTitle,
-            artist: collectionSubtitle || "Unknown Artist",
+            artist: albumArtistFallback,
             tracks: displayTracks.map((t: any, idx: number) => ({
                 title: t.title,
                 track_number: idx + 1,
@@ -712,7 +717,7 @@
                                         activeDropdown = null;
                                         downloadStore.downloadTrack({
                                             title: track.title,
-                                            artist: track.artist || collectionSubtitle || "Unknown Artist",
+                                            artist: track.artist || albumArtistFallback,
                                             album: collectionTitle,
                                             duration_ms: track.duration_ms,
                                         });
@@ -728,7 +733,7 @@
                                         activeDropdown = null;
                                         downloadStore.openCandidateSearch({
                                             title: track.title,
-                                            artist: track.artist || collectionSubtitle || "Unknown Artist",
+                                            artist: track.artist || albumArtistFallback,
                                             album: collectionTitle,
                                             duration_ms: track.duration_ms,
                                         });

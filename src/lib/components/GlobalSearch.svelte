@@ -15,6 +15,7 @@
         ArrowClockwise,
         ArrowRight
     } from "phosphor-svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
 
     let { isOpen = $bindable(false) } = $props<{ isOpen?: boolean }>();
 
@@ -92,9 +93,7 @@
                     oninput={(e) => searchStore.handleQueryChange((e.target as HTMLInputElement).value)}
                 />
                 {#if searchStore.isSearching || searchStore.isResolvingUrl}
-                    <div class="spinner-icon">
-                        <ArrowClockwise size={16} weight="bold" />
-                    </div>
+                    <Loader size={16} color="primary" />
                 {/if}
                 {#if searchStore.query}
                     <button class="clear-btn" onclick={() => searchStore.clear()} title="Clear query">
@@ -340,15 +339,6 @@
         color: rgba(255, 255, 255, 0.4);
     }
 
-    .spinner-icon {
-        color: #B58E62;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
 
     .clear-btn {
         background: transparent;

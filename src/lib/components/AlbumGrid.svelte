@@ -2,7 +2,8 @@
     import { libraryStore, type Album, type SavedAlbum } from "$lib/stores/library.svelte";
 import { exploreStore } from "$lib/stores/explore.svelte";
     import { open } from "@tauri-apps/plugin-dialog";
-    import { FolderOpen, CircleNotch } from "phosphor-svelte";
+    import { FolderOpen } from "phosphor-svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
     import { flip } from "svelte/animate";
     import { cubicOut } from "svelte/easing";
     import AlbumCard from "./AlbumCard.svelte";
@@ -102,7 +103,7 @@ import { exploreStore } from "$lib/stores/explore.svelte";
                         class="scan-status"
                         style="display: flex; align-items: center; gap: 0.25rem;"
                     >
-                        <CircleNotch size={14} class="spin" />
+                        <Loader size={14} color="primary" />
                         <span class="text-muted">Scanning</span>
                     </div>
                 {/if}
