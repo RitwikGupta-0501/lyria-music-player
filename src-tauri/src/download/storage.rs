@@ -83,6 +83,55 @@ pub fn build_temp_file_path(dest_path: &Path) -> PathBuf {
     }
 }
 
+/// Writes audio metadata tags (title, artist, album, track number)
+/// directly into the container of the downloaded audio file using `lofty`.
+pub fn write_audio_metadata(
+    path: &Path,
+    title: &str,
+    artist: &str,
+    album: Option<&str>,
+    track_number: Option<u32>,
+) -> Result<(), String> {
+    use lofty::prelude::*;
+    use lofty::probe::Probe;
+    use lofty::tag::Tag;
+
+    let mut tagged_file = Probe::open(path)
+        .map_err(|e| format!("Failed to open file for tagging: {}", e))?
+        .read()
+        .map_err(|e| format!("Failed to read tags: {}", e))?;
+
+    let tag = match tagged_file.primary_tag_mut() {
+        Some(primary) => primary,
+        None => {
+            if let Some(first) = tagged_file.first_tag_mut() {
+                first
+            } else {
+                let tag_type = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(Tag::new(tag_type));
+                tagged_file.primary_tag_mut().ok_or_else(|| "Failed to create tag".to_string())?
+            }
+        }
+    };
+
+    tag.set_title(title.to_string());
+    tag.set_artist(artist.to_string());
+    if let Some(alb) = album {
+        tag.set_album(alb.to_string());
+    }
+    if let Some(num) = track_number {
+        tag.set_track(num);
+    }
+
+    use lofty::config::WriteOptions;
+
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(|e| format!("Failed to write metadata tags: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

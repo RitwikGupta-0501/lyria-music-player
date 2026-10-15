@@ -19,6 +19,10 @@ designs/
 
 # Some Files
 TASKS.md
+
+# Agents
+.agents/
+
 # Benchmarking artifacts
 benchmarks/baseline.json
 /reports/

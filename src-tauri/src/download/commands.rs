@@ -79,6 +79,49 @@ pub async fn resume_download(
 }
 
 #[tauri::command]
+pub async fn retry_download(
+    state: State<'_, AppState>,
+    download_id: String,
+    preferred_provider: Option<String>,
+) -> Result<(), String> {
+    state
+        .download_manager
+        .resume_download(&download_id, preferred_provider)
+        .await
+}
+
+#[tauri::command]
+pub async fn retry_download_item(
+    state: State<'_, AppState>,
+    item_id: String,
+    preferred_provider: Option<String>,
+) -> Result<(), String> {
+    state
+        .download_manager
+        .retry_download_item(&item_id, preferred_provider)
+        .await
+}
+
+#[tauri::command]
+pub async fn dismiss_download_item(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<(), String> {
+    state.download_manager.dismiss_download_item(&item_id).await
+}
+
+#[tauri::command]
+pub async fn retry_all_failed_downloads(
+    state: State<'_, AppState>,
+    preferred_provider: Option<String>,
+) -> Result<Vec<String>, String> {
+    state
+        .download_manager
+        .retry_all_failed(preferred_provider)
+        .await
+}
+
+#[tauri::command]
 pub async fn cancel_download(
     state: State<'_, AppState>,
     download_id: String,
@@ -140,4 +183,38 @@ pub async fn get_preferred_download_provider(
         Some(s) if !s.trim().is_empty() => Ok(Some(s)),
         _ => Ok(None),
     }
+}
+
+#[tauri::command]
+pub fn get_downloads_dir(app: tauri::AppHandle) -> Result<String, String> {
+    crate::download::storage::get_default_downloads_dir(&app)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn open_downloads_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = crate::download::storage::get_default_downloads_dir(&app)?;
+    tauri_plugin_opener::reveal_item_in_dir(&dir)
+        .or_else(|_| tauri_plugin_opener::open_path(&dir, None::<&str>))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_completed_downloads(state: State<'_, AppState>) -> Result<(), String> {
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    state
+        .db_tx
+        .send(DbRequest::ClearCompletedDownloads { resp: resp_tx })
+        .map_err(|e| e.to_string())?;
+    resp_rx.await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_downloaded_tracks(state: State<'_, AppState>) -> Result<Vec<crate::LocalTrack>, String> {
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    state
+        .db_tx
+        .send(DbRequest::GetDownloadedTracks { resp: resp_tx })
+        .map_err(|e| e.to_string())?;
+    resp_rx.await.map_err(|e| e.to_string())?
 }

@@ -51,7 +51,7 @@ pub fn get_local_tracks(conn: &Connection, limit: u32, offset: u32) -> Result<Ve
 
 pub fn get_albums(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<Album>, String> {
     let mut albums = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY artist, title LIMIT ?1 OFFSET ?2").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY (CASE WHEN title = 'Unknown Album' THEN 1 ELSE 0 END), artist, title LIMIT ?1 OFFSET ?2").map_err(|e| e.to_string())?;
     let album_iter = stmt.query_map([&limit, &offset], |row| {
         Ok(Album {
             id: row.get(0)?,
@@ -70,7 +70,7 @@ pub fn get_albums(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<Albu
 
 pub fn get_recent_albums(conn: &Connection, limit: u32) -> Result<Vec<Album>, String> {
     let mut albums = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums ORDER BY id DESC LIMIT ?1").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, title, artist, cover_art_path FROM albums WHERE title != 'Unknown Album' ORDER BY id DESC LIMIT ?1").map_err(|e| e.to_string())?;
     let album_iter = stmt.query_map([&limit], |row| {
         Ok(Album {
             id: row.get(0)?,
@@ -407,8 +407,18 @@ pub fn insert_tracks(conn: &mut Connection, tracks: Vec<TrackData>) -> Result<us
     let mut album_cache: std::collections::HashMap<(String, String), Option<i64>> = std::collections::HashMap::new();
 
     for track in tracks {
-        let album_title = track.album.unwrap_or_else(|| "Unknown Album".to_string());
-        let album_artist = track.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string());
+        let is_unknown_album = match &track.album {
+            Some(a) => a.trim().is_empty() || a.trim().eq_ignore_ascii_case("Unknown Album"),
+            None => true,
+        };
+        let (album_title, album_artist) = if is_unknown_album {
+            ("Unknown Album".to_string(), "Various Artists".to_string())
+        } else {
+            (
+                track.album.as_deref().unwrap_or("Unknown Album").trim().to_string(),
+                track.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string()),
+            )
+        };
         let cache_key = (album_title.clone(), album_artist.clone());
 
         let album_id = if let Some(&id) = album_cache.get(&cache_key) {
@@ -2555,8 +2565,12 @@ pub fn complete_download_item(
         ).map_err(|e| e.to_string())?;
     }
 
-    let album_title = track_data.album.as_deref().unwrap_or("Unknown Album");
-    let album_artist = track_data.artist.as_deref().unwrap_or("Unknown Artist");
+    let (album_title, album_artist) = match track_data.album.as_deref() {
+        Some(a) if !a.trim().is_empty() && !a.trim().eq_ignore_ascii_case("Unknown Album") => {
+            (a.trim(), track_data.artist.as_deref().unwrap_or("Unknown Artist"))
+        }
+        _ => ("Unknown Album", "Various Artists"),
+    };
 
     tx.execute(
         "INSERT OR IGNORE INTO albums (title, artist) VALUES (?1, ?2)",
@@ -2607,6 +2621,16 @@ pub fn set_download_job_status(
              SET status = ?1, updated_at = CURRENT_TIMESTAMP
              WHERE download_id = ?2 AND status NOT IN ('completed')",
             rusqlite::params![status, download_id],
+        ).map_err(|e| e.to_string())?;
+    } else if status == "queued" {
+        conn.execute(
+            "UPDATE download_items
+             SET status = 'queued',
+                 error_message = NULL,
+                 retry_count = CASE WHEN status = 'failed' THEN retry_count + 1 ELSE retry_count END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE download_id = ?1 AND status NOT IN ('completed')",
+            rusqlite::params![download_id],
         ).map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -2725,6 +2749,149 @@ pub fn delete_download_job(conn: &Connection, download_id: &str) -> Result<(), S
     conn.execute("DELETE FROM downloads WHERE id = ?1", [download_id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn retry_download_item(
+    conn: &Connection,
+    item_id: &str,
+) -> Result<String, String> {
+    let download_id: String = conn.query_row(
+        "SELECT download_id FROM download_items WHERE id = ?1",
+        [item_id],
+        |row| row.get(0),
+    ).map_err(|e| format!("Download item not found: {}", e))?;
+
+    conn.execute(
+        "UPDATE download_items
+         SET status = 'queued',
+             error_message = NULL,
+             retry_count = retry_count + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1",
+        rusqlite::params![item_id],
+    ).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE downloads
+         SET status = 'queued',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status != 'downloading'",
+        rusqlite::params![download_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(download_id)
+}
+
+pub fn dismiss_download_item(
+    conn: &Connection,
+    item_id: &str,
+) -> Result<(), String> {
+    let download_id: Option<String> = conn.query_row(
+        "SELECT download_id FROM download_items WHERE id = ?1",
+        [item_id],
+        |row| row.get(0),
+    ).ok();
+
+    conn.execute("DELETE FROM download_items WHERE id = ?1", [item_id])
+        .map_err(|e| e.to_string())?;
+
+    if let Some(ref did) = download_id {
+        let remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM download_items WHERE download_id = ?1",
+            [did],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        if remaining == 0 {
+            let _ = conn.execute("DELETE FROM downloads WHERE id = ?1", [did]);
+        } else {
+            let completed: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM download_items WHERE download_id = ?1 AND status = 'completed'",
+                [did],
+                |row| row.get(0),
+            ).unwrap_or(0);
+
+            let new_status = if completed >= remaining { "completed" } else { "downloading" };
+            let _ = conn.execute(
+                "UPDATE downloads
+                 SET total_items = ?1,
+                     completed_items = ?2,
+                     status = ?3,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?4",
+                rusqlite::params![remaining, completed, new_status, did],
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub fn retry_all_failed_downloads(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT download_id FROM download_items WHERE status = 'failed'"
+    ).map_err(|e| e.to_string())?;
+
+    let download_ids: Vec<String> = stmt.query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    conn.execute(
+        "UPDATE download_items
+         SET status = 'queued',
+             error_message = NULL,
+             retry_count = retry_count + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE status = 'failed'",
+        [],
+    ).map_err(|e| e.to_string())?;
+
+    for did in &download_ids {
+        let _ = conn.execute(
+            "UPDATE downloads SET status = 'queued', updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            [did],
+        );
+    }
+
+    Ok(download_ids)
+}
+
+pub fn clear_completed_downloads(conn: &Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM download_items WHERE status = 'completed'", [])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM downloads WHERE status = 'completed'", [])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn get_downloaded_tracks(conn: &Connection) -> Result<Vec<LocalTrack>, String> {
+    let mut tracks = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.title, t.artist, t.album_id, t.genre, t.track_number, t.file_path
+         FROM tracks t
+         LEFT JOIN download_items di ON di.dest_file_path = t.file_path
+         WHERE di.status = 'completed' OR t.file_path LIKE '%/Lyria/%' OR t.file_path LIKE '%\\Lyria\\%'
+         GROUP BY t.id
+         ORDER BY COALESCE(di.updated_at, t.id) DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let track_iter = stmt.query_map([], |row| {
+        Ok(LocalTrack {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            artist: row.get(2)?,
+            album_id: row.get(3)?,
+            genre: row.get(4)?,
+            track_number: row.get(5)?,
+            file_path: row.get(6)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    for t in track_iter.flatten() {
+        tracks.push(t);
+    }
+    Ok(tracks)
 }
 
 pub fn get_cached_lyrics(

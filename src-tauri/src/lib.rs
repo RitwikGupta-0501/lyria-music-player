@@ -654,6 +654,9 @@ async fn search_provider_categorized(
     query: String,
     filter: Option<String>,
 ) -> Result<crate::providers::CategorizedSearchResult, String> {
+    if state.provider_manager.is_lyrics_provider(&provider_id) {
+        return Err(format!("Provider '{}' is a lyrics extension and cannot be searched for songs", provider_id));
+    }
     let input = crate::providers::SearchQueryInput { query, filter };
     let results = state.provider_manager
         .search_categorized(&provider_id, &input)
@@ -665,6 +668,9 @@ async fn search_provider_categorized(
 
 #[tauri::command]
 async fn search_provider(state: State<'_, AppState>, provider_id: String, query: String) -> Result<Vec<TrackResult>, String> {
+    if state.provider_manager.is_lyrics_provider(&provider_id) {
+        return Err(format!("Provider '{}' is a lyrics extension and cannot be searched for songs", provider_id));
+    }
     let results = state.provider_manager
         .search(&provider_id, &query)
         .await
@@ -1971,12 +1977,20 @@ pub fn run() {
             download::commands::download_album,
             download::commands::pause_download,
             download::commands::resume_download,
+            download::commands::retry_download,
+            download::commands::retry_download_item,
+            download::commands::dismiss_download_item,
+            download::commands::retry_all_failed_downloads,
             download::commands::cancel_download,
             download::commands::get_download_queue,
             download::commands::get_download_providers,
             download::commands::set_preferred_download_provider,
             download::commands::get_preferred_download_provider,
             download::commands::search_download_candidates,
+            download::commands::get_downloads_dir,
+            download::commands::open_downloads_folder,
+            download::commands::clear_completed_downloads,
+            download::commands::get_downloaded_tracks,
             // Lyrics commands
             get_lyrics,
             get_lyrics_providers,

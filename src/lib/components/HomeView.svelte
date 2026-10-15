@@ -5,6 +5,7 @@
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { ArrowClockwise, Compass, FolderOpen, MusicNotes } from "phosphor-svelte";
     import CardPlayButton from "$lib/components/common/CardPlayButton.svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
 
     import FeaturedDailyHero from "./home/FeaturedDailyHero.svelte";
     import AdjacentHorizonsCard from "./home/AdjacentHorizonsCard.svelte";
@@ -49,12 +50,16 @@
                 <button 
                     class="refresh-btn" 
                     class:is-glass={settingsStore.glassyPlayerBar}
-                    class:spinning={homeStore.isLoadingRemote}
+                    disabled={homeStore.isLoadingRemote}
                     onclick={() => homeStore.loadHome(true)}
                     title="Refresh recommendations"
                     aria-label="Refresh recommendations"
                 >
-                    <ArrowClockwise size={18} weight="bold" />
+                    {#if homeStore.isLoadingRemote}
+                        <Loader size={18} color="primary" />
+                    {:else}
+                        <ArrowClockwise size={18} weight="bold" />
+                    {/if}
                 </button>
             </div>
         </div>
@@ -354,14 +359,6 @@
         transform: scale(0.92);
     }
 
-    .refresh-btn.spinning {
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
 
     .mood-filter-bar {
         display: flex;

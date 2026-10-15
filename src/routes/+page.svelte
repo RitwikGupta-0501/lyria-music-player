@@ -27,6 +27,8 @@
     import GlobalSearch from "$lib/components/GlobalSearch.svelte";
     import ExploreView from "$lib/components/ExploreView.svelte";
     import HomeView from "$lib/components/HomeView.svelte";
+    import DownloadCandidateModal from "$lib/components/DownloadCandidateModal.svelte";
+    import DownloadsView from "$lib/components/DownloadsView.svelte";
 
     let activeView = $state("home");
     let sidebarOpen = $state(false);
@@ -173,6 +175,8 @@
             <AlbumGrid bind:activeView onSelectAlbum={(a) => { exploreStore.openLocalAlbum(a); sidebarOpen = false; }} selectedAlbumId={exploreStore.activeDrawerCollection?.id} />
         {:else if activeView === "playlists"}
             <PlaylistView bind:activeView onSelectPlaylist={(p) => { exploreStore.openLocalPlaylist(p); sidebarOpen = false; }} />
+        {:else if activeView === "downloads"}
+            <DownloadsView />
         {:else if activeView === "providers"}
             <ProvidersView />
         {:else if activeView === "settings"}
@@ -216,4 +220,5 @@
 
 <FullScreenPlayer bind:isOpen={fullScreenOpen} onToggleQueue={toggleQueue} />
 <GlobalSearch bind:isOpen={globalSearchOpen} />
+<DownloadCandidateModal />
 <ToastContainer />

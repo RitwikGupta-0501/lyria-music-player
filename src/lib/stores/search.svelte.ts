@@ -82,7 +82,13 @@ class SearchStore {
 
             // 2. Parallel Remote Extension Search
             const providers: any[] = await invoke("get_providers");
-            const enabled = providers.filter(p => p.status === 'enabled' && (p.capabilities?.includes('search') || p.id === settingsStore.getEffectiveRemoteProvider()));
+            const enabled = providers.filter((p: any) => {
+                if (p.status !== "enabled") return false;
+                const caps: string[] = p.capabilities || [];
+                // Exclude extensions made for lyrics
+                if (caps.some((c: string) => c.toLowerCase() === "lyrics")) return false;
+                return caps.includes("search") || p.id === settingsStore.getEffectiveRemoteProvider();
+            });
 
             const promises = enabled.map(p =>
                 invoke<any[]>("search_provider", { providerId: p.id, query })

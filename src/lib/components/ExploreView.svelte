@@ -3,6 +3,7 @@
     import { exploreStore } from "$lib/stores/explore.svelte";
     import { flagsStore } from "$lib/stores/flags.svelte";
     import { MagnifyingGlass, ArrowClockwise, X } from "phosphor-svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
 
     import SpotlightCarousel from "./explore/SpotlightCarousel.svelte";
     import TopChartsLedger from "./explore/TopChartsLedger.svelte";
@@ -54,7 +55,7 @@
             {/if}
             <button 
                 class="refresh-btn" 
-                class:spinning={exploreStore.isLoading || exploreStore.isSearching} 
+                disabled={exploreStore.isLoading || exploreStore.isSearching}
                 onclick={() => {
                     if (exploreStore.searchQuery) {
                         exploreStore.performSearch(exploreStore.searchQuery);
@@ -64,7 +65,11 @@
                 }}
                 title="Refresh"
             >
-                <ArrowClockwise size={16} weight="bold" />
+                {#if exploreStore.isLoading || exploreStore.isSearching}
+                    <Loader size={16} color="primary" />
+                {:else}
+                    <ArrowClockwise size={16} weight="bold" />
+                {/if}
             </button>
         </div>
     </div>
@@ -198,14 +203,6 @@
         color: #B58E62;
     }
 
-    .refresh-btn.spinning :global(svg) {
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
 
     .discovery-split-section {
         display: flex;

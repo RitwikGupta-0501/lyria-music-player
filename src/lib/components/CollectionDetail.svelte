@@ -9,6 +9,7 @@
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { toastStore } from "$lib/stores/toast.svelte";
+    import { downloadStore } from "$lib/stores/download.svelte";
     import {
         Playlist as PlaylistIcon,
         Disc as DiscIcon,
@@ -20,6 +21,8 @@
         PencilIcon,
         Heart as HeartIcon,
         DotsSixVertical as GripIcon,
+        DownloadSimple as DownloadSimpleIcon,
+        Sparkle as SparkleIcon,
     } from "phosphor-svelte";
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import PillButton from "$lib/components/common/PillButton.svelte";
@@ -48,7 +51,8 @@
     let isRemote = $derived(collection.source === "remote");
     let isPlaylist = $derived(collection.kind === "playlist");
     let isFavorites = $derived(collection.id === "favorites");
-    let isCustomLocalPlaylist = $derived(!isRemote && isPlaylist && !isFavorites);
+    let isDownloaded = $derived(collection.id === "downloaded");
+    let isCustomLocalPlaylist = $derived(!isRemote && isPlaylist && !isFavorites && !isDownloaded);
 
     let likedKeys = $derived(new Set(libraryStore.likedSongs.map(s => s.canonical_key.toLowerCase().trim())));
 
@@ -67,12 +71,28 @@
         }))
     );
 
+    let downloadedTracks = $derived(
+        libraryStore.downloadedTracks.map(t => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist || "",
+            album: "",
+            file_path: t.file_path,
+            cover_art_url: null,
+            duration_ms: 210000,
+            is_local: true,
+            downloaded: true,
+        }))
+    );
+
     let displayTracks = $derived(
         isFavorites 
             ? favoriteTracks 
-            : isRemote 
-                ? (collection.tracks && collection.tracks.length > 0 ? collection.tracks : tracks) 
-                : tracks
+            : isDownloaded
+                ? downloadedTracks
+                : isRemote 
+                    ? (collection.tracks && collection.tracks.length > 0 ? collection.tracks : tracks) 
+                    : tracks
     );
 
     let artUrl = $derived(
@@ -91,6 +111,11 @@
     let collectionSubtitle = $derived(
         collection.subtitle || 
         (isPlaylist ? "Playlist" : "Unknown Artist")
+    );
+    let albumArtistFallback = $derived(
+        !isPlaylist && collectionSubtitle && collectionSubtitle.toLowerCase() !== "unknown artist" && collectionSubtitle.toLowerCase() !== "unknown"
+            ? collectionSubtitle
+            : ""
     );
 
     let draggedIndex = $state(-1);
@@ -187,6 +212,9 @@
     async function loadData() {
         if (collection.id === "favorites" || collection.source === "remote") {
             return;
+        } else if (collection.id === "downloaded") {
+            await libraryStore.fetchDownloadedTracks();
+            return;
         } else if (collection.kind === "album") {
             const albumId = Number(collection.id);
             const localTracks = await libraryStore.getAlbumTracks(albumId);
@@ -251,7 +279,7 @@
             const trackPayload = {
                 id: current.id,
                 title: current.title,
-                artist: current.artist,
+                artist: current.artist || albumArtistFallback,
                 album: collection.title,
                 remote_track_id: current.id,
                 provider_id: pId,
@@ -273,7 +301,7 @@
             const queueTracks = displayTracks.map((t: any) => ({
                 id: t.id,
                 title: t.title,
-                artist: t.artist,
+                artist: t.artist || albumArtistFallback,
                 album: collection.title,
                 remote_track_id: t.id,
                 provider_id: t.provider_id || pId,
@@ -289,7 +317,7 @@
             const trackPayload = {
                 id: current.id,
                 title: current.title,
-                artist: current.artist,
+                artist: current.artist || albumArtistFallback,
                 album: collection.title,
                 file_path: current.file_path,
                 track_number: current.track_number,
@@ -308,7 +336,7 @@
         const queueTracks = displayTracks.map((t: any) => ({
             id: t.id,
             title: t.title,
-            artist: t.artist,
+            artist: t.artist || albumArtistFallback,
             album: collection.title,
             file_path: t.file_path,
             track_number: t.track_number,
@@ -358,7 +386,7 @@
                 const queueTracks = displayTracks.map((t: any) => ({
                     id: t.id,
                     title: t.title,
-                    artist: t.artist,
+                    artist: t.artist || albumArtistFallback,
                     album: collection.title,
                     remote_track_id: t.id,
                     provider_id: t.provider_id || pId,
@@ -370,7 +398,7 @@
                 const queueTracks = displayTracks.map((t: any) => ({
                     id: t.id,
                     title: t.title,
-                    artist: t.artist,
+                    artist: t.artist || albumArtistFallback,
                     album: collection.title,
                     file_path: t.file_path,
                     track_number: t.track_number,
@@ -388,7 +416,7 @@
             const queueTracks = shuffled.map((t: any) => ({
                 id: t.id,
                 title: t.title,
-                artist: t.artist,
+                artist: t.artist || albumArtistFallback,
                 album: collection.title,
                 remote_track_id: t.id,
                 provider_id: t.provider_id || pId,
@@ -400,7 +428,7 @@
             const queueTracks = shuffled.map((t: any) => ({
                 id: t.id,
                 title: t.title,
-                artist: t.artist,
+                artist: t.artist || albumArtistFallback,
                 album: collection.title,
                 file_path: t.file_path,
                 track_number: t.track_number,
@@ -408,16 +436,34 @@
             await audioStore.setQueue(queueTracks, 0);
         }
     }
+
+    function downloadCollection() {
+        if (!displayTracks || displayTracks.length === 0) return;
+        downloadStore.downloadAlbum({
+            album_title: collectionTitle,
+            artist: albumArtistFallback,
+            tracks: displayTracks.map((t: any, idx: number) => ({
+                title: t.title,
+                track_number: idx + 1,
+                duration_ms: t.duration_ms ?? null,
+                native_id: null,
+            })),
+        });
+    }
 </script>
 
 <svelte:window onclick={() => activeDropdown = null} />
 
 <div class="view-album">
     <div class="album-header">
-        <div class="art-container" class:favorites-art-container={collection.id === "favorites"}>
+        <div class="art-container" class:favorites-art-container={collection.id === "favorites"} class:downloaded-art-container={collection.id === "downloaded"}>
             {#if collection.id === "favorites"}
                 <div class="favorites-art-gradient">
                     <HeartIcon size={54} weight="fill" color="#D4A86E" class="favorites-heart-icon" />
+                </div>
+            {:else if collection.id === "downloaded"}
+                <div class="downloaded-art-gradient">
+                    <DownloadSimpleIcon size={54} weight="bold" color="#D4A86E" class="downloaded-header-icon" />
                 </div>
             {:else if collection.cover_art_url && !coverFailed}
                 <img src={collection.cover_art_url} alt={collectionTitle} class="art-img" loading="eager" onerror={() => (coverFailed = true)} />
@@ -553,6 +599,17 @@
                         title={isSaved ? (isPlaylist ? "Unsave playlist" : "Unsave album") : (isPlaylist ? "Save playlist" : "Save album")}
                     />
                 {/if}
+
+                {#if displayTracks.length > 0 && !isDownloaded}
+                    <PillButton
+                        variant="secondary"
+                        size="sm"
+                        icon={DownloadSimpleIcon}
+                        label="Download All"
+                        onclick={downloadCollection}
+                        title="Download all tracks in collection"
+                    />
+                {/if}
             </div>
         </div>
     </div>
@@ -643,17 +700,49 @@
                         >
                             <HeartIcon size={15} weight={isTrackLiked ? "fill" : "regular"} color={isTrackLiked ? "#ffd285" : "rgba(255,255,255,0.3)"} />
                         </button>
-                        {#if isCustomLocalPlaylist}
-                            <button
-                                class="more-btn"
-                                onclick={(e) => toggleDropdown(e, i)}
-                                aria-label="More options"
-                            >
-                                <DotsThreeIcon size={20} weight="bold" />
-                            </button>
+                        <button
+                            class="more-btn"
+                            onclick={(e) => toggleDropdown(e, i)}
+                            aria-label="More options"
+                        >
+                            <DotsThreeIcon size={20} weight="bold" />
+                        </button>
 
-                            {#if activeDropdown === i}
-                                <div class="dropdown glass-panel">
+                        {#if activeDropdown === i}
+                            <div class="dropdown glass-panel">
+                                <button
+                                    class="dropdown-row"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        activeDropdown = null;
+                                        downloadStore.downloadTrack({
+                                            title: track.title,
+                                            artist: track.artist || albumArtistFallback,
+                                            album: collectionTitle,
+                                            duration_ms: track.duration_ms,
+                                        });
+                                    }}
+                                >
+                                    <DownloadSimpleIcon size={14} />
+                                    Download Track
+                                </button>
+                                <button
+                                    class="dropdown-row"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        activeDropdown = null;
+                                        downloadStore.openCandidateSearch({
+                                            title: track.title,
+                                            artist: track.artist || albumArtistFallback,
+                                            album: collectionTitle,
+                                            duration_ms: track.duration_ms,
+                                        });
+                                    }}
+                                >
+                                    <SparkleIcon size={14} />
+                                    Select Quality & Source...
+                                </button>
+                                {#if isCustomLocalPlaylist}
                                     <button
                                         class="dropdown-row text-danger"
                                         onclick={(e) => removeTrack(e, track.id)}
@@ -661,8 +750,8 @@
                                         <TrashIcon size={14} />
                                         Remove from Playlist
                                     </button>
-                                </div>
-                            {/if}
+                                {/if}
+                            </div>
                         {/if}
                     </div>
                 </div>
@@ -1116,6 +1205,12 @@
         box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
     }
 
+    .art-container.downloaded-art-container {
+        border: 1px solid rgba(212, 168, 110, 0.25);
+        background: #121215;
+        box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    }
+
     .favorites-art-gradient {
         width: 100%;
         height: 100%;
@@ -1127,7 +1222,22 @@
         justify-content: center;
     }
 
+    .downloaded-art-gradient {
+        width: 100%;
+        height: 100%;
+        background: 
+            radial-gradient(circle at 20% 20%, rgba(212, 168, 110, 0.16) 0%, rgba(181, 142, 98, 0.05) 45%, transparent 72%),
+            linear-gradient(135deg, #131c17 0%, #203529 55%, #0d1511 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
     :global(.favorites-heart-icon) {
+        filter: drop-shadow(0 4px 16px rgba(212, 168, 110, 0.35));
+    }
+
+    :global(.downloaded-header-icon) {
         filter: drop-shadow(0 4px 16px rgba(212, 168, 110, 0.35));
     }
 

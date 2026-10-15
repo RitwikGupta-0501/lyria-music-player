@@ -122,5 +122,13 @@ commands.allow = [
     "get_download_queue",
     "get_download_providers",
     "set_preferred_download_provider",
-    "get_preferred_download_provider"
+    "get_preferred_download_provider",
+    "search_download_candidates",
+    "get_downloads_dir",
+    "open_downloads_folder",
+    "clear_completed_downloads",
+    "get_downloaded_tracks",
+    "get_audio_diagnostics",
+    "remove_from_queue",
+    "get_queue_page"
 ]

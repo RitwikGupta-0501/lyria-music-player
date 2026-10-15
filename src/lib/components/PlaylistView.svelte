@@ -6,11 +6,13 @@
     import { onMount } from "svelte";
     import PlaylistCard from "./PlaylistCard.svelte";
     import FavoritesCard from "./FavoritesCard.svelte";
+    import DownloadedCard from "./DownloadedCard.svelte";
     import LibraryHeader from "./LibraryHeader.svelte";
     import PromptModal from "./PromptModal.svelte";
 
     type GridItem = 
         | { kind: "favorites" }
+        | { kind: "downloaded" }
         | { kind: "playlist"; data: Playlist | SavedPlaylist; isRemote: boolean };
 
     let { activeView = $bindable("playlists"), onSelectPlaylist } = $props<{ activeView?: string, onSelectPlaylist: (p: Playlist) => void }>();
@@ -25,6 +27,7 @@
     let allItems = $derived.by(() => {
         const list: GridItem[] = [
             { kind: "favorites" },
+            { kind: "downloaded" },
             ...libraryStore.savedPlaylists.map(p => ({
                 kind: "playlist" as const,
                 data: p,
@@ -95,6 +98,7 @@
         if (libraryStore.playlists) {
             loadMosaics();
             libraryStore.fetchLikedSongs();
+            libraryStore.fetchDownloadedTracks();
         }
     });
 </script>
@@ -102,7 +106,7 @@
 <LibraryHeader bind:activeView>
     {#snippet actions()}
         <div style="display: flex; gap: 1rem; align-items: center;">
-            <span class="text-muted">{libraryStore.playlists.length + 1} Playlists</span>
+            <span class="text-muted">{libraryStore.playlists.length + 2} Playlists</span>
             <div style="display: flex; gap: 0.5rem;">
                 <button class="ghost" onclick={handleCreatePrompt}>
                     <Plus size={16} />
@@ -119,11 +123,16 @@
             {@const r = virtualRow.index}
             {@const rowItems = rows[r]}
             <div class="virtual-row" style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualRow.start}px); grid-template-columns: repeat({cols}, minmax(0, 1fr));">
-                {#each rowItems as item, idx (`${item.kind}-${item.kind === 'playlist' ? item.data.id : 'favorites'}`)}
+                {#each rowItems as item, idx (`${item.kind}-${item.kind === 'playlist' ? item.data.id : item.kind}`)}
                     {#if item.kind === "favorites"}
                         <FavoritesCard
                             selected={exploreStore.activeDrawerCollection?.id === "favorites"}
                             onclick={() => exploreStore.openFavorites()}
+                        />
+                    {:else if item.kind === "downloaded"}
+                        <DownloadedCard
+                            selected={exploreStore.activeDrawerCollection?.id === "downloaded"}
+                            onclick={() => exploreStore.openDownloaded()}
                         />
                     {:else}
                         {@const p = item.data}

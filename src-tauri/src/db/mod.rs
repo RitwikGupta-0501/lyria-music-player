@@ -237,6 +237,23 @@ pub enum DbRequest {
         download_id: String,
         resp: oneshot::Sender<Result<(), String>>,
     },
+    RetryDownloadItem {
+        item_id: String,
+        resp: oneshot::Sender<Result<String, String>>,
+    },
+    DismissDownloadItem {
+        item_id: String,
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    RetryAllFailedDownloads {
+        resp: oneshot::Sender<Result<Vec<String>, String>>,
+    },
+    ClearCompletedDownloads {
+        resp: oneshot::Sender<Result<(), String>>,
+    },
+    GetDownloadedTracks {
+        resp: oneshot::Sender<Result<Vec<crate::LocalTrack>, String>>,
+    },
     GetCachedLyrics {
         canonical_key: String,
         provider_id: Option<String>,
@@ -545,6 +562,21 @@ pub fn start_db_thread(mut conn: Connection, rx: Receiver<DbRequest>) -> std::th
                 }
                 DbRequest::DeleteDownloadJob { download_id, resp } => {
                     let _ = resp.send(queries::delete_download_job(&conn, &download_id));
+                }
+                DbRequest::RetryDownloadItem { item_id, resp } => {
+                    let _ = resp.send(queries::retry_download_item(&conn, &item_id));
+                }
+                DbRequest::DismissDownloadItem { item_id, resp } => {
+                    let _ = resp.send(queries::dismiss_download_item(&conn, &item_id));
+                }
+                DbRequest::RetryAllFailedDownloads { resp } => {
+                    let _ = resp.send(queries::retry_all_failed_downloads(&conn));
+                }
+                DbRequest::ClearCompletedDownloads { resp } => {
+                    let _ = resp.send(queries::clear_completed_downloads(&conn));
+                }
+                DbRequest::GetDownloadedTracks { resp } => {
+                    let _ = resp.send(queries::get_downloaded_tracks(&conn));
                 }
                 DbRequest::GetCachedLyrics { canonical_key, provider_id, resp } => {
                     let res = queries::get_cached_lyrics(&conn, &canonical_key, provider_id.as_deref());

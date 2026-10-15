@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { toastStore } from "./toast.svelte";
+import { libraryStore } from "./library.svelte";
 
 export interface DownloadCandidateItem {
     native_id: string;
@@ -75,11 +77,22 @@ export interface DownloadStatusPayload {
     error?: string | null;
 }
 
+export function sanitizeArtist(artist?: string | null): string {
+    if (!artist) return "";
+    const trimmed = artist.trim();
+    const low = trimmed.toLowerCase();
+    if (low === "unknown" || low === "unknown artist") {
+        return "";
+    }
+    return trimmed;
+}
+
 export class DownloadStore {
     providers = $state<ProviderCandidate[]>([]);
     preferredProvider = $state<string | null>(null);
     queue = $state<DownloadJobSummary[]>([]);
     progressMap = $state<Record<string, DownloadProgressPayload>>({});
+    downloadsDir = $state<string>("");
 
     // Manual Candidate Picker State
     isCandidateSearchOpen = $state(false);
@@ -100,6 +113,7 @@ export class DownloadStore {
     async init() {
         await this.fetchProviders();
         await this.fetchQueue();
+        await this.fetchDownloadsDir();
         await this.setupEventListeners();
     }
 
@@ -111,14 +125,94 @@ export class DownloadStore {
             }
         );
 
-        const unlistenStatus = await listen<DownloadStatusPayload>(
-            "download://status",
-            async (event) => {
-                await this.fetchQueue();
+        const handleStatus = async (payload: DownloadStatusPayload) => {
+            const foundItem = this.findItemById(payload.item_id);
+            if (foundItem) {
+                foundItem.status = payload.status;
+                if (payload.error) foundItem.error_message = payload.error;
             }
+            if (payload.status === "completed") {
+                if (foundItem) {
+                    toastStore.success(`Downloaded "${foundItem.track_title}"`);
+                }
+                libraryStore.fetchDownloadedTracks();
+                libraryStore.fetchAlbums();
+            } else if (payload.status === "failed") {
+                toastStore.error(`Failed to download ${foundItem ? `"${foundItem.track_title}"` : "track"}: ${payload.error || "Unknown error"}`);
+            }
+            await this.fetchQueue();
+        };
+
+        const unlistenItemStatus = await listen<DownloadStatusPayload>(
+            "download://item-status",
+            (event) => handleStatus(event.payload)
         );
 
-        this.unlisteners.push(unlistenProgress, unlistenStatus);
+        const unlistenStatus = await listen<DownloadStatusPayload>(
+            "download://status",
+            (event) => handleStatus(event.payload)
+        );
+
+        this.unlisteners.push(unlistenProgress, unlistenItemStatus, unlistenStatus);
+    }
+
+    findItemById(itemId: string): DownloadItemRecord | null {
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.id === itemId) return item;
+            }
+        }
+        return null;
+    }
+
+    get activeCount(): number {
+        let count = 0;
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "downloading" || item.status === "queued" || item.status === "resolving") {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    isTrackDownloading(title?: string | null, artist?: string | null): boolean {
+        if (!title) return false;
+        const normTitle = title.trim().toLowerCase();
+        const normArtist = sanitizeArtist(artist).toLowerCase();
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "downloading" || item.status === "queued" || item.status === "resolving") {
+                    if (item.track_title.trim().toLowerCase() === normTitle) {
+                        const itemArtist = sanitizeArtist(item.artist).toLowerCase();
+                        if (!normArtist || !itemArtist || itemArtist === normArtist) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    isTrackDownloaded(title?: string | null, artist?: string | null): boolean {
+        if (!title) return false;
+        const normTitle = title.trim().toLowerCase();
+        const normArtist = sanitizeArtist(artist).toLowerCase();
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "completed") {
+                    if (item.track_title.trim().toLowerCase() === normTitle) {
+                        const itemArtist = sanitizeArtist(item.artist).toLowerCase();
+                        if (!normArtist || !itemArtist || itemArtist === normArtist) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     async fetchProviders() {
@@ -159,13 +253,44 @@ export class DownloadStore {
         native_id?: string | null;
         preferred_provider?: string | null;
     }): Promise<string> {
+        const cleanArtist = sanitizeArtist(params.artist);
+        toastStore.info(`Starting download: "${params.title}"`);
         const downloadId = await invoke<string>("download_track", {
             title: params.title,
-            artist: params.artist,
+            artist: cleanArtist,
             album: params.album ?? null,
             trackNumber: params.track_number ?? null,
             durationMs: params.duration_ms ?? null,
             nativeId: params.native_id ?? null,
+            preferredProvider: params.preferred_provider ?? this.preferredProvider,
+        });
+
+        await this.fetchQueue();
+        return downloadId;
+    }
+
+    async downloadAlbum(params: {
+        album_title: string;
+        artist: string;
+        tracks: Array<{
+            title: string;
+            track_number?: number | null;
+            duration_ms?: number | null;
+            native_id?: string | null;
+        }>;
+        preferred_provider?: string | null;
+    }): Promise<string> {
+        const cleanArtist = sanitizeArtist(params.artist);
+        toastStore.info(`Starting album download: "${params.album_title}" (${params.tracks.length} tracks)`);
+        const downloadId = await invoke<string>("download_album", {
+            albumTitle: params.album_title,
+            artist: cleanArtist,
+            tracks: params.tracks.map((t) => ({
+                title: t.title,
+                track_number: t.track_number ?? null,
+                duration_ms: t.duration_ms ?? null,
+                native_id: t.native_id ?? null,
+            })),
             preferredProvider: params.preferred_provider ?? this.preferredProvider,
         });
 
@@ -179,8 +304,9 @@ export class DownloadStore {
         album?: string | null;
         duration_ms?: number | null;
     }, providerId?: string) {
-        this.targetTrackInfo = track;
-        this.searchQuery = `${track.title} ${track.artist}`.trim();
+        const cleanArtist = sanitizeArtist(track.artist);
+        this.targetTrackInfo = { ...track, artist: cleanArtist };
+        this.searchQuery = cleanArtist ? `${track.title.trim()} ${cleanArtist}`.trim() : track.title.trim();
         this.searchProviderId = providerId || this.preferredProvider || (this.providers[0]?.id ?? null);
         this.searchResults = [];
         this.searchError = null;
@@ -247,9 +373,89 @@ export class DownloadStore {
         await this.fetchQueue();
     }
 
+    async retryDownload(downloadId: string, preferredProvider?: string) {
+        // Optimistically set failed items in this job to queued
+        const job = this.queue.find((j) => j.download.id === downloadId);
+        if (job) {
+            for (const item of job.items) {
+                if (item.status === "failed") {
+                    item.status = "queued";
+                    item.error_message = null;
+                }
+            }
+        }
+        await invoke("retry_download", {
+            downloadId,
+            preferredProvider: preferredProvider || null,
+        });
+        await this.fetchQueue();
+    }
+
+    async retryDownloadItem(itemId: string, preferredProvider?: string) {
+        // Optimistically set item to queued so UI moves it from failed to in-progress instantly
+        const foundItem = this.findItemById(itemId);
+        if (foundItem) {
+            foundItem.status = "queued";
+            foundItem.error_message = null;
+        }
+        await invoke("retry_download_item", {
+            itemId,
+            preferredProvider: preferredProvider || null,
+        });
+        await this.fetchQueue();
+    }
+
+    async dismissDownloadItem(itemId: string) {
+        await invoke("dismiss_download_item", { itemId });
+        await this.fetchQueue();
+    }
+
+    async retryAllFailed(preferredProvider?: string) {
+        // Optimistically set all failed items to queued
+        for (const job of this.queue) {
+            for (const item of job.items) {
+                if (item.status === "failed") {
+                    item.status = "queued";
+                    item.error_message = null;
+                }
+            }
+        }
+        await invoke("retry_all_failed_downloads", {
+            preferredProvider: preferredProvider || null,
+        });
+        await this.fetchQueue();
+    }
+
     async cancelDownload(downloadId: string) {
         await invoke("cancel_download", { downloadId });
         await this.fetchQueue();
+    }
+
+    async fetchDownloadsDir() {
+        try {
+            const dir = await invoke<string>("get_downloads_dir");
+            this.downloadsDir = dir || "";
+        } catch (e) {
+            console.error("Failed to fetch downloads dir:", e);
+        }
+    }
+
+    async openDownloadsFolder() {
+        try {
+            await invoke("open_downloads_folder");
+        } catch (e) {
+            console.error("Failed to open downloads folder:", e);
+        }
+    }
+
+    async clearCompletedDownloads() {
+        try {
+            await invoke("clear_completed_downloads");
+            await this.fetchQueue();
+            toastStore.info("Cleared completed downloads history");
+        } catch (e) {
+            console.error("Failed to clear completed downloads:", e);
+        }
     }
 
     cleanup() {

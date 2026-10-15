@@ -4,6 +4,7 @@
     import { MicrophoneStage, ArrowClockwise, Sparkle, MagnifyingGlass, ArrowLeft, X, Check } from "phosphor-svelte";
     import { formatDuration } from "$lib/utils/format";
     import { fade } from "svelte/transition";
+    import Loader from "$lib/components/common/Loader.svelte";
 
     let { variant = "drawer" } = $props<{
         variant?: "drawer" | "fullscreen";
@@ -194,7 +195,7 @@
             <div class="search-results-container">
                 {#if lyricsStore.isSearching}
                     <div class="status-box">
-                        <div class="spinner"></div>
+                        <Loader size={28} color="primary" />
                         <p class="status-text">Searching lyrics providers...</p>
                     </div>
                 {:else if lyricsStore.searchError}
@@ -266,7 +267,7 @@
         </div>
     {:else if lyricsStore.isLoading}
         <div class="status-box">
-            <div class="spinner"></div>
+            <Loader size={28} color="primary" />
             <p class="status-text">Fetching lyrics...</p>
         </div>
     {:else if lyricsStore.error}
@@ -539,20 +540,6 @@
         color: var(--echo-text-2, #aaa);
     }
 
-    .spinner {
-        width: 28px;
-        height: 28px;
-        border: 2px solid rgba(255, 255, 255, 0.1);
-        border-top-color: var(--echo-primary, #fff);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
 
     .retry-btn {
         display: flex;

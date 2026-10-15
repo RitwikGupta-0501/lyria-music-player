@@ -2,6 +2,7 @@
     import { audioStore } from "$lib/stores/audio.svelte";
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { libraryStore, getCanonicalKey } from "$lib/stores/library.svelte";
+    import { downloadStore } from "$lib/stores/download.svelte";
     import {
         Play,
         Pause,
@@ -16,7 +17,11 @@
         CornersOut,
         Heart,
         MicrophoneStage,
+        DownloadSimple,
+        CheckCircle,
+        ArrowClockwise,
     } from "phosphor-svelte";
+    import Loader from "$lib/components/common/Loader.svelte";
     
     let { 
         queueOpen = $bindable(false), 
@@ -214,8 +219,10 @@
                         {#if hasTrack}
                             {@const currentTrackObj = audioStore.currentQueueTrack}
                             {@const trackTitleStr = currentTrackObj?.title || (audioStore.currentTrack !== "None" ? audioStore.currentTrack : "")}
-                            {@const trackArtistStr = currentTrackObj?.artist || "unknown"}
-                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr })}
+                            {@const rawArtist = currentTrackObj?.artist?.trim() || ""}
+                            {@const isUnknownArtist = !rawArtist || rawArtist.toLowerCase() === "unknown" || rawArtist.toLowerCase() === "unknown artist"}
+                            {@const trackArtistStr = isUnknownArtist ? "" : rawArtist}
+                            {@const trackKey = getCanonicalKey({ title: trackTitleStr, artist: trackArtistStr || "unknown" })}
                             {@const isLiked = libraryStore.likedSongs.some(s => s.canonical_key.toLowerCase().trim() === trackKey.toLowerCase().trim())}
                             <button 
                                 class="like-btn" 
@@ -225,7 +232,7 @@
                                     if (trackTitleStr) {
                                         libraryStore.toggleLike({
                                             title: trackTitleStr,
-                                            artist: trackArtistStr,
+                                            artist: trackArtistStr || "Unknown Artist",
                                             canonical_key: trackKey,
                                             cover_art_url: (currentTrackObj?.source as any)?.cover_art_url || playerArtUrl || undefined,
                                             duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : undefined,
@@ -236,6 +243,53 @@
                                 aria-label={isLiked ? "Unlike song" : "Like song"}
                             >
                                 <Heart size={13} weight={isLiked ? "fill" : "bold"} color={isLiked ? "#ffd285" : "rgba(255,255,255,0.7)"} />
+                            </button>
+
+                            {@const isDownloading = downloadStore.isTrackDownloading(trackTitleStr, trackArtistStr)}
+                            {@const isDownloaded = downloadStore.isTrackDownloaded(trackTitleStr, trackArtistStr)}
+                            <button
+                                class="dl-bar-btn"
+                                class:is-glass={settingsStore.glassyPlayerBar}
+                                class:downloading={isDownloading}
+                                class:downloaded={isDownloaded}
+                                onclick={(e) => {
+                                    const albumStr = (currentTrackObj?.source as any)?.album || null;
+                                    if (e.shiftKey || e.altKey) {
+                                        downloadStore.openCandidateSearch({
+                                            title: trackTitleStr,
+                                            artist: trackArtistStr,
+                                            album: albumStr,
+                                            duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : null,
+                                        });
+                                    } else {
+                                        downloadStore.downloadTrack({
+                                            title: trackTitleStr,
+                                            artist: trackArtistStr,
+                                            album: albumStr,
+                                            duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : null,
+                                        });
+                                    }
+                                }}
+                                oncontextmenu={(e) => {
+                                    e.preventDefault();
+                                    const albumStr = (currentTrackObj?.source as any)?.album || null;
+                                    downloadStore.openCandidateSearch({
+                                        title: trackTitleStr,
+                                        artist: trackArtistStr,
+                                        album: albumStr,
+                                        duration_ms: audioStore.duration ? Math.floor(audioStore.duration * 1000) : null,
+                                    });
+                                }}
+                                title={isDownloading ? "Downloading track..." : isDownloaded ? "Downloaded locally (Right-click to select source)" : "Download track (Right-click to select quality/source)"}
+                                aria-label="Download track"
+                            >
+                                {#if isDownloading}
+                                    <Loader size={13} color="primary" />
+                                {:else if isDownloaded}
+                                    <CheckCircle size={13} weight="fill" color="#34d399" />
+                                {:else}
+                                    <DownloadSimple size={13} weight="bold" color="rgba(255,255,255,0.7)" />
+                                {/if}
                             </button>
                         {/if}
                     </div>
@@ -960,4 +1014,47 @@
         border-bottom-color: rgba(160, 105, 55, 0.35);
         box-shadow: inset 0 1px 2px rgba(255, 235, 205, 0.35), 0 2px 10px rgba(226, 169, 115, 0.3);
     }
+
+    .dl-bar-btn {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+        padding: 0;
+        margin-left: 4px;
+        flex-shrink: 0;
+        transition: transform 0.2s var(--ease-liquid, ease), background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .dl-bar-btn.is-glass {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.03) 100%);
+        border: 1.5px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .dl-bar-btn:hover {
+        transform: scale(1.15);
+        background: rgba(255, 255, 255, 0.10);
+        border-color: rgba(255, 210, 133, 0.45);
+    }
+
+    .dl-bar-btn:active {
+        transform: scale(0.9);
+    }
+
+    .dl-bar-btn.downloaded {
+        background: rgba(52, 211, 153, 0.12);
+        border-color: rgba(52, 211, 153, 0.35);
+    }
+
+    .dl-bar-btn.downloading {
+        background: rgba(255, 210, 133, 0.15);
+        border-color: rgba(255, 210, 133, 0.5);
+    }
+
 </style>
