@@ -91,7 +91,7 @@
             : isDownloaded
                 ? downloadedTracks
                 : isRemote 
-                    ? (collection.tracks && collection.tracks.length > 0 ? collection.tracks : tracks) 
+                    ? (collection.tracks || []) 
                     : tracks
     );
 
@@ -210,6 +210,9 @@
     }
 
     async function loadData() {
+        tracks = [];
+        localArtUrl = null;
+        mosaicUrls = [];
         if (collection.id === "favorites" || collection.source === "remote") {
             return;
         } else if (collection.id === "downloaded") {

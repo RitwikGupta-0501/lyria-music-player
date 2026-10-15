@@ -2,7 +2,7 @@
     import { settingsStore } from "$lib/stores/settings.svelte";
     import { flagsStore } from "$lib/stores/flags.svelte";
     import { downloadStore } from "$lib/stores/download.svelte";
-    import { List, House, Disc, PuzzlePiece, Gear, Compass, Tray } from "phosphor-svelte";
+    import { List, House, Disc, PuzzlePiece, Gear, Compass, DownloadSimple } from "phosphor-svelte";
     
     let { activeView = $bindable("albums") } = $props<{ activeView?: string }>();
     
@@ -21,7 +21,7 @@
             items.push({ id: "explore", label: "Explore", icon: Compass });
         }
         items.push({ id: "library", label: "Library", icon: Disc });
-        items.push({ id: "downloads", label: "Downloads", icon: Tray });
+        items.push({ id: "downloads", label: "Downloads", icon: DownloadSimple });
         items.push({ id: "providers", label: "Extensions", icon: PuzzlePiece });
         return items;
     });

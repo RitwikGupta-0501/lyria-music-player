@@ -215,6 +215,20 @@ async function handleVerifyChecksum() {
         }
     }
 
+    async function handleSyncProviders() {
+        isScanning = true;
+        try {
+            await invoke('sync_providers');
+            await loadProviders();
+            toastStore.success("Extensions synchronized");
+        } catch (err: any) {
+            console.error("Failed to sync extensions:", err);
+            toastStore.error(err?.toString() || "Failed to sync extensions");
+        } finally {
+            isScanning = false;
+        }
+    }
+
     async function importPath(path: string) {
         isImporting = true;
         importError = null;
@@ -369,8 +383,38 @@ async function handleVerifyChecksum() {
 
 <div class="providers-view">
     <header class="view-header">
-        <h1 class="text-1">Extensions</h1>
-        <p class="text-2">Manage and test your network provider plugins.</p>
+        <div class="header-top">
+            <div class="header-title-block">
+                <h1 class="page-title text-1 font-headline-lg">Extensions</h1>
+                <p class="page-subtitle text-2">Manage and test your network provider plugins.</p>
+            </div>
+
+            <div class="header-actions">
+                <button 
+                    class="ghost action-btn" 
+                    onclick={handleOpenExtensionsFolder} 
+                    title="Open extensions directory in file manager"
+                >
+                    <FolderOpen size={16} weight="regular" />
+                    <span>Open Folder</span>
+                </button>
+
+                <button 
+                    class="ghost action-btn" 
+                    onclick={handleSyncProviders} 
+                    disabled={isScanning} 
+                    title="Sync extensions"
+                >
+                    {#if isScanning}
+                        <Loader size={16} color="current" />
+                        <span>Syncing...</span>
+                    {:else}
+                        <ArrowsClockwise size={16} />
+                        <span>Sync</span>
+                    {/if}
+                </button>
+            </div>
+        </div>
     </header>
 
     <div class="content-grid">
@@ -386,65 +430,42 @@ async function handleVerifyChecksum() {
 
             <div class="plugins-list-content" class:content-hidden={isDraggingOver}>
                 <div class="section-title">
-                    <h2>Installed</h2>
-                    <div class="header-actions">
-                        <button class="action-btn" onclick={handleOpenExtensionsFolder} title="Open extensions directory">
-                            <FolderOpen size={16} />
-                        </button>
-                        
-                        <div class="dropdown-wrapper">
-                            <button 
-                                class="action-btn import-btn" 
-                                onclick={(e) => { e.stopPropagation(); showImportDropdown = !showImportDropdown; }} 
-                                disabled={isImporting} 
-                                title="Import extension"
-                            >
-                                {#if isImporting}
-                                    <Loader size={16} color="current" />
-                                    <span>Importing...</span>
-                                {:else}
-                                    <UploadSimple size={16} />
-                                    <span>Import</span>
-                                    <CaretDown size={11} weight="bold" />
-                                {/if}
-                            </button>
-
-                            {#if showImportDropdown}
-                                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                                <div class="import-dropdown-menu" onclick={(e) => e.stopPropagation()}>
-                                    <button class="dropdown-item" onclick={() => { showImportDropdown = false; handleImportFile(); }}>
-                                        <FileArchive size={16} />
-                                        <span>Archive (.zip, .wasm)</span>
-                                    </button>
-                                    <button class="dropdown-item" onclick={() => { showImportDropdown = false; handleImportFolder(); }}>
-                                        <FolderPlus size={16} />
-                                        <span>Folder</span>
-                                    </button>
-                                </div>
-                            {/if}
-                        </div>
-
-                        <button class="action-btn" onclick={async () => {
-                            isScanning = true;
-                            try {
-                                await invoke('sync_providers');
-                                await loadProviders();
-                                toastStore.success("Extensions synchronized");
-                            } catch (err: any) {
-                                toastStore.error(err?.toString() || "Failed to sync extensions");
-                            } finally {
-                                isScanning = false;
-                            }
-                        }} disabled={isScanning} title="Sync extensions">
-                            {#if isScanning}
+                    <div class="section-title-meta">
+                        <h2>Installed</h2>
+                        <p class="section-subtitle text-3">Drag and drop or use the import button to add extensions</p>
+                    </div>
+                    
+                    <div class="dropdown-wrapper">
+                        <button 
+                            class="action-btn import-btn" 
+                            onclick={(e) => { e.stopPropagation(); showImportDropdown = !showImportDropdown; }} 
+                            disabled={isImporting} 
+                            title="Import extension"
+                        >
+                            {#if isImporting}
                                 <Loader size={16} color="current" />
-                                <span>Syncing...</span>
+                                <span>Importing...</span>
                             {:else}
-                                <ArrowsClockwise size={16} />
-                                <span>Sync</span>
+                                <UploadSimple size={16} />
+                                <span>Import</span>
+                                <CaretDown size={11} weight="bold" />
                             {/if}
                         </button>
+
+                        {#if showImportDropdown}
+                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                            <!-- svelte-ignore a11y_no_static_element_interactions -->
+                            <div class="import-dropdown-menu" onclick={(e) => e.stopPropagation()}>
+                                <button class="dropdown-item" onclick={() => { showImportDropdown = false; handleImportFile(); }}>
+                                    <FileArchive size={16} />
+                                    <span>Archive (.zip, .wasm)</span>
+                                </button>
+                                <button class="dropdown-item" onclick={() => { showImportDropdown = false; handleImportFolder(); }}>
+                                    <FolderPlus size={16} />
+                                    <span>Folder</span>
+                                </button>
+                            </div>
+                        {/if}
                     </div>
                 </div>
 
@@ -459,7 +480,8 @@ async function handleVerifyChecksum() {
                     {#if providers.length === 0 && !isScanning}
                         <div class="empty-state">
                             <PuzzlePiece size={32} class="text-3" />
-                            <p class="text-3">No providers found in app directory.</p>
+                            <p class="empty-title text-2">No extensions installed</p>
+                            <p class="empty-desc text-3">Drag and drop or use the import button to add extensions.</p>
                         </div>
                     {:else}
                         <div class="providers-list-stack">
@@ -796,13 +818,43 @@ async function handleVerifyChecksum() {
         box-sizing: border-box;
     }
 
-    .view-header h1 {
+    .view-header {
+        position: relative;
+        z-index: 20;
+    }
+
+    .header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 1.5rem;
+    }
+
+    .header-title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        min-width: 0;
+    }
+
+    .page-title {
         font-family: var(--lyria-font-heading);
         font-size: 2.25rem;
         font-weight: 600;
         letter-spacing: -0.025em;
         line-height: 1.25;
-        margin: 0 0 0.5rem 0;
+        margin: 0;
+        color: var(--echo-text-1);
+    }
+
+    .page-subtitle {
+        font-size: 0.925rem;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        line-height: 1.4;
     }
 
     .content-grid {
@@ -817,33 +869,55 @@ async function handleVerifyChecksum() {
     .section-title {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         margin-bottom: 1rem;
+        gap: 1rem;
+    }
+
+    .section-title-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-width: 0;
     }
 
     .section-title h2 {
         font-size: 1.25rem;
         font-weight: 600;
         color: var(--echo-text-1);
+        margin: 0;
+    }
+
+    .section-subtitle {
+        font-size: 0.8125rem;
+        color: var(--echo-text-3);
+        margin: 0;
+        line-height: 1.4;
     }
 
     .header-actions {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.65rem;
+        flex-shrink: 0;
+    }
+
+    .view-header .action-btn {
+        padding: 0.5rem 0.85rem;
+        font-size: 0.8125rem;
     }
 
     .action-btn {
         background: transparent;
         border: 1px solid var(--echo-border);
         color: var(--echo-text-2);
-        padding: 0.35rem 0.65rem;
+        padding: 0.4rem 0.75rem;
         border-radius: 6px;
         font-size: 0.8125rem;
         cursor: pointer;
         display: flex;
         align-items: center;
-        gap: 0.4rem;
+        gap: 0.45rem;
         transition: all 0.2s;
     }
 
@@ -1353,7 +1427,23 @@ async function handleVerifyChecksum() {
         justify-content: center;
         height: 100%;
         min-height: 200px;
-        gap: 1rem;
+        gap: 0.5rem;
+        text-align: center;
+    }
+
+    .empty-title {
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: var(--echo-text-2);
+        margin: 0;
+    }
+
+    .empty-desc {
+        font-size: 0.8125rem;
+        color: var(--echo-text-3);
+        margin: 0;
+        max-width: 280px;
+        line-height: 1.4;
     }
 
     .tab-btn {

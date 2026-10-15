@@ -5,6 +5,7 @@
     import { isCurrentTrack } from "$lib/utils/format";
     import {
         Tray,
+        Ghost,
         FolderOpen,
         Trash,
         Pause,
@@ -142,15 +143,13 @@
         <div class="header-top">
             <div class="header-title-block">
                 <h1 class="page-title font-headline-lg">Downloads</h1>
-                <p class="page-subtitle text-2">
-                    Manage active transfers, offline caching, and download history.
-                    {#if downloadStore.downloadsDir}
-                        <span class="storage-separator">•</span>
+                {#if downloadStore.downloadsDir}
+                    <p class="page-subtitle text-2">
                         <span class="storage-path" title={downloadStore.downloadsDir}>
                             Storage: <code>{downloadStore.downloadsDir}</code>
                         </span>
-                    {/if}
-                </p>
+                    </p>
+                {/if}
             </div>
 
             <div class="header-actions">
@@ -190,7 +189,7 @@
                 class:active={activeTab === "active"} 
                 onclick={() => activeTab = "active"}
             >
-                Downloading
+                In Progress
                 {#if activeItems.length > 0}
                     <span class="tab-badge">{activeItems.length}</span>
                 {/if}
@@ -333,7 +332,7 @@
             {:else if activeTab === "active" && activeItems.length === 0}
                 <div class="empty-state sub-empty">
                     <div class="empty-icon">
-                        <Tray size={42} weight="thin" />
+                        <Ghost size={64} weight="thin" />
                     </div>
                     <h3 class="empty-heading font-headline-lg">No active downloads</h3>
                     <p class="empty-sub text-2">Active transfers and enqueued tracks will appear here.</p>
@@ -546,10 +545,6 @@
         flex-wrap: wrap;
         gap: 0.4rem;
         line-height: 1.4;
-    }
-
-    .storage-separator {
-        opacity: 0.4;
     }
 
     .storage-path {
